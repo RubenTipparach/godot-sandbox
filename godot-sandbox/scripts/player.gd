@@ -37,6 +37,7 @@ const MINING_BOOST_DURATION = 30.0
 var build_mode: String = ""  # Empty = not building, otherwise building type
 var build_mode_cooldown: float = 0.0  # Prevents immediate placement after clicking build icon
 const BUILD_RANGE = 300.0
+var is_mobile: bool = false
 
 var upgrades = {
 	"chain_lightning": 0,
@@ -126,15 +127,31 @@ func _process(delta):
 		return
 
 	var input = Vector2.ZERO
-	if Input.is_action_pressed("move_up"): input.y -= 1
-	if Input.is_action_pressed("move_down"): input.y += 1
-	if Input.is_action_pressed("move_left"): input.x -= 1
-	if Input.is_action_pressed("move_right"): input.x += 1
+	var joystick_node = null
+	var joysticks = get_tree().get_nodes_in_group("mobile_joystick")
+	if joysticks.size() > 0:
+		joystick_node = joysticks[0]
+		is_mobile = true
+
+	if joystick_node and joystick_node.input_vector != Vector2.ZERO:
+		input = joystick_node.input_vector
+	else:
+		if Input.is_action_pressed("move_up"): input.y -= 1
+		if Input.is_action_pressed("move_down"): input.y += 1
+		if Input.is_action_pressed("move_left"): input.x -= 1
+		if Input.is_action_pressed("move_right"): input.x += 1
 	if input != Vector2.ZERO:
 		position += input.normalized() * BASE_SPEED * (1.0 + upgrades["move_speed"] * 0.15 + research_move_speed) * delta
 	position = position.clamp(Vector2(-MAP_HALF_SIZE, -MAP_HALF_SIZE), Vector2(MAP_HALF_SIZE, MAP_HALF_SIZE))
 
-	facing_angle = (get_global_mouse_position() - global_position).angle()
+	if is_mobile:
+		var nearest_alien = _find_nearest_alien()
+		if nearest_alien:
+			facing_angle = (nearest_alien.global_position - global_position).angle()
+		elif input != Vector2.ZERO:
+			facing_angle = input.angle()
+	else:
+		facing_angle = (get_global_mouse_position() - global_position).angle()
 	shoot_timer = maxf(0.0, shoot_timer - delta)
 	invuln_timer = maxf(0.0, invuln_timer - delta)
 	magnet_timer = maxf(0.0, magnet_timer - delta)
@@ -171,10 +188,11 @@ func _process(delta):
 	# Build mode placement (click to place)
 	if build_mode != "":
 		build_mode_cooldown = maxf(0.0, build_mode_cooldown - delta)
-		if Input.is_action_just_pressed("shoot") and build_mode_cooldown <= 0:
+		var joystick_blocking = joystick_node != null and joystick_node.is_active
+		if Input.is_action_just_pressed("shoot") and build_mode_cooldown <= 0 and not joystick_blocking:
 			if _try_build(build_mode):
 				pass  # Stay in build mode for quick placement
-		if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+		if not is_mobile and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
 			cancel_build_mode()
 
 	_collect_gems()
@@ -268,6 +286,19 @@ func _collect_powerups():
 		if global_position.distance_to(p.global_position) < 30:
 			_apply_powerup(p.powerup_type)
 			p.queue_free()
+
+
+func _find_nearest_alien() -> Node2D:
+	var aliens = get_tree().get_nodes_in_group("aliens")
+	var nearest: Node2D = null
+	var nearest_dist = INF
+	for a in aliens:
+		if not is_instance_valid(a): continue
+		var d = global_position.distance_to(a.global_position)
+		if d < nearest_dist:
+			nearest_dist = d
+			nearest = a
+	return nearest
 
 
 func _apply_powerup(type: String):
