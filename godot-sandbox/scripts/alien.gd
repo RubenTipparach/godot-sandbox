@@ -103,6 +103,19 @@ func _find_target() -> Node2D:
 	return closest
 
 
+func _get_separation_force() -> Vector2:
+	var separation = Vector2.ZERO
+	for other in get_tree().get_nodes_in_group("aliens"):
+		if other == self or not is_instance_valid(other):
+			continue
+		var diff = global_position - other.global_position
+		var dist = diff.length()
+		if dist < SEPARATION_RADIUS and dist > 0.1:
+			# Push away from nearby aliens, stronger when closer
+			separation += diff.normalized() * (1.0 - dist / SEPARATION_RADIUS)
+	return separation.normalized() if separation.length() > 0 else Vector2.ZERO
+
+
 func take_damage(amount: int):
 	hp -= amount
 	hit_flash_timer = 0.1

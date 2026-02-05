@@ -9,6 +9,8 @@ var shoot_timer: float = 0.0
 const SHOOT_INTERVAL = 2.0
 const PREFERRED_DIST = 180.0
 const ATTACK_RANGE = 300.0
+const SEPARATION_RADIUS = 30.0
+const SEPARATION_FORCE = 0.5
 
 var burn_timer: float = 0.0
 var burn_dps: float = 0.0
@@ -56,11 +58,16 @@ func _process(delta):
 	if target:
 		var dist = global_position.distance_to(target.global_position)
 		var dir = (target.global_position - global_position).normalized()
+		var separation = _get_separation_force()
 
 		if dist > PREFERRED_DIST + 30:
-			position += dir * speed * slow_factor * delta
+			var move_dir = (dir + separation * SEPARATION_FORCE).normalized()
+			position += move_dir * speed * slow_factor * delta
 		elif dist < PREFERRED_DIST - 30:
-			position -= dir * speed * slow_factor * delta * 0.5
+			var move_dir = (-dir + separation * SEPARATION_FORCE).normalized()
+			position += move_dir * speed * slow_factor * delta * 0.5
+		elif separation.length() > 0.1:
+			position += separation * speed * slow_factor * delta * 0.3
 
 		shoot_timer += delta
 		if shoot_timer >= SHOOT_INTERVAL and dist < ATTACK_RANGE:
@@ -80,6 +87,18 @@ func _find_target() -> Node2D:
 			closest_dist = d
 			closest = p
 	return closest
+
+
+func _get_separation_force() -> Vector2:
+	var separation = Vector2.ZERO
+	for other in get_tree().get_nodes_in_group("aliens"):
+		if other == self or not is_instance_valid(other):
+			continue
+		var diff = global_position - other.global_position
+		var dist = diff.length()
+		if dist < SEPARATION_RADIUS and dist > 0.1:
+			separation += diff.normalized() * (1.0 - dist / SEPARATION_RADIUS)
+	return separation.normalized() if separation.length() > 0 else Vector2.ZERO
 
 
 func _shoot_at(target: Node2D):

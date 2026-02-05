@@ -2,6 +2,7 @@ extends Node2D
 
 var hp: int = 40
 var max_hp: int = 40
+var power_blink_timer: float = 0.0
 const POWER_RANGE = 150.0  # Range to connect to other pylons/buildings
 
 
@@ -10,7 +11,12 @@ func _ready():
 	add_to_group("pylons")
 
 
-func _process(_delta):
+func get_building_name() -> String:
+	return "Pylon"
+
+
+func _process(delta):
+	power_blink_timer += delta
 	queue_redraw()
 
 
@@ -60,10 +66,36 @@ func get_connected_buildings() -> Array:
 
 func _draw():
 	var powered = is_powered()
-	var base_color = Color(0.3, 0.6, 0.9) if powered else Color(0.5, 0.4, 0.3)
+	var base_color = Color(0.3, 0.6, 0.9) if powered else Color(0.35, 0.3, 0.25)
+	var tower_color = Color(0.35, 0.35, 0.4) if powered else Color(0.28, 0.28, 0.32)
+
+	# Draw power wires FIRST (behind the pylon)
+	var pulse = 0.5 + sin(Time.get_ticks_msec() * 0.005) * 0.3
+	var wire_color = Color(0.3, 0.7, 1.0, 0.6) if powered else Color(0.4, 0.35, 0.3, 0.3)
+
+	# Wires to other pylons
+	for pylon in get_tree().get_nodes_in_group("pylons"):
+		if not is_instance_valid(pylon) or pylon == self:
+			continue
+		var dist = global_position.distance_to(pylon.global_position)
+		if dist < POWER_RANGE * 2:
+			var target = pylon.global_position - global_position
+			# Draw wire with slight sag
+			var mid = target / 2.0 + Vector2(0, dist * 0.08)
+			_draw_wire(Vector2(0, -18), mid, target + Vector2(0, -18), wire_color if powered and pylon.is_powered() else Color(0.4, 0.35, 0.3, 0.3))
+
+	# Wires to power plants
+	for plant in get_tree().get_nodes_in_group("power_plants"):
+		if not is_instance_valid(plant):
+			continue
+		var dist = global_position.distance_to(plant.global_position)
+		if dist < POWER_RANGE + plant.POWER_RANGE:
+			var target = plant.global_position - global_position
+			var mid = target / 2.0 + Vector2(0, dist * 0.08)
+			_draw_wire(Vector2(0, -18), mid, target + Vector2(0, -8), Color(0.3, 0.7, 1.0, 0.7))
 
 	# Pylon base
-	draw_rect(Rect2(-8, 4, 16, 8), Color(0.4, 0.4, 0.45))
+	draw_rect(Rect2(-8, 4, 16, 8), Color(0.4, 0.4, 0.45) if powered else Color(0.32, 0.32, 0.36))
 
 	# Pylon tower
 	draw_colored_polygon(PackedVector2Array([
@@ -71,24 +103,23 @@ func _draw():
 		Vector2(-3, -18),
 		Vector2(3, -18),
 		Vector2(6, 4),
-	]), Color(0.35, 0.35, 0.4))
+	]), tower_color)
 
 	# Top connector
 	draw_rect(Rect2(-10, -20, 20, 4), base_color)
 
 	# Power glow if powered
 	if powered:
-		var pulse = 0.5 + sin(Time.get_ticks_msec() * 0.005) * 0.3
 		draw_circle(Vector2(0, -18), 5, Color(0.3, 0.7, 1.0, pulse))
-
-		# Draw connection lines to nearby powered pylons
-		for pylon in get_tree().get_nodes_in_group("pylons"):
-			if not is_instance_valid(pylon) or pylon == self:
-				continue
-			var dist = global_position.distance_to(pylon.global_position)
-			if dist < POWER_RANGE * 2 and pylon.is_powered():
-				var dir = (pylon.global_position - global_position)
-				draw_line(Vector2(0, -18), dir.normalized() * minf(dist, 30), Color(0.3, 0.7, 1.0, 0.3), 1.5)
+	else:
+		draw_circle(Vector2(0, -18), 4, Color(0.3, 0.3, 0.35))
+		# Blinking power warning
+		var blink = fmod(power_blink_timer * 3.0, 1.0) < 0.5
+		var warn_color = Color(1.0, 0.9, 0.0) if blink else Color(0.1, 0.1, 0.1)
+		draw_colored_polygon(PackedVector2Array([
+			Vector2(1.5, -10), Vector2(-1.5, -4), Vector2(0.5, -4),
+			Vector2(-2, 2), Vector2(0.5, -1), Vector2(-0.5, -1), Vector2(2, -10)
+		]), warn_color)
 
 	# Range indicator (faint)
 	draw_arc(Vector2.ZERO, POWER_RANGE, 0, TAU, 32, Color(0.3, 0.6, 1.0, 0.05), 1.0)
@@ -96,3 +127,13 @@ func _draw():
 	# HP bar
 	draw_rect(Rect2(-10, -26, 20, 2), Color(0.3, 0, 0))
 	draw_rect(Rect2(-10, -26, 20.0 * hp / max_hp, 2), Color(0, 0.8, 0))
+
+
+func _draw_wire(start: Vector2, mid: Vector2, end: Vector2, color: Color):
+	# Draw a sagging wire using quadratic bezier approximation
+	var points = PackedVector2Array()
+	for i in range(9):
+		var t = i / 8.0
+		var p = start.lerp(mid, t).lerp(mid.lerp(end, t), t)
+		points.append(p)
+	draw_polyline(points, color, 1.5)

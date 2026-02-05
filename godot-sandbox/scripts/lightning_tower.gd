@@ -15,6 +15,10 @@ func _ready():
 	add_to_group("lightnings")
 
 
+func get_building_name() -> String:
+	return "Lightning Tower"
+
+
 func is_powered() -> bool:
 	for plant in get_tree().get_nodes_in_group("power_plants"):
 		if is_instance_valid(plant) and global_position.distance_to(plant.global_position) < plant.POWER_RANGE:

@@ -11,6 +11,10 @@ func _ready():
 	add_to_group("power_plants")
 
 
+func get_building_name() -> String:
+	return "Power Plant"
+
+
 func _process(delta):
 	pulse_timer += delta
 	queue_redraw()

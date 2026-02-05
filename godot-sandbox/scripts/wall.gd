@@ -9,6 +9,10 @@ func _ready():
 	add_to_group("walls")
 
 
+func get_building_name() -> String:
+	return "Wall"
+
+
 func take_damage(amount: int):
 	hp -= amount
 	if hp <= 0:

@@ -36,6 +36,8 @@ var pause_menu: Control
 var _game_started: bool = false
 var minimap_node: Control
 var build_cost_labels: Array = []
+var building_tooltip: PanelContainer
+var building_tooltip_label: Label
 
 const UPGRADE_DATA = {
 	"chain_lightning": {"name": "Chain Lightning", "color": Color(0.3, 0.7, 1.0), "max": 5},
@@ -144,6 +146,7 @@ func _ready():
 	_build_start_menu(root)
 	_build_research_panel(root)
 	_build_pause_menu(root)
+	_build_building_tooltip(root)
 
 	# Show start menu on launch
 	start_menu.visible = true
@@ -494,6 +497,26 @@ func _build_pause_menu(root: Control):
 	vbox.add_child(prestige_btn)
 
 
+func _build_building_tooltip(root: Control):
+	building_tooltip = PanelContainer.new()
+	building_tooltip.visible = false
+	building_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
+	style.set_corner_radius_all(4)
+	style.content_margin_left = 8
+	style.content_margin_right = 8
+	style.content_margin_top = 4
+	style.content_margin_bottom = 4
+	building_tooltip.add_theme_stylebox_override("panel", style)
+	root.add_child(building_tooltip)
+
+	building_tooltip_label = Label.new()
+	building_tooltip_label.add_theme_font_size_override("font_size", 14)
+	building_tooltip_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	building_tooltip.add_child(building_tooltip_label)
+
+
 func _update_start_menu():
 	start_prestige_label.text = "Prestige Points: %d" % GameData.prestige_points
 	start_stats_label.text = "Highest Wave: %d | Total Runs: %d | Bosses Killed: %d" % [GameData.highest_wave, GameData.total_runs, GameData.total_bosses_killed]
@@ -596,6 +619,43 @@ func _process(delta):
 		alert_label.modulate.a = clampf(alert_timer / 1.5, 0.0, 1.0)
 		if alert_timer <= 0:
 			alert_label.visible = false
+
+	# Update building tooltip
+	_update_building_tooltip()
+
+
+func _update_building_tooltip():
+	if not _game_started or get_tree().paused:
+		building_tooltip.visible = false
+		return
+
+	var cam = get_viewport().get_camera_2d()
+	if not cam:
+		building_tooltip.visible = false
+		return
+
+	var mouse_screen = get_viewport().get_mouse_position()
+	var vp_size = get_viewport().get_visible_rect().size
+	var mouse_world = cam.get_global_transform().affine_inverse() * mouse_screen + cam.global_position - vp_size / 2.0 / cam.zoom
+
+	# Find building under mouse
+	var closest_building: Node2D = null
+	var closest_dist = 40.0  # Detection radius
+
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b):
+			continue
+		var dist = mouse_world.distance_to(b.global_position)
+		if dist < closest_dist:
+			closest_dist = dist
+			closest_building = b
+
+	if closest_building and closest_building.has_method("get_building_name"):
+		building_tooltip_label.text = closest_building.get_building_name()
+		building_tooltip.visible = true
+		building_tooltip.position = mouse_screen + Vector2(15, 15)
+	else:
+		building_tooltip.visible = false
 
 
 func _lbl(parent: Node, sz: int, col: Color = Color.WHITE) -> Label:

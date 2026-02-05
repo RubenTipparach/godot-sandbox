@@ -16,6 +16,10 @@ func _ready():
 	add_to_group("turrets")
 
 
+func get_building_name() -> String:
+	return "Turret"
+
+
 func is_powered() -> bool:
 	# Check if connected to a powered pylon or directly to a power plant
 	for plant in get_tree().get_nodes_in_group("power_plants"):
