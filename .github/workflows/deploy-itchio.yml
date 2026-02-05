@@ -30,12 +30,13 @@ jobs:
         run: |
           mkdir -v -p build/web
           godot --headless --verbose --export-release "Web" build/web/index.html
+        working-directory: godot-sandbox
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: web-build
-          path: build/web
+          path: godot-sandbox/build/web
 
       - name: Install butler
         run: |
@@ -48,4 +49,4 @@ jobs:
         env:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
         run: |
-          ./butler push build/web ${{ env.ITCH_GAME }}:web
+          ./butler push godot-sandbox/build/web ${{ env.ITCH_GAME }}:web
