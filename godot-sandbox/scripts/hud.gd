@@ -527,8 +527,10 @@ func _build_building_tooltip(root: Control):
 func _detect_mobile() -> bool:
 	if OS.has_feature("mobile"):
 		return true
+	if DisplayServer.is_touchscreen_available():
+		return true
 	if OS.has_feature("web"):
-		var result = JavaScriptBridge.eval("window.matchMedia('(pointer: coarse)').matches")
+		var result = JavaScriptBridge.eval("(navigator.maxTouchPoints > 0) || ('ontouchstart' in window) || window.matchMedia('(pointer: coarse)').matches")
 		return result == true
 	return false
 
