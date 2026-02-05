@@ -1,0 +1,150 @@
+extends Node2D
+
+var hp: int = 20
+var max_hp: int = 20
+var speed: float = 50.0
+var damage: int = 5
+var xp_value: int = 2
+var shoot_timer: float = 0.0
+const SHOOT_INTERVAL = 2.0
+const PREFERRED_DIST = 180.0
+const ATTACK_RANGE = 300.0
+
+var burn_timer: float = 0.0
+var burn_dps: float = 0.0
+var slow_factor: float = 1.0
+var slow_timer: float = 0.0
+var orbital_cooldown: float = 0.0
+var hit_flash_timer: float = 0.0
+
+
+func _ready():
+	add_to_group("aliens")
+
+
+func can_take_orbital_hit() -> bool:
+	return orbital_cooldown <= 0.0
+
+
+func apply_burn(dps: float, duration: float = 3.0):
+	burn_dps = maxf(burn_dps, dps)
+	burn_timer = maxf(burn_timer, duration)
+
+
+func apply_slow(amount: float, duration: float = 2.0):
+	slow_factor = minf(slow_factor, 1.0 - amount)
+	slow_timer = maxf(slow_timer, duration)
+
+
+func _process(delta):
+	orbital_cooldown = maxf(0.0, orbital_cooldown - delta)
+	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
+
+	if burn_timer > 0:
+		burn_timer -= delta
+		hp -= int(burn_dps * delta)
+		if hp <= 0:
+			_die()
+			return
+
+	if slow_timer > 0:
+		slow_timer -= delta
+		if slow_timer <= 0:
+			slow_factor = 1.0
+
+	var target = _find_target()
+	if target:
+		var dist = global_position.distance_to(target.global_position)
+		var dir = (target.global_position - global_position).normalized()
+
+		if dist > PREFERRED_DIST + 30:
+			position += dir * speed * slow_factor * delta
+		elif dist < PREFERRED_DIST - 30:
+			position -= dir * speed * slow_factor * delta * 0.5
+
+		shoot_timer += delta
+		if shoot_timer >= SHOOT_INTERVAL and dist < ATTACK_RANGE:
+			shoot_timer = 0.0
+			_shoot_at(target)
+
+	queue_redraw()
+
+
+func _find_target() -> Node2D:
+	var closest: Node2D = null
+	var closest_dist = 99999.0
+	for p in get_tree().get_nodes_in_group("player"):
+		if not is_instance_valid(p): continue
+		var d = global_position.distance_to(p.global_position)
+		if d < closest_dist:
+			closest_dist = d
+			closest = p
+	return closest
+
+
+func _shoot_at(target: Node2D):
+	var b = preload("res://scenes/enemy_bullet.tscn").instantiate()
+	var dir = (target.global_position - global_position).normalized()
+	b.global_position = global_position + dir * 15
+	b.direction = dir
+	b.damage = damage
+	get_tree().current_scene.add_child(b)
+
+
+func take_damage(amount: int):
+	hp -= amount
+	hit_flash_timer = 0.1
+	if hp <= 0:
+		_die()
+
+
+func _die():
+	var gem = preload("res://scenes/xp_gem.tscn").instantiate()
+	gem.global_position = global_position
+	gem.xp_value = xp_value
+	get_tree().current_scene.add_child(gem)
+	# Health-based heal drop
+	_try_drop_heal()
+	queue_free()
+
+
+func _try_drop_heal():
+	var player = _find_target()
+	if not player or not player.is_in_group("player"):
+		return
+	var health_ratio = float(player.health) / float(player.max_health)
+	var drop_chance = 0.02 + (1.0 - health_ratio) * 0.23
+	if randf() < drop_chance:
+		var powerup = preload("res://scenes/powerup.tscn").instantiate()
+		powerup.global_position = global_position
+		powerup.powerup_type = "heal"
+		get_tree().current_scene.add_child(powerup)
+
+
+func _draw():
+	var body_color = Color(0.6, 0.2, 0.8)
+	var size = 12.0
+
+	if hit_flash_timer > 0:
+		body_color = Color.WHITE
+	elif burn_timer > 0:
+		body_color = body_color.lerp(Color(1, 0.5, 0), 0.4)
+	if slow_timer > 0 and hit_flash_timer <= 0:
+		body_color = body_color.lerp(Color(0.5, 0.8, 1.0), 0.4)
+
+	var pts = PackedVector2Array([
+		Vector2(0, -size),
+		Vector2(size * 0.8, -size * 0.3),
+		Vector2(size * 0.5, size * 0.7),
+		Vector2(-size * 0.5, size * 0.7),
+		Vector2(-size * 0.8, -size * 0.3),
+	])
+	draw_colored_polygon(pts, body_color)
+	draw_polyline(pts + PackedVector2Array([pts[0]]), body_color.lightened(0.3), 1.5)
+
+	draw_circle(Vector2(0, -2), 4, Color(1, 0.3, 1))
+	draw_circle(Vector2(0, -2), 2, Color(0.2, 0, 0.2))
+
+	if hp < max_hp:
+		draw_rect(Rect2(-size, -size - 8, size * 2, 3), Color(0.3, 0, 0))
+		draw_rect(Rect2(-size, -size - 8, size * 2.0 * float(hp) / float(max_hp), 3), Color(0.6, 0.2, 0.8))
