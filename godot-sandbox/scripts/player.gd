@@ -35,6 +35,7 @@ const MINING_BOOST_DURATION = 30.0
 
 # Build mode for RTS-style placement
 var build_mode: String = ""  # Empty = not building, otherwise building type
+var build_mode_cooldown: float = 0.0  # Prevents immediate placement after clicking build icon
 const BUILD_RANGE = 300.0
 
 var upgrades = {
@@ -82,10 +83,12 @@ func _ready():
 
 func enter_build_mode(building_type: String):
 	build_mode = building_type
+	build_mode_cooldown = 0.15  # Brief cooldown to prevent immediate placement from the same click
 
 
 func cancel_build_mode():
 	build_mode = ""
+	build_mode_cooldown = 0.0
 
 
 func is_in_build_mode() -> bool:
@@ -167,7 +170,8 @@ func _process(delta):
 
 	# Build mode placement (click to place)
 	if build_mode != "":
-		if Input.is_action_just_pressed("shoot"):
+		build_mode_cooldown = maxf(0.0, build_mode_cooldown - delta)
+		if Input.is_action_just_pressed("shoot") and build_mode_cooldown <= 0:
 			if _try_build(build_mode):
 				pass  # Stay in build mode for quick placement
 		if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):

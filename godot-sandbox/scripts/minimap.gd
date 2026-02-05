@@ -89,16 +89,16 @@ func _draw():
 		var pulse = 0.7 + sin(Time.get_ticks_msec() * 0.006) * 0.3
 		var arrow_color = Color(1.0, 0.2, 0.1, pulse)
 
-		# Arrow on edge of minimap pointing inward
-		var edge_dist = MM_SIZE / 2.0 - 8
-		var arrow_pos = center + Vector2.from_angle(wave_direction) * edge_dist
+		# Arrow on edge of minimap pointing OUTWARD (toward where enemies spawn)
+		var edge_dist = MM_SIZE / 2.0 - 12
+		var arrow_base = center + Vector2.from_angle(wave_direction) * edge_dist
 		var arrow_size = 10.0
 
-		# Triangle pointing toward center
-		var inward_dir = (center - arrow_pos).normalized()
-		var tip = arrow_pos + inward_dir * arrow_size
-		var back_left = arrow_pos + Vector2.from_angle(wave_direction + PI / 2) * (arrow_size * 0.5)
-		var back_right = arrow_pos + Vector2.from_angle(wave_direction - PI / 2) * (arrow_size * 0.5)
+		# Triangle pointing outward (away from center)
+		var outward_dir = Vector2.from_angle(wave_direction)
+		var tip = arrow_base + outward_dir * arrow_size
+		var back_left = arrow_base + Vector2.from_angle(wave_direction + PI * 0.8) * (arrow_size * 0.5)
+		var back_right = arrow_base + Vector2.from_angle(wave_direction - PI * 0.8) * (arrow_size * 0.5)
 
 		draw_colored_polygon(PackedVector2Array([tip, back_left, back_right]), arrow_color)
 		draw_polyline(PackedVector2Array([tip, back_left, back_right, tip]), Color(1.0, 0.5, 0.3, pulse), 1.5)
