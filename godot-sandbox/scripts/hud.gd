@@ -38,6 +38,8 @@ var minimap_node: Control
 var build_cost_labels: Array = []
 var building_tooltip: PanelContainer
 var building_tooltip_label: Label
+var is_mobile: bool = false
+var joystick: Control = null
 
 const UPGRADE_DATA = {
 	"chain_lightning": {"name": "Chain Lightning", "color": Color(0.3, 0.7, 1.0), "max": 5},
@@ -147,6 +149,11 @@ func _ready():
 	_build_research_panel(root)
 	_build_pause_menu(root)
 	_build_building_tooltip(root)
+
+	# Detect mobile and add virtual controls
+	is_mobile = _detect_mobile()
+	if is_mobile:
+		_build_mobile_controls(root)
 
 	# Show start menu on launch
 	start_menu.visible = true
@@ -515,6 +522,26 @@ func _build_building_tooltip(root: Control):
 	building_tooltip_label.add_theme_font_size_override("font_size", 14)
 	building_tooltip_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	building_tooltip.add_child(building_tooltip_label)
+
+
+func _detect_mobile() -> bool:
+	if OS.has_feature("mobile"):
+		return true
+	if OS.has_feature("web"):
+		var result = JavaScriptBridge.eval("window.matchMedia('(pointer: coarse)').matches")
+		return result == true
+	return false
+
+
+func _build_mobile_controls(root: Control):
+	joystick = Control.new()
+	joystick.set_script(preload("res://scripts/mobile_joystick.gd"))
+	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	joystick.offset_left = 20
+	joystick.offset_top = -180
+	joystick.offset_right = 180
+	joystick.offset_bottom = -20
+	root.add_child(joystick)
 
 
 func _update_start_menu():
