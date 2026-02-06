@@ -1056,6 +1056,10 @@ func _update_build_costs(player: Node2D):
 
 		# Check research locks
 		match build_type:
+			"turret":
+				info["icon"].locked = GameData.get_research_bonus("unlock_turret") < 1.0
+			"wall":
+				info["icon"].locked = GameData.get_research_bonus("unlock_wall") < 1.0
 			"lightning":
 				info["icon"].locked = GameData.get_research_bonus("unlock_lightning") < 1.0
 			"slow":

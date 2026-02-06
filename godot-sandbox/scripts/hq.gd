@@ -1,9 +1,11 @@
 extends Node2D
 
-var hp: int = 200
-var max_hp: int = 200
+const CFG = preload("res://resources/game_config.tres")
+
+var hp: int = CFG.hp_hq
+var max_hp: int = CFG.hp_hq
 var pulse_timer: float = 0.0
-const POWER_RANGE = 150.0  # HQ provides power like a power plant
+var POWER_RANGE: float = CFG.power_range_hq
 
 signal destroyed
 

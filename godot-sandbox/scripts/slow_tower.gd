@@ -1,11 +1,11 @@
 extends Node2D
 
-var hp: int = 50
-var max_hp: int = 50
+const CFG = preload("res://resources/game_config.tres")
+
+var hp: int = CFG.hp_slow
+var max_hp: int = CFG.hp_slow
 var pulse_timer: float = 0.0
 var power_blink_timer: float = 0.0
-const RANGE = 150.0
-const SLOW_AMOUNT = 0.5  # 50% slow
 
 
 func _ready():
@@ -41,8 +41,8 @@ func _process(delta):
 		for alien in get_tree().get_nodes_in_group("aliens"):
 			if not is_instance_valid(alien):
 				continue
-			if global_position.distance_to(alien.global_position) < RANGE:
-				alien.tower_slow = SLOW_AMOUNT
+			if global_position.distance_to(alien.global_position) < CFG.slow_range:
+				alien.tower_slow = CFG.slow_amount
 				alien.tower_slow_timer = 0.2  # Reset slow timer
 
 	queue_redraw()
@@ -94,7 +94,7 @@ func _draw():
 		draw_circle(Vector2(0, -10), 4, Color(0.4, 0.45, 0.5, 0.3))
 
 	# Range indicator
-	draw_arc(Vector2.ZERO, RANGE, 0, TAU, 48, Color(0.4, 0.7, 1.0, 0.06), 1.5)
+	draw_arc(Vector2.ZERO, CFG.slow_range, 0, TAU, 48, Color(0.4, 0.7, 1.0, 0.06), 1.5)
 
 	# HP bar
 	draw_rect(Rect2(-10, -28, 20, 3), Color(0.3, 0, 0))

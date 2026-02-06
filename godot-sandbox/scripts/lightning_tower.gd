@@ -1,13 +1,12 @@
 extends Node2D
 
-var hp: int = 60
-var max_hp: int = 60
+const CFG = preload("res://resources/game_config.tres")
+
+var hp: int = CFG.hp_lightning
+var max_hp: int = CFG.hp_lightning
 var zap_timer: float = 0.0
 var zap_targets: Array = []
 var power_blink_timer: float = 0.0
-const ZAP_INTERVAL = 1.5
-const RANGE = 180.0
-const DAMAGE = 15
 
 
 func _ready():
@@ -40,7 +39,7 @@ func _process(delta):
 
 	if powered:
 		zap_timer += delta
-		if zap_timer >= ZAP_INTERVAL:
+		if zap_timer >= CFG.lightning_zap_interval:
 			zap_timer = 0.0
 			_zap_enemies()
 
@@ -52,8 +51,8 @@ func _zap_enemies():
 	for alien in aliens:
 		if not is_instance_valid(alien):
 			continue
-		if global_position.distance_to(alien.global_position) < RANGE:
-			alien.take_damage(DAMAGE)
+		if global_position.distance_to(alien.global_position) < CFG.lightning_range:
+			alien.take_damage(CFG.lightning_damage)
 			zap_targets.append(alien.global_position - global_position)
 
 
@@ -93,7 +92,7 @@ func _draw():
 		draw_circle(Vector2(0, -24), 5, Color(0.3, 0.3, 0.4))
 
 	# Range indicator
-	draw_arc(Vector2.ZERO, RANGE, 0, TAU, 48, Color(0.3, 0.5, 1.0, 0.04), 1.0)
+	draw_arc(Vector2.ZERO, CFG.lightning_range, 0, TAU, 48, Color(0.3, 0.5, 1.0, 0.04), 1.0)
 
 	# Zap lines
 	for target in zap_targets:

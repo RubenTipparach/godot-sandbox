@@ -2,15 +2,10 @@ extends Node2D
 
 signal level_up
 
-const BASE_SPEED = 250.0
-const BASE_SHOOT_COOLDOWN = 0.25
-const BASE_MINE_RANGE = 80.0
-const BASE_AUTO_MINE_INTERVAL = 0.5
-const BASE_GEM_COLLECT_RANGE = 20.0
-const MAP_HALF_SIZE = 1000.0
+const CFG = preload("res://resources/game_config.tres")
 
-var health: int = 100
-var max_health: int = 100
+var health: int = CFG.player_health
+var max_health: int = CFG.player_health
 var iron: int = 0
 var crystal: int = 0
 var shoot_timer: float = 0.0
@@ -26,19 +21,14 @@ var death_particles: Array = []
 
 var xp: int = 0
 var level: int = 0
-var xp_to_next: int = 15
+var xp_to_next: int = CFG.base_xp_to_level
 
 var magnet_timer: float = 0.0
-const MAGNET_DURATION = 8.0
-const MAGNET_RANGE = 500.0
-
 var mining_boost_timer: float = 0.0
-const MINING_BOOST_DURATION = 30.0
 
 # Build mode for RTS-style placement
 var build_mode: String = ""  # Empty = not building, otherwise building type
 var build_mode_cooldown: float = 0.0  # Prevents immediate placement after clicking build icon
-const BUILD_RANGE = 300.0
 var is_mobile: bool = false
 var pending_build_world_pos: Vector2 = Vector2.ZERO  # Mobile: ghost position set by tap
 
@@ -102,7 +92,7 @@ func is_in_build_mode() -> bool:
 
 
 func get_mine_interval() -> float:
-	return BASE_AUTO_MINE_INTERVAL / (1.0 + upgrades["mining_speed"] * 0.3 + research_mining_speed)
+	return CFG.mine_interval / (1.0 + upgrades["mining_speed"] * CFG.mining_speed_per_level + research_mining_speed)
 
 
 func get_mine_heads() -> int:
@@ -110,17 +100,17 @@ func get_mine_heads() -> int:
 
 
 func get_mine_range() -> float:
-	return BASE_MINE_RANGE + upgrades["mining_range"] * 25.0
+	return CFG.mine_range + upgrades["mining_range"] * CFG.mining_range_per_level
 
 
 func get_rock_regen_multiplier() -> float:
-	return 1.0 + upgrades["rock_regen"] * 0.4
+	return 1.0 + upgrades["rock_regen"] * CFG.rock_regen_per_level
 
 
 func get_gem_range() -> float:
 	if magnet_timer > 0:
-		return MAGNET_RANGE
-	return BASE_GEM_COLLECT_RANGE
+		return CFG.magnet_range
+	return CFG.gem_collect_range
 
 
 func _process(delta):
@@ -151,8 +141,8 @@ func _process(delta):
 		if Input.is_action_pressed("move_left"): input.x -= 1
 		if Input.is_action_pressed("move_right"): input.x += 1
 	if input != Vector2.ZERO:
-		position += input.normalized() * BASE_SPEED * (1.0 + upgrades["move_speed"] * 0.15 + research_move_speed) * delta
-	position = position.clamp(Vector2(-MAP_HALF_SIZE, -MAP_HALF_SIZE), Vector2(MAP_HALF_SIZE, MAP_HALF_SIZE))
+		position += input.normalized() * CFG.player_speed * (1.0 + upgrades["move_speed"] * CFG.move_speed_per_level + research_move_speed) * delta
+	position = position.clamp(Vector2(-CFG.map_half_size, -CFG.map_half_size), Vector2(CFG.map_half_size, CFG.map_half_size))
 
 	if is_mobile:
 		if look_joystick_node and look_joystick_node.input_vector != Vector2.ZERO:
@@ -170,14 +160,14 @@ func _process(delta):
 
 	if shoot_timer <= 0 and get_tree().get_nodes_in_group("aliens").size() > 0:
 		_shoot()
-		shoot_timer = BASE_SHOOT_COOLDOWN / (1.0 + upgrades["attack_speed"] * 0.2)
+		shoot_timer = CFG.shoot_cooldown / (1.0 + upgrades["attack_speed"] * CFG.attack_speed_per_level)
 
 	auto_mine_timer += delta
 	if auto_mine_timer >= get_mine_interval():
 		auto_mine_timer = 0.0
 		var mine_amount = 2 + upgrades["mining_speed"]
 		if mining_boost_timer > 0:
-			mine_amount *= 5  # 5x mining during boost
+			mine_amount *= CFG.mining_boost_multiplier
 		_mine_nearby(mine_amount)
 
 	# Repair beams
@@ -197,9 +187,11 @@ func _process(delta):
 	if Input.is_action_just_pressed("build_factory"):
 		_try_build("factory")
 	if Input.is_action_just_pressed("build_turret"):
-		_try_build("turret")
+		if GameData.get_research_bonus("unlock_turret") >= 1.0:
+			_try_build("turret")
 	if Input.is_action_just_pressed("build_wall"):
-		_try_build("wall")
+		if GameData.get_research_bonus("unlock_wall") >= 1.0:
+			_try_build("wall")
 	if Input.is_action_just_pressed("build_lightning"):
 		if GameData.get_research_bonus("unlock_lightning") >= 1.0:
 			_try_build("lightning")
@@ -238,7 +230,7 @@ func _process_regen(delta):
 	regen_timer += delta
 	if regen_timer >= 1.0:
 		regen_timer -= 1.0
-		var heal_amount = upgrades["health_regen"] * 2
+		var heal_amount = upgrades["health_regen"] * CFG.health_regen_per_level
 		health = mini(health + heal_amount, max_health)
 
 
@@ -265,13 +257,13 @@ func _shoot():
 			off = lerpf(-spread / 2.0, spread / 2.0, float(i) / float(count - 1))
 		b.direction = Vector2.from_angle(facing_angle + off)
 		b.global_position = global_position + Vector2.from_angle(facing_angle) * 20.0
-		b.damage = 10 + research_damage
-		b.crit_chance = upgrades["crit_chance"] * 0.1
+		b.damage = CFG.bullet_damage + research_damage
+		b.crit_chance = upgrades["crit_chance"] * CFG.crit_per_level
 		b.chain_count = upgrades["chain_lightning"] + int(GameData.get_research_bonus("chain_count"))
 		b.chain_damage_bonus = int(GameData.get_research_bonus("chain_damage"))
-		b.chain_retention = 0.6 + GameData.get_research_bonus("chain_retention")
-		b.burn_dps = upgrades["burning"] * 4.0
-		b.slow_amount = upgrades["ice"] * 0.15
+		b.chain_retention = CFG.chain_base_retention + GameData.get_research_bonus("chain_retention")
+		b.burn_dps = upgrades["burning"] * CFG.burn_dps_per_level
+		b.slow_amount = upgrades["ice"] * CFG.slow_per_level
 		get_tree().current_scene.add_child(b)
 
 
@@ -362,7 +354,7 @@ func _apply_powerup(type: String):
 	var color = Color.WHITE
 	match type:
 		"magnet":
-			magnet_timer = MAGNET_DURATION
+			magnet_timer = CFG.magnet_duration
 			text = "MAGNET!"
 			color = Color(0.3, 1.0, 0.5)
 		"weapon_scroll":
@@ -373,17 +365,17 @@ func _apply_powerup(type: String):
 			text = "WEAPON UP!"
 			color = Color(1.0, 0.8, 0.2)
 		"heal":
-			health = mini(health + 50, max_health)
-			text = "+50 HP"
+			health = mini(health + CFG.heal_powerup_amount, max_health)
+			text = "+%d HP" % CFG.heal_powerup_amount
 			color = Color(1.0, 0.3, 0.4)
 		"nuke":
 			for a in get_tree().get_nodes_in_group("aliens"):
 				if is_instance_valid(a) and not a.is_in_group("bosses"):
-					a.take_damage(50)
+					a.take_damage(CFG.nuke_damage)
 			text = "NUKE!"
 			color = Color(1.0, 0.5, 0.1)
 		"mining_boost":
-			mining_boost_timer = MINING_BOOST_DURATION
+			mining_boost_timer = CFG.mining_boost_duration
 			text = "MINING BOOST!"
 			color = Color(1.0, 0.8, 0.3)
 
@@ -405,7 +397,7 @@ func add_xp(amount: int):
 	while xp >= xp_to_next:
 		xp -= xp_to_next
 		level += 1
-		xp_to_next = 15 + level * 12
+		xp_to_next = CFG.base_xp_to_level + level * CFG.xp_per_level_scale
 		level_up.emit()
 
 
@@ -414,43 +406,26 @@ func apply_upgrade(key: String):
 		upgrades[key] += 1
 	match key:
 		"max_health":
-			max_health += 25
-			health = mini(health + 25, max_health)
+			max_health += CFG.health_per_level
+			health = mini(health + CFG.health_per_level, max_health)
 		"turret_damage":
 			for t in get_tree().get_nodes_in_group("turrets"):
 				if is_instance_valid(t):
-					t.damage_bonus = upgrades["turret_damage"] * 3 + int(GameData.get_research_bonus("turret_damage"))
+					t.damage_bonus = upgrades["turret_damage"] * CFG.turret_damage_per_level + int(GameData.get_research_bonus("turret_damage"))
 		"turret_fire_rate":
 			for t in get_tree().get_nodes_in_group("turrets"):
 				if is_instance_valid(t):
-					t.fire_rate_bonus = upgrades["turret_fire_rate"] * 0.2
+					t.fire_rate_bonus = upgrades["turret_fire_rate"] * CFG.turret_fire_rate_per_level
 		"factory_speed":
 			for f in get_tree().get_nodes_in_group("factories"):
 				if is_instance_valid(f):
-					f.speed_bonus = upgrades["factory_speed"] * 0.25 + GameData.get_research_bonus("factory_speed")
-
-
-const BASE_COSTS = {
-	"turret": {"iron": 10, "crystal": 5},
-	"factory": {"iron": 20, "crystal": 10},
-	"wall": {"iron": 5, "crystal": 0},
-	"lightning": {"iron": 15, "crystal": 10},
-	"slow": {"iron": 12, "crystal": 8},
-	"pylon": {"iron": 8, "crystal": 3},
-	"power_plant": {"iron": 25, "crystal": 15},
-	"battery": {"iron": 15, "crystal": 8},
-}
+					f.speed_bonus = upgrades["factory_speed"] * CFG.factory_speed_per_level + GameData.get_research_bonus("factory_speed") + GameData.get_research_bonus("factory_rate")
 
 
 func get_building_cost(type: String) -> Dictionary:
-	var base = BASE_COSTS.get(type, {"iron": 10, "crystal": 5})
+	var base = CFG.get_base_cost(type)
 	var count = get_tree().get_nodes_in_group(type + "s").size()
-	var multiplier: float
-	match type:
-		"wall", "pylon":
-			multiplier = pow(1.15, count)
-		_:
-			multiplier = pow(1.5, count)
+	var multiplier = pow(CFG.get_cost_scale(type), count)
 	return {
 		"iron": int(base["iron"] * multiplier),
 		"crystal": int(base["crystal"] * multiplier)
@@ -470,11 +445,15 @@ func confirm_build() -> bool:
 
 func _try_build_at(type: String, bp: Vector2) -> bool:
 	# Check research locks
+	if type == "turret" and GameData.get_research_bonus("unlock_turret") < 1.0:
+		return false
+	if type == "wall" and GameData.get_research_bonus("unlock_wall") < 1.0:
+		return false
 	if type == "lightning" and GameData.get_research_bonus("unlock_lightning") < 1.0:
 		return false
 	if type == "slow" and GameData.get_research_bonus("unlock_slow") < 1.0:
 		return false
-	if global_position.distance_to(bp) > BUILD_RANGE:
+	if global_position.distance_to(bp) > CFG.build_range:
 		return false
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if b.global_position.distance_to(bp) < 36:
@@ -491,11 +470,15 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 	match type:
 		"turret":
 			building = preload("res://scenes/turret.tscn").instantiate()
-			building.damage_bonus = upgrades["turret_damage"] * 3 + int(GameData.get_research_bonus("turret_damage"))
-			building.fire_rate_bonus = upgrades["turret_fire_rate"] * 0.2
+			building.damage_bonus = upgrades["turret_damage"] * CFG.turret_damage_per_level + int(GameData.get_research_bonus("turret_damage"))
+			building.fire_rate_bonus = upgrades["turret_fire_rate"] * CFG.turret_fire_rate_per_level
+			building.bullet_count = 1 + int(GameData.get_research_bonus("turret_spread"))
+			building.ice_rounds = GameData.get_research_bonus("turret_ice") >= 1.0
+			building.fire_rounds = GameData.get_research_bonus("turret_fire") >= 1.0
+			building.acid_damage_bonus = int(GameData.get_research_bonus("turret_acid"))
 		"factory":
 			building = preload("res://scenes/factory.tscn").instantiate()
-			building.speed_bonus = upgrades["factory_speed"] * 0.25 + GameData.get_research_bonus("factory_speed")
+			building.speed_bonus = upgrades["factory_speed"] * CFG.factory_speed_per_level + GameData.get_research_bonus("factory_speed") + GameData.get_research_bonus("factory_rate")
 		"wall":
 			building = preload("res://scenes/wall.tscn").instantiate()
 		"lightning":
@@ -517,7 +500,7 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 
 
 func can_place_at(pos: Vector2) -> bool:
-	if global_position.distance_to(pos) > BUILD_RANGE:
+	if global_position.distance_to(pos) > CFG.build_range:
 		return false
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if b.global_position.distance_to(pos) < 36:
@@ -534,8 +517,8 @@ func _process_aura(delta):
 	aura_timer += delta
 	if aura_timer >= 0.5:
 		aura_timer -= 0.5
-		var r = 60.0 + upgrades["damage_aura"] * 30.0
-		var dmg = upgrades["damage_aura"] * 4
+		var r = CFG.aura_radius_base + upgrades["damage_aura"] * CFG.aura_radius_per_level
+		var dmg = upgrades["damage_aura"] * CFG.aura_damage_per_level
 		for a in get_tree().get_nodes_in_group("aliens"):
 			if is_instance_valid(a) and global_position.distance_to(a.global_position) < r:
 				a.take_damage(dmg)
@@ -558,12 +541,12 @@ func take_damage(amount: int):
 	if invuln_timer > 0 or is_dead:
 		return
 	# Dodge chance
-	var dodge_chance = upgrades["dodge"] * 0.08
+	var dodge_chance = upgrades["dodge"] * CFG.dodge_per_level
 	if randf() < dodge_chance:
 		_spawn_popup("DODGE!", Color(0.5, 0.8, 1.0))
 		return
 	# Armor reduction
-	var armor_reduction = upgrades["armor"] * 2
+	var armor_reduction = upgrades["armor"] * CFG.armor_per_level
 	var final_damage = maxi(1, amount - armor_reduction)
 	health -= final_damage
 	invuln_timer = 0.5
@@ -598,7 +581,7 @@ func _draw():
 		return
 
 	if upgrades["damage_aura"] > 0:
-		var r = 60.0 + upgrades["damage_aura"] * 30.0
+		var r = CFG.aura_radius_base + upgrades["damage_aura"] * CFG.aura_radius_per_level
 		var a = 0.06 + sin(Time.get_ticks_msec() * 0.005) * 0.03
 		draw_circle(Vector2.ZERO, r, Color(0.8, 0.2, 0.8, a))
 		draw_arc(Vector2.ZERO, r, 0, TAU, 48, Color(0.8, 0.2, 0.8, 0.15), 1.5)
@@ -641,7 +624,7 @@ func _draw():
 	# Magnet effect
 	if magnet_timer > 0:
 		var mag_alpha = 0.1 + sin(Time.get_ticks_msec() * 0.008) * 0.05
-		draw_arc(Vector2.ZERO, MAGNET_RANGE, 0, TAU, 64, Color(0.3, 1.0, 0.5, mag_alpha), 2.0)
+		draw_arc(Vector2.ZERO, CFG.magnet_range, 0, TAU, 64, Color(0.3, 1.0, 0.5, mag_alpha), 2.0)
 
 	# Mining boost effect
 	if mining_boost_timer > 0:
@@ -683,7 +666,7 @@ func _draw():
 		var ghost_color = Color(0.3, 1.0, 0.4, 0.5) if valid else Color(1.0, 0.3, 0.3, 0.5)
 
 		# Draw build range
-		draw_arc(Vector2.ZERO, BUILD_RANGE, 0, TAU, 64, Color(0.5, 0.8, 1.0, 0.15), 2.0)
+		draw_arc(Vector2.ZERO, CFG.build_range, 0, TAU, 64, Color(0.5, 0.8, 1.0, 0.15), 2.0)
 
 		# Draw ghost based on building type
 		match build_mode:

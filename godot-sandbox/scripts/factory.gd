@@ -1,11 +1,12 @@
 extends Node2D
 
-var hp: int = 80
-var max_hp: int = 80
+const CFG = preload("res://resources/game_config.tres")
+
+var hp: int = CFG.hp_factory
+var max_hp: int = CFG.hp_factory
 var generate_timer: float = 0.0
 var speed_bonus: float = 0.0
 var power_blink_timer: float = 0.0
-const BASE_GENERATE_INTERVAL = 10.0 # seconds between resource generation
 
 
 func _ready():
@@ -36,7 +37,7 @@ func _process(delta):
 	var powered = is_powered()
 
 	if powered:
-		var generate_interval = BASE_GENERATE_INTERVAL / (1.0 + speed_bonus)
+		var generate_interval = CFG.factory_generate_interval / (1.0 + speed_bonus)
 		generate_timer += delta
 		if generate_timer >= generate_interval:
 			generate_timer -= generate_interval
@@ -47,8 +48,8 @@ func _process(delta):
 func _generate_resources():
 	var players = get_tree().get_nodes_in_group("player")
 	if players.size() > 0:
-		players[0].iron += 2
-		players[0].crystal += 1
+		players[0].iron += CFG.factory_iron_per_cycle
+		players[0].crystal += CFG.factory_crystal_per_cycle
 
 
 func take_damage(amount: int):
@@ -93,7 +94,7 @@ func _draw():
 
 	# Generation progress bar
 	if powered:
-		var generate_interval = BASE_GENERATE_INTERVAL / (1.0 + speed_bonus)
+		var generate_interval = CFG.factory_generate_interval / (1.0 + speed_bonus)
 		var progress = generate_timer / generate_interval
 		draw_rect(Rect2(-20, 24, 40, 4), Color(0.2, 0.2, 0.2))
 		draw_rect(Rect2(-20, 24, 40 * progress, 4), Color(0.2, 0.8, 0.8))

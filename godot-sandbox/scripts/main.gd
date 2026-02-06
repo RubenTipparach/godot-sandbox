@@ -1,18 +1,12 @@
 extends Node2D
 
-const WAVE_INTERVAL = 20.0
-const FIRST_WAVE_DELAY = 45.0
-const MAP_HALF_SIZE = 1000.0
-const BASE_RESOURCE_REGEN_INTERVAL = 30.0
-const BASE_MAX_RESOURCES = 30
-const POWERUP_SPAWN_INTERVAL = 25.0
-const MAX_POWERUPS = 5
+const CFG = preload("res://resources/game_config.tres")
 
 var wave_number: int = 0
-var wave_timer: float = FIRST_WAVE_DELAY
+var wave_timer: float = CFG.first_wave_delay
 var wave_active: bool = false
 var game_over: bool = false
-var resource_regen_timer: float = BASE_RESOURCE_REGEN_INTERVAL
+var resource_regen_timer: float = CFG.resource_regen_interval
 var powerup_timer: float = 10.0
 var pending_upgrades: int = 0
 var upgrade_cooldown: float = 0.0
@@ -30,11 +24,11 @@ var power_on: bool = true
 
 func get_max_resources() -> int:
 	# More rocks spawn as waves progress
-	return BASE_MAX_RESOURCES + wave_number * 3
+	return CFG.base_max_resources + wave_number * CFG.resources_per_wave
 
 
 func get_regen_interval() -> float:
-	var base = BASE_RESOURCE_REGEN_INTERVAL
+	var base = CFG.resource_regen_interval
 	if is_instance_valid(player_node):
 		base /= player_node.get_rock_regen_multiplier()
 	return base
@@ -45,7 +39,7 @@ func _update_power_system(delta):
 	var hq_count = get_tree().get_nodes_in_group("hq").size()
 	var all_plants = get_tree().get_nodes_in_group("power_plants").size()
 	var plant_count = all_plants - hq_count  # HQ is also in power_plants group
-	total_power_gen = hq_count * 10.0 + plant_count * 40.0
+	total_power_gen = hq_count * CFG.hq_power_gen + plant_count * CFG.power_plant_gen
 
 	# Calculate consumption
 	var turret_count = get_tree().get_nodes_in_group("turrets").size()
@@ -53,11 +47,11 @@ func _update_power_system(delta):
 	var lightning_count = get_tree().get_nodes_in_group("lightnings").size()
 	var slow_count = get_tree().get_nodes_in_group("slows").size()
 	var pylon_count = get_tree().get_nodes_in_group("pylons").size()
-	total_power_consumption = turret_count * 5.0 + factory_count * 8.0 + lightning_count * 10.0 + slow_count * 8.0 + pylon_count * 2.0
+	total_power_consumption = turret_count * CFG.power_turret + factory_count * CFG.power_factory + lightning_count * CFG.power_lightning + slow_count * CFG.power_slow + pylon_count * CFG.power_pylon
 
 	# Calculate energy storage capacity (HQ = 200 base, each battery = 50)
 	var battery_count = get_tree().get_nodes_in_group("batteries").size()
-	max_power_bank = hq_count * 200.0 + battery_count * 50.0
+	max_power_bank = hq_count * CFG.hq_energy_storage + battery_count * CFG.battery_energy_storage
 
 	if total_power_gen >= total_power_consumption:
 		power_on = true
@@ -84,9 +78,9 @@ func get_factory_rates() -> Dictionary:
 		if not is_instance_valid(f):
 			continue
 		if f.is_powered():
-			var interval = f.BASE_GENERATE_INTERVAL / (1.0 + f.speed_bonus)
-			iron_per_sec += 2.0 / interval
-			crystal_per_sec += 1.0 / interval
+			var interval = CFG.factory_generate_interval / (1.0 + f.speed_bonus)
+			iron_per_sec += float(CFG.factory_iron_per_cycle) / interval
+			crystal_per_sec += float(CFG.factory_crystal_per_cycle) / interval
 	return {"iron": iron_per_sec, "crystal": crystal_per_sec}
 
 
@@ -195,7 +189,7 @@ func _process(delta):
 		if wave_timer <= 0:
 			wave_number += 1
 			_spawn_wave()
-			wave_timer = WAVE_INTERVAL
+			wave_timer = CFG.wave_interval
 			wave_active = true
 
 	resource_regen_timer -= delta
@@ -205,7 +199,7 @@ func _process(delta):
 
 	powerup_timer -= delta
 	if powerup_timer <= 0:
-		powerup_timer = POWERUP_SPAWN_INTERVAL
+		powerup_timer = CFG.powerup_spawn_interval
 		_spawn_powerup()
 
 	upgrade_cooldown = maxf(0.0, upgrade_cooldown - delta)
@@ -231,7 +225,7 @@ func _regenerate_resources():
 	var spawn_count = mini(5 + wave_number / 2, max_res - current)
 	for i in range(spawn_count):
 		var res = resource_scene.instantiate()
-		res.position = Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(100, MAP_HALF_SIZE * 0.85)
+		res.position = Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(100, CFG.map_half_size * 0.85)
 		res.resource_type = "iron" if rng.randf() < 0.6 else "crystal"
 		res.amount = rng.randi_range(5 + wave_number, 15 + wave_number * 2)
 		resources_node.add_child(res)
@@ -239,19 +233,19 @@ func _regenerate_resources():
 
 func _spawn_powerup():
 	var current = get_tree().get_nodes_in_group("powerups").size()
-	if current >= MAX_POWERUPS:
+	if current >= CFG.max_powerups:
 		return
 	var powerup = preload("res://scenes/powerup.tscn").instantiate()
 	var rng = RandomNumberGenerator.new()
 	rng.randomize()
-	powerup.position = Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(150, MAP_HALF_SIZE * 0.8)
+	powerup.position = Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(150, CFG.map_half_size * 0.8)
 	var types = ["magnet", "weapon_scroll", "heal", "nuke", "mining_boost"]
 	powerup.powerup_type = types[rng.randi() % types.size()]
 	powerups_node.add_child(powerup)
 
 
 func _draw():
-	var hs = MAP_HALF_SIZE
+	var hs = CFG.map_half_size
 	draw_rect(Rect2(-hs, -hs, hs * 2, hs * 2), Color(1, 0.3, 0.2, 0.3), false, 3.0)
 	draw_rect(Rect2(-hs + 50, -hs + 50, (hs - 50) * 2, (hs - 50) * 2), Color(1, 0.3, 0.2, 0.08), false, 1.0)
 
@@ -291,14 +285,14 @@ func _spawn_wave():
 	# Slower scaling: fewer enemies early on
 	var basic_count = 2 + wave_number
 	_spawn_aliens("basic", basic_count, rng, wave_dir)
-	if wave_number >= 4:
+	if wave_number >= CFG.alien_fast_start_wave:
 		_spawn_aliens("fast", maxi(1, wave_number - 3), rng, wave_dir)
-	if wave_number >= 6:
-		_spawn_aliens("ranged", mini(wave_number - 5, 6), rng, wave_dir)
-	if wave_number >= 5 and wave_number % 5 == 0:
+	if wave_number >= CFG.alien_ranged_start_wave:
+		_spawn_aliens("ranged", mini(wave_number - 5, CFG.alien_ranged_max_count), rng, wave_dir)
+	if wave_number >= CFG.boss_start_wave and wave_number % CFG.boss_wave_interval == 0:
 		_spawn_boss(rng, wave_dir)
 	if is_instance_valid(hud_node):
-		hud_node.show_wave_alert(wave_number, wave_number >= 5 and wave_number % 5 == 0)
+		hud_node.show_wave_alert(wave_number, wave_number >= CFG.boss_start_wave and wave_number % CFG.boss_wave_interval == 0)
 
 
 func _get_offscreen_spawn_pos(base_angle: float, rng: RandomNumberGenerator) -> Vector2:
@@ -307,7 +301,7 @@ func _get_offscreen_spawn_pos(base_angle: float, rng: RandomNumberGenerator) -> 
 	var angle = base_angle + spread
 	var dist = rng.randf_range(650, 850)
 	var spawn_pos = player_node.global_position + Vector2.from_angle(angle) * dist
-	return spawn_pos.clamp(Vector2(-MAP_HALF_SIZE, -MAP_HALF_SIZE), Vector2(MAP_HALF_SIZE, MAP_HALF_SIZE))
+	return spawn_pos.clamp(Vector2(-CFG.map_half_size, -CFG.map_half_size), Vector2(CFG.map_half_size, CFG.map_half_size))
 
 
 func _spawn_aliens(type: String, count: int, rng: RandomNumberGenerator, wave_dir: float):
@@ -317,26 +311,26 @@ func _spawn_aliens(type: String, count: int, rng: RandomNumberGenerator, wave_di
 		match type:
 			"basic":
 				alien = preload("res://scenes/alien.tscn").instantiate()
-				alien.hp = 15 + wave_number * 5
+				alien.hp = CFG.alien_basic_base_hp + wave_number * CFG.alien_basic_hp_per_wave
 				alien.max_hp = alien.hp
-				alien.damage = 5 + wave_number
-				alien.speed = 50.0 + wave_number * 2.0
-				alien.xp_value = 1
+				alien.damage = CFG.alien_basic_base_damage + wave_number * CFG.alien_basic_damage_per_wave
+				alien.speed = CFG.alien_basic_base_speed + wave_number * CFG.alien_basic_speed_per_wave
+				alien.xp_value = CFG.alien_basic_xp
 			"fast":
 				alien = preload("res://scenes/alien.tscn").instantiate()
-				alien.hp = 8 + wave_number * 3
+				alien.hp = CFG.alien_fast_base_hp + wave_number * CFG.alien_fast_hp_per_wave
 				alien.max_hp = alien.hp
-				alien.damage = 3 + wave_number
-				alien.speed = 90.0 + wave_number * 3.0
-				alien.xp_value = 1
+				alien.damage = CFG.alien_fast_base_damage + wave_number * CFG.alien_fast_damage_per_wave
+				alien.speed = CFG.alien_fast_base_speed + wave_number * CFG.alien_fast_speed_per_wave
+				alien.xp_value = CFG.alien_fast_xp
 				alien.alien_type = "fast"
 			"ranged":
 				alien = preload("res://scenes/ranged_alien.tscn").instantiate()
-				alien.hp = 12 + wave_number * 4
+				alien.hp = CFG.alien_ranged_base_hp + wave_number * CFG.alien_ranged_hp_per_wave
 				alien.max_hp = alien.hp
-				alien.damage = 4 + wave_number
-				alien.speed = 40.0 + wave_number * 1.5
-				alien.xp_value = 2
+				alien.damage = CFG.alien_ranged_base_damage + wave_number * CFG.alien_ranged_damage_per_wave
+				alien.speed = CFG.alien_ranged_base_speed + wave_number * CFG.alien_ranged_speed_per_wave
+				alien.xp_value = CFG.alien_ranged_xp
 		alien.position = spawn_pos
 		aliens_node.add_child(alien)
 
@@ -344,11 +338,11 @@ func _spawn_aliens(type: String, count: int, rng: RandomNumberGenerator, wave_di
 func _spawn_boss(rng: RandomNumberGenerator, wave_dir: float):
 	var boss = preload("res://scenes/boss_alien.tscn").instantiate()
 	boss.position = _get_offscreen_spawn_pos(wave_dir, rng)
-	boss.hp = 150 + wave_number * 50
+	boss.hp = CFG.boss_base_hp + wave_number * CFG.boss_hp_per_wave
 	boss.max_hp = boss.hp
-	boss.damage = 10 + wave_number * 3
-	boss.speed = 30.0
-	boss.xp_value = 15
+	boss.damage = CFG.boss_base_damage + wave_number * CFG.boss_damage_per_wave
+	boss.speed = CFG.boss_speed
+	boss.xp_value = CFG.boss_xp
 	boss.wave_level = wave_number
 	aliens_node.add_child(boss)
 
@@ -389,7 +383,7 @@ func _on_game_started(start_wave: int):
 		wave_timer = 5.0  # Short delay before first wave
 
 	# Start with HQ energy bank full
-	power_bank = 200.0
+	power_bank = CFG.hq_energy_storage
 
 	# Initialize first wave direction
 	next_wave_direction = randf() * TAU

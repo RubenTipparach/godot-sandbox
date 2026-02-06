@@ -1,7 +1,9 @@
 extends Node2D
 
-var hp: int = 60
-var max_hp: int = 60
+const CFG = preload("res://resources/game_config.tres")
+
+var hp: int = CFG.hp_battery
+var max_hp: int = CFG.hp_battery
 var pulse_timer: float = 0.0
 
 

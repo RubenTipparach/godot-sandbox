@@ -1,11 +1,12 @@
 extends Node2D
 
+const CFG = preload("res://resources/game_config.tres")
+
 var direction: Vector2 = Vector2.RIGHT
-var speed: float = 450.0
-var damage: int = 10
-var lifetime: float = 2.0
+var speed: float = CFG.bullet_speed
+var damage: int = CFG.bullet_damage
+var lifetime: float = CFG.bullet_lifetime
 var from_turret: bool = false
-const HIT_RADIUS = 14.0
 
 # Upgrade properties
 var chain_count: int = 0
@@ -13,7 +14,7 @@ var burn_dps: float = 0.0
 var slow_amount: float = 0.0
 var crit_chance: float = 0.0
 var chain_damage_bonus: int = 0
-var chain_retention: float = 0.6
+var chain_retention: float = CFG.chain_base_retention
 
 
 func _process(delta):
@@ -25,7 +26,7 @@ func _process(delta):
 
 	for alien in get_tree().get_nodes_in_group("aliens"):
 		if not is_instance_valid(alien): continue
-		if global_position.distance_to(alien.global_position) < HIT_RADIUS:
+		if global_position.distance_to(alien.global_position) < CFG.bullet_hit_radius:
 			_on_hit(alien)
 			queue_free()
 			return
@@ -69,7 +70,7 @@ func _chain_lightning(start: Node2D):
 
 	for i in range(chain_count):
 		var nearest: Node2D = null
-		var nearest_dist = 120.0
+		var nearest_dist = CFG.chain_range
 		for alien in get_tree().get_nodes_in_group("aliens"):
 			if not is_instance_valid(alien) or alien in hit:
 				continue

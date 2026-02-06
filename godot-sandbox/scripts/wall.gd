@@ -1,12 +1,17 @@
 extends Node2D
 
-var hp: int = 150
-var max_hp: int = 150
+const CFG = preload("res://resources/game_config.tres")
+
+var hp: int = CFG.hp_wall
+var max_hp: int = CFG.hp_wall
 
 
 func _ready():
 	add_to_group("buildings")
 	add_to_group("walls")
+	var wall_bonus = int(GameData.get_research_bonus("wall_health"))
+	hp += wall_bonus
+	max_hp += wall_bonus
 
 
 func get_building_name() -> String:

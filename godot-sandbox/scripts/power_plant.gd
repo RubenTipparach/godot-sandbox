@@ -1,9 +1,11 @@
 extends Node2D
 
-var hp: int = 100
-var max_hp: int = 100
+const CFG = preload("res://resources/game_config.tres")
+
+var hp: int = CFG.hp_power_plant
+var max_hp: int = CFG.hp_power_plant
 var pulse_timer: float = 0.0
-const POWER_RANGE = 120.0  # Range to power nearby pylons/buildings directly
+var POWER_RANGE: float = CFG.power_range_plant
 
 
 func _ready():

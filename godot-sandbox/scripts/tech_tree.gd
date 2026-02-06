@@ -39,6 +39,22 @@ const NODE_LAYOUT = {
 	"chain_damage": Vector2(-200, 400),
 	"chain_retention": Vector2(-100, 400),
 	"chain_count": Vector2(0, 400),
+
+	# Building unlocks
+	"unlock_turret": Vector2(0, 150),
+	"unlock_wall": Vector2(-180, 200),
+
+	# Wall upgrades
+	"wall_health": Vector2(-250, 300),
+
+	# Factory upgrades
+	"factory_rate": Vector2(240, 50),
+
+	# Turret upgrades
+	"turret_spread": Vector2(180, 300),
+	"turret_ice": Vector2(120, 450),
+	"turret_fire": Vector2(220, 450),
+	"turret_acid": Vector2(320, 450),
 }
 
 # Connections between nodes (prerequisites)
@@ -50,7 +66,8 @@ const NODE_CONNECTIONS = [
 	["max_health", "factory_speed"],
 	["starting_iron", "base_damage"],
 	["starting_crystal", "factory_speed"],
-	["turret_damage", "starting_iron"],
+	["unlock_turret", "starting_iron"],
+	["turret_damage", "unlock_turret"],
 	["turret_damage", "starting_crystal"],
 	["unlock_lightning", "turret_damage"],
 	["unlock_slow", "turret_damage"],
@@ -60,6 +77,13 @@ const NODE_CONNECTIONS = [
 	["chain_damage", "unlock_lightning"],
 	["chain_retention", "unlock_lightning"],
 	["chain_count", "unlock_lightning"],
+	["unlock_wall", "starting_iron"],
+	["wall_health", "unlock_wall"],
+	["factory_rate", "factory_speed"],
+	["turret_spread", "turret_damage"],
+	["turret_ice", "turret_damage"],
+	["turret_fire", "turret_damage"],
+	["turret_acid", "turret_damage"],
 ]
 
 # Node icons (simple shapes drawn procedurally)
@@ -81,6 +105,14 @@ const NODE_ICONS = {
 	"chain_damage": "chain_power",
 	"chain_retention": "chain_conduct",
 	"chain_count": "chain_reach",
+	"unlock_wall": "wall",
+	"unlock_turret": "turret_unlock",
+	"wall_health": "wall_hp",
+	"factory_rate": "factory_fast",
+	"turret_spread": "spread",
+	"turret_ice": "ice_round",
+	"turret_fire": "fire_round",
+	"turret_acid": "acid_round",
 }
 
 var hovered_node: String = ""
@@ -312,6 +344,68 @@ func _draw_icon(pos: Vector2, icon_type: String, is_owned: bool):
 				var p2 = pos + Vector2.from_angle(ca) * s * 0.8
 				draw_line(p1, p2, rc, 2.0)
 				draw_circle(p2, s*0.15, rc)
+		"wall":
+			# Brick wall shape
+			var wc2 = Color(0.6, 0.55, 0.45)
+			draw_rect(Rect2(pos.x - s*0.7, pos.y - s*0.5, s*1.4, s), wc2)
+			draw_line(pos + Vector2(-s*0.7, 0), pos + Vector2(s*0.7, 0), Color(0.4, 0.35, 0.3), 1.5)
+			draw_line(pos + Vector2(0, -s*0.5), pos + Vector2(0, 0), Color(0.4, 0.35, 0.3), 1.5)
+			draw_line(pos + Vector2(-s*0.35, 0), pos + Vector2(-s*0.35, s*0.5), Color(0.4, 0.35, 0.3), 1.5)
+			draw_line(pos + Vector2(s*0.35, 0), pos + Vector2(s*0.35, s*0.5), Color(0.4, 0.35, 0.3), 1.5)
+		"turret_unlock":
+			# Turret with unlock symbol
+			draw_circle(pos, s*0.5, Color(0.5, 0.5, 0.6))
+			draw_line(pos, pos + Vector2(s*0.8, -s*0.3), Color(0.4, 0.4, 0.5), 3.0)
+			draw_circle(pos + Vector2(0, s*0.5), s*0.25, Color(0.9, 0.8, 0.3))
+		"wall_hp":
+			# Brick with heart/plus
+			var whc = Color(0.6, 0.55, 0.45)
+			draw_rect(Rect2(pos.x - s*0.6, pos.y - s*0.4, s*1.2, s*0.8), whc)
+			draw_line(pos + Vector2(-s*0.2, 0), pos + Vector2(s*0.2, 0), Color(0.3, 1.0, 0.4), 3.0)
+			draw_line(pos + Vector2(0, -s*0.2), pos + Vector2(0, s*0.2), Color(0.3, 1.0, 0.4), 3.0)
+		"factory_fast":
+			# Gear with speed lines
+			draw_circle(pos, s*0.4, Color(0.8, 0.6, 0.3))
+			for fi in range(6):
+				var fa = TAU * fi / 6.0
+				draw_line(pos + Vector2.from_angle(fa) * s*0.3, pos + Vector2.from_angle(fa) * s*0.6, Color(0.8, 0.6, 0.3), 2.5)
+			draw_line(pos + Vector2(s*0.4, s*0.3), pos + Vector2(s*0.8, s*0.3), Color(1.0, 0.9, 0.3), 2.0)
+			draw_line(pos + Vector2(s*0.3, s*0.5), pos + Vector2(s*0.7, s*0.5), Color(1.0, 0.9, 0.3), 2.0)
+		"spread":
+			# Multiple barrel lines from turret
+			var sc2 = Color(0.5, 0.5, 0.6)
+			draw_circle(pos, s*0.4, sc2)
+			draw_line(pos, pos + Vector2(s*0.8, 0), sc2, 2.5)
+			draw_line(pos, pos + Vector2(s*0.7, -s*0.4), sc2, 2.5)
+			draw_line(pos, pos + Vector2(s*0.7, s*0.4), sc2, 2.5)
+		"ice_round":
+			# Bullet with snowflake
+			draw_circle(pos + Vector2(-s*0.3, 0), s*0.25, Color(0.4, 0.4, 0.5))
+			draw_line(pos + Vector2(-s*0.3, 0), pos + Vector2(s*0.3, 0), Color(0.4, 0.4, 0.5), 3.0)
+			for ii in range(3):
+				var ia = TAU * ii / 3.0
+				var ip1 = pos + Vector2(s*0.3, 0) + Vector2.from_angle(ia) * s * 0.35
+				var ip2 = pos + Vector2(s*0.3, 0) + Vector2.from_angle(ia + PI) * s * 0.35
+				draw_line(ip1, ip2, Color(0.5, 0.85, 1.0), 2.0)
+		"fire_round":
+			# Bullet with flame
+			draw_circle(pos + Vector2(-s*0.3, 0), s*0.25, Color(0.4, 0.4, 0.5))
+			draw_line(pos + Vector2(-s*0.3, 0), pos + Vector2(s*0.1, 0), Color(0.4, 0.4, 0.5), 3.0)
+			draw_colored_polygon(PackedVector2Array([
+				pos + Vector2(s*0.1, s*0.3),
+				pos + Vector2(s*0.3, -s*0.1),
+				pos + Vector2(s*0.5, s*0.3),
+				pos + Vector2(s*0.6, -s*0.4),
+				pos + Vector2(s*0.8, s*0.3),
+				pos + Vector2(s*0.45, s*0.6),
+			]), Color(1.0, 0.5, 0.1))
+		"acid_round":
+			# Bullet with droplets
+			draw_circle(pos + Vector2(-s*0.3, 0), s*0.25, Color(0.4, 0.4, 0.5))
+			draw_line(pos + Vector2(-s*0.3, 0), pos + Vector2(s*0.1, 0), Color(0.4, 0.4, 0.5), 3.0)
+			draw_circle(pos + Vector2(s*0.3, -s*0.2), s*0.15, Color(0.3, 0.9, 0.2))
+			draw_circle(pos + Vector2(s*0.5, s*0.1), s*0.12, Color(0.3, 0.9, 0.2))
+			draw_circle(pos + Vector2(s*0.2, s*0.3), s*0.1, Color(0.3, 0.9, 0.2))
 
 
 func _draw_tooltip(key: String):
