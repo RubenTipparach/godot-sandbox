@@ -1,0 +1,20 @@
+[gd_scene format=3 uid="uid://cjyl1eyw0e4yk"]
+
+[ext_resource type="Script" uid="uid://bo54ulan5hbfh" path="res://scripts/music_player.gd" id="1_jxdhu"]
+[ext_resource type="AudioStream" uid="uid://c4cvjvvjsmxsb" path="res://music/battle_intro.wav" id="2_ql6qh"]
+[ext_resource type="AudioStream" uid="uid://5vejjxqbjfwk" path="res://music/pre-boss.wav" id="3_l7xiw"]
+
+[node name="MusicPlayer" type="Node" unique_id=483043305]
+process_mode = 3
+script = ExtResource("1_jxdhu")
+
+[node name="BattleAudio" type="AudioStreamPlayer" parent="." unique_id=1966927585]
+stream = ExtResource("2_ql6qh")
+bus = &"Music"
+
+[node name="BuildAudio" type="AudioStreamPlayer" parent="." unique_id=345349054]
+stream = ExtResource("3_l7xiw")
+bus = &"Music"
+
+[node name="MenuAudio" type="AudioStreamPlayer" parent="." unique_id=1500637640]
+bus = &"Music"

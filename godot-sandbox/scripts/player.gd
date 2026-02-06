@@ -570,6 +570,7 @@ func take_damage(amount: int):
 
 func _die():
 	is_dead = true
+	MusicPlayer.player_died()
 	# Create explosion particles
 	for i in range(20):
 		var angle = randf() * TAU
