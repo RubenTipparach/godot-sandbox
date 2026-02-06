@@ -43,6 +43,14 @@ var research: Dictionary = {
 	"turret_fire": 0,
 	"turret_acid": 0,
 	"turret_spread": 0,
+	"unlock_battery": 0,
+	"cost_efficiency": 0,
+	"mining_yield": 0,
+	"mining_range": 0,
+	"building_health": 0,
+	"unlock_repair_drone": 0,
+	"repair_drone_range": 0,
+	"repair_drone_speed": 0,
 }
 
 const RESEARCH_DATA = {
@@ -62,13 +70,21 @@ const RESEARCH_DATA = {
 	"chain_damage": {"name": "Arc Power", "desc": "+3 chain damage", "max": 5, "cost": [12, 25, 45, 70, 100]},
 	"chain_retention": {"name": "Conductivity", "desc": "+8% chain retention", "max": 5, "cost": [15, 30, 50, 80, 120]},
 	"chain_count": {"name": "Arc Reach", "desc": "+1 chain bounce", "max": 3, "cost": [20, 40, 70]},
-	"unlock_wall": {"name": "Fortification", "desc": "Unlock Wall building", "max": 1, "cost": [10]},
+	"unlock_wall": {"name": "Fortification", "desc": "Double wall HP", "max": 1, "cost": [10]},
 	"wall_health": {"name": "Reinforced Walls", "desc": "+20 wall HP", "max": 5, "cost": [8, 15, 25, 40, 60]},
 	"factory_rate": {"name": "Production Line", "desc": "+15% factory rate", "max": 5, "cost": [10, 20, 35, 55, 80]},
 	"turret_ice": {"name": "Cryo Tech", "desc": "Unlock Slow Tower", "max": 1, "cost": [20]},
 	"turret_fire": {"name": "Flame Tech", "desc": "Unlock Flame Turret", "max": 1, "cost": [15]},
 	"turret_acid": {"name": "Acid Tech", "desc": "Unlock Acid Turret", "max": 1, "cost": [20]},
 	"turret_spread": {"name": "Multi-Barrel", "desc": "+1 turret bullet", "max": 4, "cost": [20, 40, 70, 110]},
+	"unlock_battery": {"name": "Battery Tech", "desc": "Unlock Battery building", "max": 1, "cost": [15]},
+	"cost_efficiency": {"name": "Cost Efficiency", "desc": "-8% building costs", "max": 5, "cost": [10, 20, 35, 55, 80]},
+	"mining_yield": {"name": "Rich Veins", "desc": "+15% mining yield", "max": 5, "cost": [10, 20, 35, 55, 80]},
+	"mining_range": {"name": "Long Reach", "desc": "+15 mining range", "max": 5, "cost": [10, 20, 35, 55, 80]},
+	"building_health": {"name": "Reinforcement", "desc": "+10% building HP", "max": 5, "cost": [12, 25, 45, 70, 100]},
+	"unlock_repair_drone": {"name": "Repair Drone", "desc": "Unlock Repair Drone", "max": 1, "cost": [25]},
+	"repair_drone_range": {"name": "Drone Range", "desc": "+20 drone repair range", "max": 5, "cost": [10, 20, 35, 55, 80]},
+	"repair_drone_speed": {"name": "Drone Efficiency", "desc": "+1 HP/tick repair", "max": 5, "cost": [10, 20, 35, 55, 80]},
 }
 
 
@@ -179,6 +195,14 @@ func get_research_bonus(key: String) -> float:
 		"turret_fire": return level * 1.0
 		"turret_acid": return level * 1.0
 		"turret_spread": return level * 1.0
+		"unlock_battery": return level * 1.0
+		"cost_efficiency": return level * 0.08
+		"mining_yield": return level * 0.15
+		"mining_range": return level * 15.0
+		"building_health": return level * 0.10
+		"unlock_repair_drone": return level * 1.0
+		"repair_drone_range": return level * 20.0
+		"repair_drone_speed": return level * 1.0
 	return 0.0
 
 

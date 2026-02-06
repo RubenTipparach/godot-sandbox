@@ -162,6 +162,16 @@ func _draw():
 			draw_line(center, center + Vector2(12, 0), Color(0.25, 0.4, 0.2, icon_alpha), 3.0)
 			draw_circle(center + Vector2(14, 2), 2, Color(0.3, 0.9, 0.15, icon_alpha))
 			draw_circle(center + Vector2(12, 6), 1.5, Color(0.3, 0.9, 0.15, icon_alpha))
+		"repair_drone":
+			# Drone with propellers
+			draw_rect(Rect2(14, 22, 12, 6), Color(0.35, 0.35, 0.4, icon_alpha))
+			draw_circle(center + Vector2(0, -2), 7, Color(0.4, 0.5, 0.4, icon_alpha))
+			draw_arc(center + Vector2(0, -2), 7, 0, TAU, 12, Color(0.3, 0.8, 0.4, icon_alpha), 1.0)
+			for pi in range(4):
+				var pa = TAU * pi / 4.0 + PI / 4.0
+				var arm_end = center + Vector2(0, -2) + Vector2.from_angle(pa) * 9
+				draw_line(center + Vector2(0, -2), arm_end, Color(0.5, 0.6, 0.5, icon_alpha), 1.0)
+				draw_circle(arm_end, 2, Color(0.3, 0.8, 0.4, icon_alpha * 0.6))
 
 	# Lock overlay when locked
 	if locked:

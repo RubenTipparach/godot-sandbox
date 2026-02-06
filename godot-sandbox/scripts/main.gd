@@ -49,7 +49,8 @@ func _update_power_system(delta):
 	var pylon_count = get_tree().get_nodes_in_group("pylons").size()
 	var flame_count = get_tree().get_nodes_in_group("flame_turrets").size()
 	var acid_count = get_tree().get_nodes_in_group("acid_turrets").size()
-	total_power_consumption = turret_count * CFG.power_turret + factory_count * CFG.power_factory + lightning_count * CFG.power_lightning + slow_count * CFG.power_slow + pylon_count * CFG.power_pylon + flame_count * CFG.power_flame_turret + acid_count * CFG.power_acid_turret
+	var drone_count = get_tree().get_nodes_in_group("repair_drones").size()
+	total_power_consumption = turret_count * CFG.power_turret + factory_count * CFG.power_factory + lightning_count * CFG.power_lightning + slow_count * CFG.power_slow + pylon_count * CFG.power_pylon + flame_count * CFG.power_flame_turret + acid_count * CFG.power_acid_turret + drone_count * CFG.power_repair_drone
 
 	# Calculate energy storage capacity (HQ = 200 base, each battery = 50)
 	var battery_count = get_tree().get_nodes_in_group("batteries").size()
@@ -115,6 +116,7 @@ func _setup_inputs():
 	_add_key_action("build_battery", KEY_8)
 	_add_key_action("build_flame_turret", KEY_9)
 	_add_key_action("build_acid_turret", KEY_0)
+	_add_key_action("build_repair_drone", KEY_Q)
 	_add_key_action("pause", KEY_ESCAPE)
 	_add_mouse_action("shoot", MOUSE_BUTTON_LEFT)
 
@@ -386,6 +388,13 @@ func _on_game_started(start_wave: int):
 	if starting_wave > 1:
 		wave_number = starting_wave - 1
 		wave_timer = 5.0  # Short delay before first wave
+
+	# Apply building health research to HQ
+	var health_bonus = GameData.get_research_bonus("building_health")
+	if health_bonus > 0 and is_instance_valid(hq_node):
+		var bonus_hp = int(hq_node.max_hp * health_bonus)
+		hq_node.hp += bonus_hp
+		hq_node.max_hp += bonus_hp
 
 	# Start with HQ energy bank full
 	power_bank = CFG.hq_energy_storage

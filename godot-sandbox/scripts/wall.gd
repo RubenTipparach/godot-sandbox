@@ -9,6 +9,9 @@ var max_hp: int = CFG.hp_wall
 func _ready():
 	add_to_group("buildings")
 	add_to_group("walls")
+	if GameData.get_research_bonus("unlock_wall") >= 1.0:
+		hp *= 2
+		max_hp *= 2
 	var wall_bonus = int(GameData.get_research_bonus("wall_health"))
 	hp += wall_bonus
 	max_hp += wall_bonus

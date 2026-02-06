@@ -100,7 +100,7 @@ func get_mine_heads() -> int:
 
 
 func get_mine_range() -> float:
-	return CFG.mine_range + upgrades["mining_range"] * CFG.mining_range_per_level
+	return CFG.mine_range + upgrades["mining_range"] * CFG.mining_range_per_level + GameData.get_research_bonus("mining_range")
 
 
 func get_rock_regen_multiplier() -> float:
@@ -166,6 +166,9 @@ func _process(delta):
 	if auto_mine_timer >= get_mine_interval():
 		auto_mine_timer = 0.0
 		var mine_amount = 2 + upgrades["mining_speed"]
+		var yield_bonus = GameData.get_research_bonus("mining_yield")
+		if yield_bonus > 0:
+			mine_amount = int(mine_amount * (1.0 + yield_bonus))
 		if mining_boost_timer > 0:
 			mine_amount *= CFG.mining_boost_multiplier
 		_mine_nearby(mine_amount)
@@ -197,13 +200,17 @@ func _process(delta):
 		if GameData.get_research_bonus("turret_ice") >= 1.0:
 			_try_build("slow")
 	if Input.is_action_just_pressed("build_battery"):
-		_try_build("battery")
+		if GameData.get_research_bonus("unlock_battery") >= 1.0:
+			_try_build("battery")
 	if Input.is_action_just_pressed("build_flame_turret"):
 		if GameData.get_research_bonus("turret_fire") >= 1.0:
 			_try_build("flame_turret")
 	if Input.is_action_just_pressed("build_acid_turret"):
 		if GameData.get_research_bonus("turret_acid") >= 1.0:
 			_try_build("acid_turret")
+	if Input.is_action_just_pressed("build_repair_drone"):
+		if GameData.get_research_bonus("unlock_repair_drone") >= 1.0:
+			_try_build("repair_drone")
 
 	# Build mode placement (click to place)
 	if build_mode != "":
@@ -430,9 +437,10 @@ func get_building_cost(type: String) -> Dictionary:
 	var base = CFG.get_base_cost(type)
 	var count = get_tree().get_nodes_in_group(type + "s").size()
 	var multiplier = pow(CFG.get_cost_scale(type), count)
+	var efficiency = 1.0 - GameData.get_research_bonus("cost_efficiency")
 	return {
-		"iron": int(base["iron"] * multiplier),
-		"crystal": int(base["crystal"] * multiplier)
+		"iron": maxi(1, int(base["iron"] * multiplier * efficiency)),
+		"crystal": int(base["crystal"] * multiplier * efficiency)
 	}
 
 
@@ -456,6 +464,10 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 	if type == "flame_turret" and GameData.get_research_bonus("turret_fire") < 1.0:
 		return false
 	if type == "acid_turret" and GameData.get_research_bonus("turret_acid") < 1.0:
+		return false
+	if type == "battery" and GameData.get_research_bonus("unlock_battery") < 1.0:
+		return false
+	if type == "repair_drone" and GameData.get_research_bonus("unlock_repair_drone") < 1.0:
 		return false
 	if global_position.distance_to(bp) > CFG.build_range:
 		return false
@@ -496,10 +508,18 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 			building = preload("res://scenes/flame_turret.tscn").instantiate()
 		"acid_turret":
 			building = preload("res://scenes/acid_turret.tscn").instantiate()
+		"repair_drone":
+			building = preload("res://scenes/repair_drone.tscn").instantiate()
 
 	if building:
 		building.global_position = bp
 		get_tree().current_scene.get_node("Buildings").add_child(building)
+		# Apply building health research bonus
+		var health_bonus = GameData.get_research_bonus("building_health")
+		if health_bonus > 0 and "hp" in building and "max_hp" in building:
+			var bonus_hp = int(building.max_hp * health_bonus)
+			building.hp += bonus_hp
+			building.max_hp += bonus_hp
 		return true
 	return false
 
@@ -716,3 +736,7 @@ func _draw():
 				draw_circle(ghost_pos, 16, ghost_color)
 				draw_arc(ghost_pos, 16, 0, TAU, 32, ghost_color.lightened(0.3), 2.0)
 				draw_arc(ghost_pos, CFG.acid_range, 0, TAU, 48, Color(0.3, 0.9, 0.15, 0.15), 1.5)
+			"repair_drone":
+				draw_rect(Rect2(ghost_pos.x - 14, ghost_pos.y - 4, 28, 12), ghost_color)
+				draw_circle(ghost_pos + Vector2(0, -14), 8, ghost_color.lightened(0.2))
+				draw_arc(ghost_pos, CFG.repair_drone_range + GameData.get_research_bonus("repair_drone_range"), 0, TAU, 48, Color(0.3, 1.0, 0.4, 0.15), 1.5)

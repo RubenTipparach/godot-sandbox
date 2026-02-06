@@ -85,47 +85,74 @@ func _ready():
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
-	var panel = PanelContainer.new()
-	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.position = Vector2(10, 10)
-	panel.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
-	root.add_child(panel)
+	# Left column for stacked panels
+	var left_col = VBoxContainer.new()
+	left_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	left_col.position = Vector2(10, 10)
+	left_col.add_theme_constant_override("separation", 6)
+	root.add_child(left_col)
 
-	var vbox = VBoxContainer.new()
-	panel.add_child(vbox)
+	# --- Player Panel: Health, XP, Level, Prestige ---
+	var player_panel = PanelContainer.new()
+	player_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	player_panel.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
+	left_col.add_child(player_panel)
+	var player_vbox = VBoxContainer.new()
+	player_vbox.add_theme_constant_override("separation", 2)
+	player_panel.add_child(player_vbox)
 
-	health_label = _lbl(vbox, 16, Color(0.4, 1.0, 0.4))
-	iron_label = _lbl(vbox, 16, Color(0.8, 0.75, 0.65))
-	crystal_label = _lbl(vbox, 16, Color(0.5, 0.7, 1.0))
-	level_label = _lbl(vbox, 15, Color(0.9, 0.8, 0.3))
+	health_label = _lbl(player_vbox, 16, Color(0.4, 1.0, 0.4))
+	level_label = _lbl(player_vbox, 15, Color(0.9, 0.8, 0.3))
 
 	xp_bar_bg = ColorRect.new()
-	xp_bar_bg.custom_minimum_size = Vector2(170, 10)
+	xp_bar_bg.custom_minimum_size = Vector2(170, 8)
 	xp_bar_bg.color = Color(0.15, 0.15, 0.25)
-	vbox.add_child(xp_bar_bg)
+	player_vbox.add_child(xp_bar_bg)
 	xp_bar_fill = ColorRect.new()
 	xp_bar_fill.color = Color(0.3, 0.8, 1.0)
 	xp_bar_fill.position = Vector2.ZERO
-	xp_bar_fill.size = Vector2(0, 10)
+	xp_bar_fill.size = Vector2(0, 8)
 	xp_bar_bg.add_child(xp_bar_fill)
 
-	wave_label = _lbl(vbox, 16, Color.WHITE)
-	timer_label = _lbl(vbox, 18, Color(1.0, 0.4, 0.4))
-	alien_count_label = _lbl(vbox, 14, Color(1.0, 0.5, 0.4))
-	power_label = _lbl(vbox, 15, Color(0.5, 0.8, 1.0))
+	prestige_hud_label = _lbl(player_vbox, 13, Color(1.0, 0.85, 0.3))
+
+	# --- Resources Panel: Iron, Crystal, Energy ---
+	var res_panel = PanelContainer.new()
+	res_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	res_panel.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
+	left_col.add_child(res_panel)
+	var res_vbox = VBoxContainer.new()
+	res_vbox.add_theme_constant_override("separation", 2)
+	res_panel.add_child(res_vbox)
+
+	iron_label = _lbl(res_vbox, 15, Color(0.8, 0.75, 0.65))
+	crystal_label = _lbl(res_vbox, 15, Color(0.5, 0.7, 1.0))
+	power_label = _lbl(res_vbox, 14, Color(0.5, 0.8, 1.0))
 
 	power_bar_bg = ColorRect.new()
-	power_bar_bg.custom_minimum_size = Vector2(170, 10)
+	power_bar_bg.custom_minimum_size = Vector2(170, 8)
 	power_bar_bg.color = Color(0.15, 0.15, 0.25)
-	vbox.add_child(power_bar_bg)
+	res_vbox.add_child(power_bar_bg)
 	power_bar_fill = ColorRect.new()
 	power_bar_fill.color = Color(0.3, 0.6, 1.0)
 	power_bar_fill.position = Vector2.ZERO
-	power_bar_fill.size = Vector2(0, 10)
+	power_bar_fill.size = Vector2(0, 8)
 	power_bar_bg.add_child(power_bar_fill)
 
-	power_rate_label = _lbl(vbox, 12, Color(0.5, 0.7, 0.9))
-	prestige_hud_label = _lbl(vbox, 14, Color(1.0, 0.85, 0.3))
+	power_rate_label = _lbl(res_vbox, 11, Color(0.5, 0.7, 0.9))
+
+	# --- Wave Panel: Wave, Timer, Alien count ---
+	var wave_panel = PanelContainer.new()
+	wave_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	wave_panel.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
+	left_col.add_child(wave_panel)
+	var wave_vbox = VBoxContainer.new()
+	wave_vbox.add_theme_constant_override("separation", 2)
+	wave_panel.add_child(wave_vbox)
+
+	wave_label = _lbl(wave_vbox, 16, Color.WHITE)
+	timer_label = _lbl(wave_vbox, 17, Color(1.0, 0.4, 0.4))
+	alien_count_label = _lbl(wave_vbox, 13, Color(1.0, 0.5, 0.4))
 
 	# Horizontal build bar at bottom center
 	var build_bar = PanelContainer.new()
@@ -133,7 +160,7 @@ func _ready():
 	build_bar.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.7)))
 	build_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	build_bar.offset_top = -56; build_bar.offset_bottom = -10
-	build_bar.offset_left = -240; build_bar.offset_right = 240
+	build_bar.offset_left = -260; build_bar.offset_right = 260
 	root.add_child(build_bar)
 
 	var build_hbox = HBoxContainer.new()
@@ -151,6 +178,7 @@ func _ready():
 	build_cost_labels.append(_build_icon(build_hbox, "battery", "8", "Battery"))
 	build_cost_labels.append(_build_icon(build_hbox, "flame_turret", "9", "Flame Turret"))
 	build_cost_labels.append(_build_icon(build_hbox, "acid_turret", "0", "Acid Turret"))
+	build_cost_labels.append(_build_icon(build_hbox, "repair_drone", "Q", "Repair Drone"))
 
 	alert_label = Label.new()
 	alert_label.add_theme_font_size_override("font_size", 36)
@@ -395,15 +423,35 @@ func _build_start_menu(root: Control):
 	research_btn.pressed.connect(_on_research_btn_pressed)
 	start_menu.add_child(research_btn)
 
-	var debug_container = HBoxContainer.new()
-	debug_container.set_anchors_preset(Control.PRESET_CENTER)
-	debug_container.offset_top = 100
-	debug_container.offset_left = -150
-	debug_container.offset_right = 150
-	debug_container.offset_bottom = 140
-	debug_container.alignment = BoxContainer.ALIGNMENT_CENTER
-	debug_container.add_theme_constant_override("separation", 10)
-	start_menu.add_child(debug_container)
+	var debug_toggle_btn = Button.new()
+	debug_toggle_btn.text = "Debug"
+	debug_toggle_btn.custom_minimum_size = Vector2(80, 30)
+	debug_toggle_btn.add_theme_font_size_override("font_size", 12)
+	debug_toggle_btn.add_theme_color_override("font_color", Color(0.5, 0.5, 0.5))
+	debug_toggle_btn.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	debug_toggle_btn.offset_top = -40
+	debug_toggle_btn.offset_left = -90
+	debug_toggle_btn.offset_right = -10
+	debug_toggle_btn.offset_bottom = -10
+	debug_toggle_btn.pressed.connect(_on_debug_toggle)
+	start_menu.add_child(debug_toggle_btn)
+
+	var debug_panel = VBoxContainer.new()
+	debug_panel.name = "DebugPanel"
+	debug_panel.set_anchors_preset(Control.PRESET_CENTER)
+	debug_panel.offset_top = 100
+	debug_panel.offset_left = -150
+	debug_panel.offset_right = 150
+	debug_panel.offset_bottom = 200
+	debug_panel.alignment = BoxContainer.ALIGNMENT_CENTER
+	debug_panel.add_theme_constant_override("separation", 8)
+	debug_panel.visible = false
+	start_menu.add_child(debug_panel)
+
+	var debug_prestige_row = HBoxContainer.new()
+	debug_prestige_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	debug_prestige_row.add_theme_constant_override("separation", 10)
+	debug_panel.add_child(debug_prestige_row)
 
 	for amount in [1, 5, 20]:
 		var btn = Button.new()
@@ -412,20 +460,15 @@ func _build_start_menu(root: Control):
 		btn.add_theme_font_size_override("font_size", 14)
 		btn.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 		btn.pressed.connect(_on_debug_prestige.bind(amount))
-		debug_container.add_child(btn)
+		debug_prestige_row.add_child(btn)
 
 	var reset_btn = Button.new()
 	reset_btn.text = "Reset Progress"
 	reset_btn.custom_minimum_size = Vector2(200, 36)
 	reset_btn.add_theme_font_size_override("font_size", 14)
 	reset_btn.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
-	reset_btn.set_anchors_preset(Control.PRESET_CENTER)
-	reset_btn.offset_top = 150
-	reset_btn.offset_left = -100
-	reset_btn.offset_right = 100
-	reset_btn.offset_bottom = 186
 	reset_btn.pressed.connect(_on_reset_progress)
-	start_menu.add_child(reset_btn)
+	debug_panel.add_child(reset_btn)
 
 
 func _build_research_panel(root: Control):
@@ -649,6 +692,11 @@ func _on_start_menu_wave_pressed(wave: int):
 	_game_started = true
 	get_tree().paused = false
 	game_started.emit(wave)
+
+
+func _on_debug_toggle():
+	var panel = start_menu.get_node("DebugPanel")
+	panel.visible = not panel.visible
 
 
 func _on_debug_prestige(amount: int):
@@ -923,6 +971,8 @@ func _get_building_info_text(b: Node2D) -> String:
 			lines.append("AoE fire DMG | Range: 120")
 		"Acid Turret":
 			lines.append("Acid + puddles | Range: 200")
+		"Repair Drone":
+			lines.append("Repairs buildings | Range: 150")
 	return "\n".join(lines)
 
 
@@ -953,6 +1003,8 @@ func _get_build_type_info(build_type: String) -> String:
 			return "Flame Turret\nAoE fire DMG | Range: 120\nBurns enemies | Requires power\n" + cost_text
 		"acid_turret":
 			return "Acid Turret\nShoots acid + puddles | Range: 200\nRequires power\n" + cost_text
+		"repair_drone":
+			return "Repair Drone\nRepairs nearby buildings\nRequires power\n" + cost_text
 	return build_type + "\n" + cost_text
 
 
@@ -1128,6 +1180,10 @@ func _update_build_costs(player: Node2D):
 				info["icon"].locked = GameData.get_research_bonus("turret_fire") < 1.0
 			"acid_turret":
 				info["icon"].locked = GameData.get_research_bonus("turret_acid") < 1.0
+			"battery":
+				info["icon"].locked = GameData.get_research_bonus("unlock_battery") < 1.0
+			"repair_drone":
+				info["icon"].locked = GameData.get_research_bonus("unlock_repair_drone") < 1.0
 			_:
 				info["icon"].locked = false
 

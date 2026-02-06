@@ -49,10 +49,26 @@ const NODE_LAYOUT = {
 	"factory_rate": Vector2(240, 50),
 
 	# Turret upgrades
-	"turret_spread": Vector2(180, 300),
-	"turret_ice": Vector2(100, 300),
-	"turret_fire": Vector2(200, 300),
-	"turret_acid": Vector2(300, 300),
+	"turret_spread": Vector2(100, 300),
+	"turret_ice": Vector2(200, 300),
+	"turret_fire": Vector2(300, 300),
+	"turret_acid": Vector2(400, 300),
+
+	# Economy / Mining
+	"cost_efficiency": Vector2(-240, 50),
+	"mining_yield": Vector2(-80, -300),
+	"mining_range": Vector2(80, -300),
+
+	# Building durability
+	"building_health": Vector2(-320, 300),
+
+	# Battery unlock
+	"unlock_battery": Vector2(240, -50),
+
+	# Repair Drone
+	"unlock_repair_drone": Vector2(360, 100),
+	"repair_drone_range": Vector2(440, 200),
+	"repair_drone_speed": Vector2(360, 200),
 }
 
 # Connections between nodes (prerequisites)
@@ -80,6 +96,14 @@ const NODE_CONNECTIONS = [
 	["turret_ice", "turret_damage"],
 	["turret_fire", "turret_damage"],
 	["turret_acid", "turret_damage"],
+	["cost_efficiency", "starting_iron"],
+	["mining_yield", "mining_speed"],
+	["mining_range", "mining_speed"],
+	["building_health", "unlock_wall"],
+	["unlock_battery", "factory_speed"],
+	["unlock_repair_drone", "unlock_repair"],
+	["repair_drone_range", "unlock_repair_drone"],
+	["repair_drone_speed", "unlock_repair_drone"],
 ]
 
 # Node icons (simple shapes drawn procedurally)
@@ -107,6 +131,14 @@ const NODE_ICONS = {
 	"turret_ice": "slow",
 	"turret_fire": "fire_round",
 	"turret_acid": "acid_round",
+	"cost_efficiency": "efficiency",
+	"mining_yield": "yield",
+	"mining_range": "range",
+	"building_health": "building_hp",
+	"unlock_battery": "battery",
+	"unlock_repair_drone": "repair_drone",
+	"repair_drone_range": "drone_range",
+	"repair_drone_speed": "drone_speed",
 }
 
 var hovered_node: String = ""
@@ -395,6 +427,56 @@ func _draw_icon(pos: Vector2, icon_type: String, is_owned: bool):
 			draw_circle(pos + Vector2(s*0.3, -s*0.2), s*0.15, Color(0.3, 0.9, 0.2))
 			draw_circle(pos + Vector2(s*0.5, s*0.1), s*0.12, Color(0.3, 0.9, 0.2))
 			draw_circle(pos + Vector2(s*0.2, s*0.3), s*0.1, Color(0.3, 0.9, 0.2))
+		"efficiency":
+			# Coins/discount - circle with % sign
+			draw_circle(pos, s*0.6, Color(0.9, 0.75, 0.3))
+			draw_circle(pos, s*0.4, Color(0.7, 0.55, 0.2))
+			draw_line(pos + Vector2(-s*0.2, s*0.3), pos + Vector2(s*0.2, -s*0.3), Color(1.0, 0.9, 0.5), 2.0)
+		"yield":
+			# Pile of ore nuggets
+			draw_circle(pos + Vector2(-s*0.3, s*0.2), s*0.3, Color(0.7, 0.6, 0.4))
+			draw_circle(pos + Vector2(s*0.3, s*0.2), s*0.3, Color(0.7, 0.6, 0.4))
+			draw_circle(pos + Vector2(0, -s*0.1), s*0.35, Color(0.8, 0.7, 0.5))
+			draw_circle(pos + Vector2(0, -s*0.1), s*0.15, Color(1.0, 0.9, 0.6))
+		"range":
+			# Expanding circle with arrow
+			draw_arc(pos, s*0.4, 0, TAU, 16, Color(0.5, 0.9, 0.5), 1.5)
+			draw_arc(pos, s*0.7, 0, TAU, 16, Color(0.5, 0.9, 0.5, 0.5), 1.5)
+			draw_line(pos + Vector2(s*0.3, 0), pos + Vector2(s*0.8, 0), Color(0.5, 0.9, 0.5), 2.0)
+			draw_colored_polygon(PackedVector2Array([
+				pos + Vector2(s*0.8, -s*0.2),
+				pos + Vector2(s, 0),
+				pos + Vector2(s*0.8, s*0.2),
+			]), Color(0.5, 0.9, 0.5))
+		"building_hp":
+			# Building with shield/plus
+			draw_rect(Rect2(pos.x - s*0.5, pos.y - s*0.3, s, s*0.8), Color(0.5, 0.5, 0.55))
+			draw_line(pos + Vector2(-s*0.2, 0), pos + Vector2(s*0.2, 0), Color(0.3, 1.0, 0.4), 3.0)
+			draw_line(pos + Vector2(0, -s*0.2), pos + Vector2(0, s*0.2), Color(0.3, 1.0, 0.4), 3.0)
+		"battery":
+			# Battery shape
+			draw_rect(Rect2(pos.x - s*0.4, pos.y - s*0.3, s*0.8, s*0.8), Color(0.4, 0.4, 0.5))
+			draw_rect(Rect2(pos.x - s*0.15, pos.y - s*0.5, s*0.3, s*0.25), Color(0.5, 0.5, 0.6))
+			draw_rect(Rect2(pos.x - s*0.3, pos.y + s*0.05, s*0.6, s*0.3), Color(0.3, 0.8, 0.4, 0.7))
+		"repair_drone":
+			# Small drone shape
+			draw_circle(pos, s*0.4, Color(0.4, 0.5, 0.4))
+			for di in range(4):
+				var da = TAU * di / 4.0 + PI/4.0
+				var arm_end = pos + Vector2.from_angle(da) * s*0.7
+				draw_line(pos, arm_end, Color(0.5, 0.6, 0.5), 2.0)
+				draw_circle(arm_end, s*0.15, Color(0.3, 0.8, 0.4))
+		"drone_range":
+			# Drone with expanding circle
+			draw_circle(pos, s*0.3, Color(0.4, 0.5, 0.4))
+			draw_arc(pos, s*0.6, 0, TAU, 16, Color(0.3, 0.8, 0.4, 0.6), 1.5)
+			draw_arc(pos, s*0.85, 0, TAU, 16, Color(0.3, 0.8, 0.4, 0.3), 1.5)
+		"drone_speed":
+			# Drone with speed lines
+			draw_circle(pos, s*0.3, Color(0.4, 0.5, 0.4))
+			draw_line(pos + Vector2(-s*0.6, 0), pos + Vector2(-s*0.3, 0), Color(0.3, 0.8, 0.4), 2.0)
+			draw_line(pos + Vector2(s*0.4, s*0.2), pos + Vector2(s*0.8, s*0.2), Color(1.0, 0.9, 0.3), 2.0)
+			draw_line(pos + Vector2(s*0.3, s*0.5), pos + Vector2(s*0.7, s*0.5), Color(1.0, 0.9, 0.3), 2.0)
 
 
 func _draw_tooltip(key: String):

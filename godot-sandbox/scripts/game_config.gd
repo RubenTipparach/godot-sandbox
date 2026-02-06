@@ -74,6 +74,8 @@ extends Resource
 @export var cost_flame_turret_crystal: int = 10
 @export var cost_acid_turret_iron: int = 20
 @export var cost_acid_turret_crystal: int = 12
+@export var cost_repair_drone_iron: int = 22
+@export var cost_repair_drone_crystal: int = 12
 
 @export_group("Cost Scaling")
 @export var cost_scale_default: float = 1.5
@@ -95,6 +97,7 @@ extends Resource
 @export var hp_battery: int = 60
 @export var hp_flame_turret: int = 55
 @export var hp_acid_turret: int = 50
+@export var hp_repair_drone: int = 40
 
 # =============================================================================
 # POWER SYSTEM
@@ -116,6 +119,7 @@ extends Resource
 @export var power_pylon: float = 2.0
 @export var power_flame_turret: float = 8.0
 @export var power_acid_turret: float = 7.0
+@export var power_repair_drone: float = 6.0
 
 # =============================================================================
 # TURRET
@@ -169,6 +173,14 @@ extends Resource
 @export var acid_puddle_duration: float = 4.0
 @export var acid_puddle_dps: int = 6
 @export var acid_puddle_tick: float = 0.5
+
+# =============================================================================
+# REPAIR DRONE
+# =============================================================================
+@export_group("Repair Drone")
+@export var repair_drone_range: float = 150.0
+@export var repair_drone_repair_rate: float = 2.0
+@export var repair_drone_tick_interval: float = 1.0
 
 # =============================================================================
 # WAVE ENEMIES
@@ -249,6 +261,7 @@ func get_base_cost(type: String) -> Dictionary:
 		"battery": return {"iron": cost_battery_iron, "crystal": cost_battery_crystal}
 		"flame_turret": return {"iron": cost_flame_turret_iron, "crystal": cost_flame_turret_crystal}
 		"acid_turret": return {"iron": cost_acid_turret_iron, "crystal": cost_acid_turret_crystal}
+		"repair_drone": return {"iron": cost_repair_drone_iron, "crystal": cost_repair_drone_crystal}
 	return {"iron": 10, "crystal": 5}
 
 
