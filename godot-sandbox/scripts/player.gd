@@ -38,6 +38,7 @@ var build_mode: String = ""  # Empty = not building, otherwise building type
 var build_mode_cooldown: float = 0.0  # Prevents immediate placement after clicking build icon
 const BUILD_RANGE = 300.0
 var is_mobile: bool = false
+var pending_build_world_pos: Vector2 = Vector2.ZERO  # Mobile: ghost position set by tap
 
 var upgrades = {
 	"chain_lightning": 0,
@@ -85,6 +86,8 @@ func _ready():
 func enter_build_mode(building_type: String):
 	build_mode = building_type
 	build_mode_cooldown = 0.15  # Brief cooldown to prevent immediate placement from the same click
+	if is_mobile:
+		pending_build_world_pos = global_position.snapped(Vector2(40, 40))
 
 
 func cancel_build_mode():
@@ -128,9 +131,14 @@ func _process(delta):
 
 	var input = Vector2.ZERO
 	var joystick_node = null
+	var look_joystick_node = null
 	var joysticks = get_tree().get_nodes_in_group("mobile_joystick")
+	for j in joysticks:
+		if j.joystick_type == "move":
+			joystick_node = j
+		elif j.joystick_type == "look":
+			look_joystick_node = j
 	if joysticks.size() > 0:
-		joystick_node = joysticks[0]
 		is_mobile = true
 
 	if joystick_node and joystick_node.input_vector != Vector2.ZERO:
@@ -145,11 +153,12 @@ func _process(delta):
 	position = position.clamp(Vector2(-MAP_HALF_SIZE, -MAP_HALF_SIZE), Vector2(MAP_HALF_SIZE, MAP_HALF_SIZE))
 
 	if is_mobile:
-		var nearest_alien = _find_nearest_alien()
-		if nearest_alien:
-			facing_angle = (nearest_alien.global_position - global_position).angle()
-		elif input != Vector2.ZERO:
-			facing_angle = input.angle()
+		if look_joystick_node and look_joystick_node.input_vector != Vector2.ZERO:
+			facing_angle = look_joystick_node.input_vector.angle()
+		else:
+			var nearest_alien = _find_nearest_alien()
+			if nearest_alien:
+				facing_angle = (nearest_alien.global_position - global_position).angle()
 	else:
 		facing_angle = (get_global_mouse_position() - global_position).angle()
 	shoot_timer = maxf(0.0, shoot_timer - delta)
@@ -188,12 +197,15 @@ func _process(delta):
 	# Build mode placement (click to place)
 	if build_mode != "":
 		build_mode_cooldown = maxf(0.0, build_mode_cooldown - delta)
-		var joystick_blocking = joystick_node != null and joystick_node.is_active
-		if Input.is_action_just_pressed("shoot") and build_mode_cooldown <= 0 and not joystick_blocking:
-			if _try_build(build_mode):
-				pass  # Stay in build mode for quick placement
-		if not is_mobile and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-			cancel_build_mode()
+		if is_mobile:
+			pass  # Mobile: tap sets pending position via HUD, confirm button triggers placement
+		else:
+			var joystick_blocking = joystick_node != null and joystick_node.is_active
+			if Input.is_action_just_pressed("shoot") and build_mode_cooldown <= 0 and not joystick_blocking:
+				if _try_build(build_mode):
+					pass  # Stay in build mode for quick placement
+			if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+				cancel_build_mode()
 
 	_collect_gems()
 	_collect_powerups()
@@ -398,6 +410,16 @@ func get_building_cost(type: String) -> Dictionary:
 
 func _try_build(type: String) -> bool:
 	var bp = get_global_mouse_position().snapped(Vector2(40, 40))
+	return _try_build_at(type, bp)
+
+
+func confirm_build() -> bool:
+	if build_mode == "" or pending_build_world_pos == Vector2.ZERO:
+		return false
+	return _try_build_at(build_mode, pending_build_world_pos)
+
+
+func _try_build_at(type: String, bp: Vector2) -> bool:
 	if global_position.distance_to(bp) > BUILD_RANGE:
 		return false
 	for b in get_tree().get_nodes_in_group("buildings"):
@@ -584,7 +606,11 @@ func _draw():
 
 	# Build mode ghost preview
 	if build_mode != "":
-		var bp = get_global_mouse_position().snapped(Vector2(40, 40))
+		var bp: Vector2
+		if is_mobile and pending_build_world_pos != Vector2.ZERO:
+			bp = pending_build_world_pos
+		else:
+			bp = get_global_mouse_position().snapped(Vector2(40, 40))
 		var ghost_pos = bp - global_position
 		var valid = can_place_at(bp) and can_afford(build_mode)
 		var ghost_color = Color(0.3, 1.0, 0.4, 0.5) if valid else Color(1.0, 0.3, 0.3, 0.5)

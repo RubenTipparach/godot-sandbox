@@ -40,6 +40,11 @@ var building_tooltip: PanelContainer
 var building_tooltip_label: Label
 var is_mobile: bool = false
 var joystick: Control = null
+var look_joystick: Control = null
+var selected_building: Node2D = null
+var build_confirm_panel: HBoxContainer = null
+var confirm_btn: Button = null
+var cancel_build_btn: Button = null
 
 const UPGRADE_DATA = {
 	"chain_lightning": {"name": "Chain Lightning", "color": Color(0.3, 0.7, 1.0), "max": 5},
@@ -536,14 +541,55 @@ func _detect_mobile() -> bool:
 
 
 func _build_mobile_controls(root: Control):
+	# Left joystick - movement
 	joystick = Control.new()
 	joystick.set_script(preload("res://scripts/mobile_joystick.gd"))
+	joystick.joystick_type = "move"
 	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	joystick.offset_left = 20
 	joystick.offset_top = -180
 	joystick.offset_right = 180
 	joystick.offset_bottom = -20
 	root.add_child(joystick)
+
+	# Right joystick - rotation/facing
+	look_joystick = Control.new()
+	look_joystick.set_script(preload("res://scripts/mobile_joystick.gd"))
+	look_joystick.joystick_type = "look"
+	look_joystick.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	look_joystick.offset_left = -180
+	look_joystick.offset_top = -180
+	look_joystick.offset_right = -20
+	look_joystick.offset_bottom = -20
+	root.add_child(look_joystick)
+
+	# Build confirm/cancel buttons (shown only in build mode)
+	build_confirm_panel = HBoxContainer.new()
+	build_confirm_panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	build_confirm_panel.offset_top = -110
+	build_confirm_panel.offset_bottom = -62
+	build_confirm_panel.offset_left = -130
+	build_confirm_panel.offset_right = 130
+	build_confirm_panel.alignment = BoxContainer.ALIGNMENT_CENTER
+	build_confirm_panel.add_theme_constant_override("separation", 20)
+	build_confirm_panel.visible = false
+	root.add_child(build_confirm_panel)
+
+	cancel_build_btn = Button.new()
+	cancel_build_btn.text = "Cancel"
+	cancel_build_btn.custom_minimum_size = Vector2(110, 44)
+	cancel_build_btn.add_theme_font_size_override("font_size", 18)
+	cancel_build_btn.add_theme_color_override("font_color", Color(1.0, 0.5, 0.4))
+	cancel_build_btn.pressed.connect(_on_cancel_build_pressed)
+	build_confirm_panel.add_child(cancel_build_btn)
+
+	confirm_btn = Button.new()
+	confirm_btn.text = "Place"
+	confirm_btn.custom_minimum_size = Vector2(110, 44)
+	confirm_btn.add_theme_font_size_override("font_size", 18)
+	confirm_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
+	confirm_btn.pressed.connect(_on_confirm_build_pressed)
+	build_confirm_panel.add_child(confirm_btn)
 
 
 func _update_start_menu():
@@ -642,12 +688,85 @@ func show_death_screen(wave: int, bosses: int, prestige: int):
 	death_panel.visible = true
 
 
+func _unhandled_input(event: InputEvent):
+	if not is_mobile or not _game_started or get_tree().paused:
+		return
+	if event is InputEventScreenTouch and event.pressed:
+		var player = _get_player()
+		if not player:
+			return
+		if player.is_in_build_mode():
+			# Tap sets the pending build position on mobile
+			var world_pos = _screen_to_world(event.position)
+			if world_pos != null:
+				player.pending_build_world_pos = world_pos.snapped(Vector2(40, 40))
+		else:
+			# Check for building selection (tooltip)
+			_handle_mobile_building_tap(event.position)
+
+
+func _screen_to_world(screen_pos: Vector2):
+	var cam = get_viewport().get_camera_2d()
+	if not cam:
+		return null
+	var vp_size = get_viewport().get_visible_rect().size
+	return cam.global_position + (screen_pos - vp_size / 2.0) / cam.zoom
+
+
+func _handle_mobile_building_tap(screen_pos: Vector2):
+	var world_pos = _screen_to_world(screen_pos)
+	if world_pos == null:
+		selected_building = null
+		return
+
+	var closest_building: Node2D = null
+	var closest_dist = 50.0  # Larger detection radius for touch
+
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b):
+			continue
+		var dist = world_pos.distance_to(b.global_position)
+		if dist < closest_dist:
+			closest_dist = dist
+			closest_building = b
+
+	selected_building = closest_building
+
+
+func _get_player() -> Node2D:
+	var players = get_tree().get_nodes_in_group("player")
+	if players.size() > 0 and is_instance_valid(players[0]):
+		return players[0]
+	return null
+
+
+func _on_confirm_build_pressed():
+	var player = _get_player()
+	if player:
+		player.confirm_build()
+
+
+func _on_cancel_build_pressed():
+	var player = _get_player()
+	if player:
+		player.cancel_build_mode()
+
+
 func _process(delta):
 	if alert_timer > 0:
 		alert_timer -= delta
 		alert_label.modulate.a = clampf(alert_timer / 1.5, 0.0, 1.0)
 		if alert_timer <= 0:
 			alert_label.visible = false
+
+	# Toggle mobile build confirm buttons
+	if is_mobile and build_confirm_panel:
+		var player = _get_player()
+		var in_build = player != null and player.is_in_build_mode()
+		build_confirm_panel.visible = in_build
+		if in_build and player:
+			var valid = player.can_place_at(player.pending_build_world_pos) and player.can_afford(player.build_mode)
+			confirm_btn.disabled = not valid
 
 	# Update building tooltip
 	_update_building_tooltip()
@@ -663,13 +782,20 @@ func _update_building_tooltip():
 		building_tooltip.visible = false
 		return
 
+	if is_mobile:
+		_update_building_tooltip_mobile(cam)
+	else:
+		_update_building_tooltip_desktop(cam)
+
+
+func _update_building_tooltip_desktop(cam: Camera2D):
 	var mouse_screen = get_viewport().get_mouse_position()
 	var vp_size = get_viewport().get_visible_rect().size
 	var mouse_world = cam.get_global_transform().affine_inverse() * mouse_screen + cam.global_position - vp_size / 2.0 / cam.zoom
 
 	# Find building under mouse
 	var closest_building: Node2D = null
-	var closest_dist = 40.0  # Detection radius
+	var closest_dist = 40.0
 
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if not is_instance_valid(b):
@@ -685,6 +811,91 @@ func _update_building_tooltip():
 		building_tooltip.position = mouse_screen + Vector2(15, 15)
 	else:
 		building_tooltip.visible = false
+
+
+func _update_building_tooltip_mobile(cam: Camera2D):
+	var player = _get_player()
+	var vp_size = get_viewport().get_visible_rect().size
+
+	# Show build-type tooltip while in build mode
+	if player and player.is_in_build_mode():
+		var info = _get_build_type_info(player.build_mode)
+		if info != "":
+			building_tooltip_label.text = info
+			building_tooltip.visible = true
+			# Position above the confirm panel, centered
+			building_tooltip.position = Vector2(vp_size.x / 2.0 - 60, vp_size.y - 160)
+			var ts = building_tooltip.size
+			building_tooltip.position.x = clampf(vp_size.x / 2.0 - ts.x / 2.0, 5, vp_size.x - ts.x - 5)
+		return
+
+	if selected_building == null or not is_instance_valid(selected_building):
+		selected_building = null
+		building_tooltip.visible = false
+		return
+
+	var screen_pos = (selected_building.global_position - cam.global_position) * cam.zoom + vp_size / 2.0
+	building_tooltip_label.text = _get_building_info_text(selected_building)
+	building_tooltip.visible = true
+	building_tooltip.position = screen_pos + Vector2(15, -60)
+	# Clamp tooltip to screen
+	var ts = building_tooltip.size
+	building_tooltip.position.x = clampf(building_tooltip.position.x, 5, vp_size.x - ts.x - 5)
+	building_tooltip.position.y = clampf(building_tooltip.position.y, 5, vp_size.y - ts.y - 5)
+
+
+func _get_building_info_text(b: Node2D) -> String:
+	if not b.has_method("get_building_name"):
+		return ""
+	var name = b.get_building_name()
+	var lines = [name]
+	if "hp" in b and "max_hp" in b:
+		lines.append("HP: %d/%d" % [b.hp, b.max_hp])
+	if b.has_method("is_powered"):
+		lines.append("Power: " + ("ON" if b.is_powered() else "OFF"))
+	match name:
+		"Turret":
+			var dmg = 8 + (b.damage_bonus if "damage_bonus" in b else 0)
+			lines.append("DMG: %d | Range: 250" % dmg)
+		"Factory":
+			lines.append("Produces Iron & Crystal")
+		"Lightning Tower":
+			lines.append("DMG: 15 | Range: 180")
+		"Slow Tower":
+			lines.append("Slow: 50% | Range: 150")
+		"Pylon":
+			lines.append("Power Range: 150")
+		"Power Plant":
+			lines.append("Power Range: 120")
+		"HQ":
+			lines.append("Power Range: 150")
+		"Wall":
+			lines.append("Blocks enemies")
+	return "\n".join(lines)
+
+
+func _get_build_type_info(build_type: String) -> String:
+	var player = _get_player()
+	var cost_text = ""
+	if player:
+		var cost = player.get_building_cost(build_type)
+		cost_text = "Cost: %dI + %dC" % [cost["iron"], cost["crystal"]]
+	match build_type:
+		"turret":
+			return "Turret\nDMG: 8 | Range: 250\nRequires power\n" + cost_text
+		"factory":
+			return "Factory\nProduces Iron & Crystal\nRequires power\n" + cost_text
+		"wall":
+			return "Wall\nHP: 150 | Blocks enemies\n" + cost_text
+		"lightning":
+			return "Lightning Tower\nDMG: 15 | Range: 180\nRequires power\n" + cost_text
+		"slow":
+			return "Slow Tower\nSlow: 50% | Range: 150\nRequires power\n" + cost_text
+		"pylon":
+			return "Pylon\nExtends power | Range: 150\nRequires power chain\n" + cost_text
+		"power_plant":
+			return "Power Plant\nProvides power | Range: 120\n" + cost_text
+	return build_type + "\n" + cost_text
 
 
 func _lbl(parent: Node, sz: int, col: Color = Color.WHITE) -> Label:

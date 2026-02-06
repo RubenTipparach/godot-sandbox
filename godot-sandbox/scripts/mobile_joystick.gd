@@ -2,6 +2,7 @@ extends Control
 
 # Virtual joystick for mobile movement controls
 
+var joystick_type: String = "move"  # "move" or "look"
 var input_vector: Vector2 = Vector2.ZERO
 var is_active: bool = false
 var active_touch_index: int = -1
