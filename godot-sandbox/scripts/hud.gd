@@ -14,6 +14,7 @@ var power_label: Label
 var power_bar_bg: ColorRect
 var power_bar_fill: ColorRect
 var power_rate_label: Label
+var prestige_hud_label: Label
 var alert_label: Label
 var xp_bar_bg: ColorRect
 var xp_bar_fill: ColorRect
@@ -124,6 +125,7 @@ func _ready():
 	power_bar_bg.add_child(power_bar_fill)
 
 	power_rate_label = _lbl(vbox, 12, Color(0.5, 0.7, 0.9))
+	prestige_hud_label = _lbl(vbox, 14, Color(1.0, 0.85, 0.3))
 
 	# Horizontal build bar at bottom center
 	var build_bar = PanelContainer.new()
@@ -131,7 +133,7 @@ func _ready():
 	build_bar.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.7)))
 	build_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	build_bar.offset_top = -56; build_bar.offset_bottom = -10
-	build_bar.offset_left = -200; build_bar.offset_right = 200
+	build_bar.offset_left = -240; build_bar.offset_right = 240
 	root.add_child(build_bar)
 
 	var build_hbox = HBoxContainer.new()
@@ -147,6 +149,8 @@ func _ready():
 	build_cost_labels.append(_build_icon(build_hbox, "lightning", "6", "Lightning Tower"))
 	build_cost_labels.append(_build_icon(build_hbox, "slow", "7", "Slow Tower"))
 	build_cost_labels.append(_build_icon(build_hbox, "battery", "8", "Battery"))
+	build_cost_labels.append(_build_icon(build_hbox, "flame_turret", "9", "Flame Turret"))
+	build_cost_labels.append(_build_icon(build_hbox, "acid_turret", "0", "Acid Turret"))
 
 	alert_label = Label.new()
 	alert_label.add_theme_font_size_override("font_size", 36)
@@ -391,6 +395,38 @@ func _build_start_menu(root: Control):
 	research_btn.pressed.connect(_on_research_btn_pressed)
 	start_menu.add_child(research_btn)
 
+	var debug_container = HBoxContainer.new()
+	debug_container.set_anchors_preset(Control.PRESET_CENTER)
+	debug_container.offset_top = 100
+	debug_container.offset_left = -150
+	debug_container.offset_right = 150
+	debug_container.offset_bottom = 140
+	debug_container.alignment = BoxContainer.ALIGNMENT_CENTER
+	debug_container.add_theme_constant_override("separation", 10)
+	start_menu.add_child(debug_container)
+
+	for amount in [1, 5, 20]:
+		var btn = Button.new()
+		btn.text = "+%d P" % amount
+		btn.custom_minimum_size = Vector2(80, 36)
+		btn.add_theme_font_size_override("font_size", 14)
+		btn.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+		btn.pressed.connect(_on_debug_prestige.bind(amount))
+		debug_container.add_child(btn)
+
+	var reset_btn = Button.new()
+	reset_btn.text = "Reset Progress"
+	reset_btn.custom_minimum_size = Vector2(200, 36)
+	reset_btn.add_theme_font_size_override("font_size", 14)
+	reset_btn.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+	reset_btn.set_anchors_preset(Control.PRESET_CENTER)
+	reset_btn.offset_top = 150
+	reset_btn.offset_left = -100
+	reset_btn.offset_right = 100
+	reset_btn.offset_bottom = 186
+	reset_btn.pressed.connect(_on_reset_progress)
+	start_menu.add_child(reset_btn)
+
 
 func _build_research_panel(root: Control):
 	research_panel = Control.new()
@@ -613,6 +649,23 @@ func _on_start_menu_wave_pressed(wave: int):
 	_game_started = true
 	get_tree().paused = false
 	game_started.emit(wave)
+
+
+func _on_debug_prestige(amount: int):
+	GameData.add_prestige(amount)
+	_update_start_menu()
+
+
+func _on_reset_progress():
+	GameData.prestige_points = 0
+	GameData.highest_wave = 0
+	GameData.total_bosses_killed = 0
+	GameData.total_runs = 0
+	GameData.unlocked_start_waves = [1]
+	for key in GameData.research.keys():
+		GameData.research[key] = 0
+	GameData.save_data()
+	_update_start_menu()
 
 
 func _on_research_btn_pressed():
@@ -866,6 +919,10 @@ func _get_building_info_text(b: Node2D) -> String:
 			lines.append("Blocks enemies")
 		"Battery":
 			lines.append("Stores 50 power")
+		"Flame Turret":
+			lines.append("AoE fire DMG | Range: 120")
+		"Acid Turret":
+			lines.append("Acid + puddles | Range: 200")
 	return "\n".join(lines)
 
 
@@ -892,6 +949,10 @@ func _get_build_type_info(build_type: String) -> String:
 			return "Power Plant\nProvides power | Range: 120\n" + cost_text
 		"battery":
 			return "Battery\nStores 50 power\n" + cost_text
+		"flame_turret":
+			return "Flame Turret\nAoE fire DMG | Range: 120\nBurns enemies | Requires power\n" + cost_text
+		"acid_turret":
+			return "Acid Turret\nShoots acid + puddles | Range: 200\nRequires power\n" + cost_text
 	return build_type + "\n" + cost_text
 
 
@@ -972,7 +1033,7 @@ func _make_card_style(border_col: Color) -> StyleBoxFlat:
 	return s
 
 
-func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active: bool = false, power_gen: float = 0.0, power_cons: float = 0.0, _power_on: bool = true, rates: Dictionary = {}, power_bank: float = 0.0, max_power_bank: float = 0.0):
+func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active: bool = false, power_gen: float = 0.0, power_cons: float = 0.0, _power_on: bool = true, rates: Dictionary = {}, power_bank: float = 0.0, max_power_bank: float = 0.0, prestige_earned: int = 0):
 	if not is_instance_valid(player):
 		return
 	health_label.text = "HP: %d / %d" % [player.health, player.max_health]
@@ -1033,6 +1094,9 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 		power_rate_label.text = "%.0f/s" % net
 		power_rate_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.4))
 
+	# Prestige earned this run
+	prestige_hud_label.text = "Prestige: +%d" % prestige_earned
+
 	# Update building costs dynamically
 	_update_build_costs(player)
 
@@ -1056,14 +1120,14 @@ func _update_build_costs(player: Node2D):
 
 		# Check research locks
 		match build_type:
-			"turret":
-				info["icon"].locked = GameData.get_research_bonus("unlock_turret") < 1.0
-			"wall":
-				info["icon"].locked = GameData.get_research_bonus("unlock_wall") < 1.0
 			"lightning":
 				info["icon"].locked = GameData.get_research_bonus("unlock_lightning") < 1.0
 			"slow":
-				info["icon"].locked = GameData.get_research_bonus("unlock_slow") < 1.0
+				info["icon"].locked = GameData.get_research_bonus("turret_ice") < 1.0
+			"flame_turret":
+				info["icon"].locked = GameData.get_research_bonus("turret_fire") < 1.0
+			"acid_turret":
+				info["icon"].locked = GameData.get_research_bonus("turret_acid") < 1.0
 			_:
 				info["icon"].locked = false
 

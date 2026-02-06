@@ -70,6 +70,10 @@ extends Resource
 @export var cost_power_plant_crystal: int = 15
 @export var cost_battery_iron: int = 15
 @export var cost_battery_crystal: int = 8
+@export var cost_flame_turret_iron: int = 18
+@export var cost_flame_turret_crystal: int = 10
+@export var cost_acid_turret_iron: int = 20
+@export var cost_acid_turret_crystal: int = 12
 
 @export_group("Cost Scaling")
 @export var cost_scale_default: float = 1.5
@@ -89,6 +93,8 @@ extends Resource
 @export var hp_pylon: int = 40
 @export var hp_wall: int = 150
 @export var hp_battery: int = 60
+@export var hp_flame_turret: int = 55
+@export var hp_acid_turret: int = 50
 
 # =============================================================================
 # POWER SYSTEM
@@ -108,6 +114,8 @@ extends Resource
 @export var power_lightning: float = 10.0
 @export var power_slow: float = 8.0
 @export var power_pylon: float = 2.0
+@export var power_flame_turret: float = 8.0
+@export var power_acid_turret: float = 7.0
 
 # =============================================================================
 # TURRET
@@ -139,6 +147,28 @@ extends Resource
 @export_group("Slow Tower")
 @export var slow_range: float = 150.0
 @export var slow_amount: float = 0.5
+
+# =============================================================================
+# FLAME TURRET
+# =============================================================================
+@export_group("Flame Turret")
+@export var flame_range: float = 120.0
+@export var flame_damage: int = 8
+@export var flame_tick_interval: float = 0.5
+@export var flame_burn_dps: float = 6.0
+@export var flame_burn_duration: float = 3.0
+
+# =============================================================================
+# ACID TURRET
+# =============================================================================
+@export_group("Acid Turret")
+@export var acid_range: float = 200.0
+@export var acid_shoot_interval: float = 1.5
+@export var acid_bullet_damage: int = 5
+@export var acid_puddle_radius: float = 40.0
+@export var acid_puddle_duration: float = 4.0
+@export var acid_puddle_dps: int = 6
+@export var acid_puddle_tick: float = 0.5
 
 # =============================================================================
 # WAVE ENEMIES
@@ -217,6 +247,8 @@ func get_base_cost(type: String) -> Dictionary:
 		"pylon": return {"iron": cost_pylon_iron, "crystal": cost_pylon_crystal}
 		"power_plant": return {"iron": cost_power_plant_iron, "crystal": cost_power_plant_crystal}
 		"battery": return {"iron": cost_battery_iron, "crystal": cost_battery_crystal}
+		"flame_turret": return {"iron": cost_flame_turret_iron, "crystal": cost_flame_turret_crystal}
+		"acid_turret": return {"iron": cost_acid_turret_iron, "crystal": cost_acid_turret_crystal}
 	return {"iron": 10, "crystal": 5}
 
 

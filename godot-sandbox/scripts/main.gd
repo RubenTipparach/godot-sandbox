@@ -47,7 +47,9 @@ func _update_power_system(delta):
 	var lightning_count = get_tree().get_nodes_in_group("lightnings").size()
 	var slow_count = get_tree().get_nodes_in_group("slows").size()
 	var pylon_count = get_tree().get_nodes_in_group("pylons").size()
-	total_power_consumption = turret_count * CFG.power_turret + factory_count * CFG.power_factory + lightning_count * CFG.power_lightning + slow_count * CFG.power_slow + pylon_count * CFG.power_pylon
+	var flame_count = get_tree().get_nodes_in_group("flame_turrets").size()
+	var acid_count = get_tree().get_nodes_in_group("acid_turrets").size()
+	total_power_consumption = turret_count * CFG.power_turret + factory_count * CFG.power_factory + lightning_count * CFG.power_lightning + slow_count * CFG.power_slow + pylon_count * CFG.power_pylon + flame_count * CFG.power_flame_turret + acid_count * CFG.power_acid_turret
 
 	# Calculate energy storage capacity (HQ = 200 base, each battery = 50)
 	var battery_count = get_tree().get_nodes_in_group("batteries").size()
@@ -111,6 +113,8 @@ func _setup_inputs():
 	_add_key_action("build_lightning", KEY_6)
 	_add_key_action("build_slow", KEY_7)
 	_add_key_action("build_battery", KEY_8)
+	_add_key_action("build_flame_turret", KEY_9)
+	_add_key_action("build_acid_turret", KEY_0)
 	_add_key_action("pause", KEY_ESCAPE)
 	_add_mouse_action("shoot", MOUSE_BUTTON_LEFT)
 
@@ -208,7 +212,8 @@ func _process(delta):
 
 	if is_instance_valid(hud_node):
 		var rates = get_factory_rates()
-		hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank)
+		var projected_prestige = wave_number / 2 + bosses_killed * 3
+		hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank, projected_prestige)
 
 	queue_redraw()
 
@@ -405,7 +410,22 @@ func on_player_died():
 
 
 func _on_hq_destroyed():
-	on_player_died()  # HQ destruction triggers game over same as player death
+	# HQ destruction also kills the player
+	if is_instance_valid(player_node) and not player_node.is_dead:
+		player_node.health = 0
+		player_node.is_dead = true
+		# Create death particles on the player
+		for i in range(20):
+			var angle = randf() * TAU
+			var speed = randf_range(80, 200)
+			player_node.death_particles.append({
+				"pos": Vector2.ZERO,
+				"vel": Vector2.from_angle(angle) * speed,
+				"life": randf_range(0.8, 1.5),
+				"color": [Color(0.2, 0.9, 0.3), Color(1.0, 0.8, 0.2), Color(1.0, 0.4, 0.1)][randi() % 3],
+				"size": randf_range(3, 8)
+			})
+	on_player_died()
 
 
 func on_boss_killed():

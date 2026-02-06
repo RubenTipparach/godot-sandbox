@@ -187,19 +187,23 @@ func _process(delta):
 	if Input.is_action_just_pressed("build_factory"):
 		_try_build("factory")
 	if Input.is_action_just_pressed("build_turret"):
-		if GameData.get_research_bonus("unlock_turret") >= 1.0:
-			_try_build("turret")
+		_try_build("turret")
 	if Input.is_action_just_pressed("build_wall"):
-		if GameData.get_research_bonus("unlock_wall") >= 1.0:
-			_try_build("wall")
+		_try_build("wall")
 	if Input.is_action_just_pressed("build_lightning"):
 		if GameData.get_research_bonus("unlock_lightning") >= 1.0:
 			_try_build("lightning")
 	if Input.is_action_just_pressed("build_slow"):
-		if GameData.get_research_bonus("unlock_slow") >= 1.0:
+		if GameData.get_research_bonus("turret_ice") >= 1.0:
 			_try_build("slow")
 	if Input.is_action_just_pressed("build_battery"):
 		_try_build("battery")
+	if Input.is_action_just_pressed("build_flame_turret"):
+		if GameData.get_research_bonus("turret_fire") >= 1.0:
+			_try_build("flame_turret")
+	if Input.is_action_just_pressed("build_acid_turret"):
+		if GameData.get_research_bonus("turret_acid") >= 1.0:
+			_try_build("acid_turret")
 
 	# Build mode placement (click to place)
 	if build_mode != "":
@@ -445,13 +449,13 @@ func confirm_build() -> bool:
 
 func _try_build_at(type: String, bp: Vector2) -> bool:
 	# Check research locks
-	if type == "turret" and GameData.get_research_bonus("unlock_turret") < 1.0:
-		return false
-	if type == "wall" and GameData.get_research_bonus("unlock_wall") < 1.0:
-		return false
 	if type == "lightning" and GameData.get_research_bonus("unlock_lightning") < 1.0:
 		return false
-	if type == "slow" and GameData.get_research_bonus("unlock_slow") < 1.0:
+	if type == "slow" and GameData.get_research_bonus("turret_ice") < 1.0:
+		return false
+	if type == "flame_turret" and GameData.get_research_bonus("turret_fire") < 1.0:
+		return false
+	if type == "acid_turret" and GameData.get_research_bonus("turret_acid") < 1.0:
 		return false
 	if global_position.distance_to(bp) > CFG.build_range:
 		return false
@@ -473,9 +477,6 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 			building.damage_bonus = upgrades["turret_damage"] * CFG.turret_damage_per_level + int(GameData.get_research_bonus("turret_damage"))
 			building.fire_rate_bonus = upgrades["turret_fire_rate"] * CFG.turret_fire_rate_per_level
 			building.bullet_count = 1 + int(GameData.get_research_bonus("turret_spread"))
-			building.ice_rounds = GameData.get_research_bonus("turret_ice") >= 1.0
-			building.fire_rounds = GameData.get_research_bonus("turret_fire") >= 1.0
-			building.acid_damage_bonus = int(GameData.get_research_bonus("turret_acid"))
 		"factory":
 			building = preload("res://scenes/factory.tscn").instantiate()
 			building.speed_bonus = upgrades["factory_speed"] * CFG.factory_speed_per_level + GameData.get_research_bonus("factory_speed") + GameData.get_research_bonus("factory_rate")
@@ -491,6 +492,10 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 			building = preload("res://scenes/power_plant.tscn").instantiate()
 		"battery":
 			building = preload("res://scenes/battery.tscn").instantiate()
+		"flame_turret":
+			building = preload("res://scenes/flame_turret.tscn").instantiate()
+		"acid_turret":
+			building = preload("res://scenes/acid_turret.tscn").instantiate()
 
 	if building:
 		building.global_position = bp
@@ -703,3 +708,11 @@ func _draw():
 			"battery":
 				draw_rect(Rect2(ghost_pos.x - 14, ghost_pos.y - 18, 28, 36), ghost_color)
 				draw_rect(Rect2(ghost_pos.x - 6, ghost_pos.y - 22, 12, 6), ghost_color.lightened(0.3))
+			"flame_turret":
+				draw_circle(ghost_pos, 16, ghost_color)
+				draw_arc(ghost_pos, 16, 0, TAU, 32, ghost_color.lightened(0.3), 2.0)
+				draw_arc(ghost_pos, CFG.flame_range, 0, TAU, 48, Color(1.0, 0.5, 0.1, 0.15), 1.5)
+			"acid_turret":
+				draw_circle(ghost_pos, 16, ghost_color)
+				draw_arc(ghost_pos, 16, 0, TAU, 32, ghost_color.lightened(0.3), 2.0)
+				draw_arc(ghost_pos, CFG.acid_range, 0, TAU, 48, Color(0.3, 0.9, 0.15, 0.15), 1.5)

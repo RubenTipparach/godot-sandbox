@@ -28,7 +28,6 @@ const NODE_LAYOUT = {
 
 	# Bottom row - Building unlocks
 	"unlock_lightning": Vector2(-100, 300),
-	"unlock_slow": Vector2(100, 300),
 
 	# Right branch - Repair
 	"unlock_repair": Vector2(200, 100),
@@ -41,7 +40,6 @@ const NODE_LAYOUT = {
 	"chain_count": Vector2(0, 400),
 
 	# Building unlocks
-	"unlock_turret": Vector2(0, 150),
 	"unlock_wall": Vector2(-180, 200),
 
 	# Wall upgrades
@@ -52,9 +50,9 @@ const NODE_LAYOUT = {
 
 	# Turret upgrades
 	"turret_spread": Vector2(180, 300),
-	"turret_ice": Vector2(120, 450),
-	"turret_fire": Vector2(220, 450),
-	"turret_acid": Vector2(320, 450),
+	"turret_ice": Vector2(100, 300),
+	"turret_fire": Vector2(200, 300),
+	"turret_acid": Vector2(300, 300),
 }
 
 # Connections between nodes (prerequisites)
@@ -66,11 +64,9 @@ const NODE_CONNECTIONS = [
 	["max_health", "factory_speed"],
 	["starting_iron", "base_damage"],
 	["starting_crystal", "factory_speed"],
-	["unlock_turret", "starting_iron"],
-	["turret_damage", "unlock_turret"],
+	["turret_damage", "starting_iron"],
 	["turret_damage", "starting_crystal"],
 	["unlock_lightning", "turret_damage"],
-	["unlock_slow", "turret_damage"],
 	["unlock_repair", "factory_speed"],
 	["repair_beams", "unlock_repair"],
 	["repair_rate", "unlock_repair"],
@@ -98,7 +94,6 @@ const NODE_ICONS = {
 	"mining_speed": "mining",
 	"xp_gain": "xp",
 	"unlock_lightning": "lightning",
-	"unlock_slow": "slow",
 	"unlock_repair": "repair",
 	"repair_beams": "repair_multi",
 	"repair_rate": "repair_fast",
@@ -106,11 +101,10 @@ const NODE_ICONS = {
 	"chain_retention": "chain_conduct",
 	"chain_count": "chain_reach",
 	"unlock_wall": "wall",
-	"unlock_turret": "turret_unlock",
 	"wall_health": "wall_hp",
 	"factory_rate": "factory_fast",
 	"turret_spread": "spread",
-	"turret_ice": "ice_round",
+	"turret_ice": "slow",
 	"turret_fire": "fire_round",
 	"turret_acid": "acid_round",
 }
@@ -352,11 +346,6 @@ func _draw_icon(pos: Vector2, icon_type: String, is_owned: bool):
 			draw_line(pos + Vector2(0, -s*0.5), pos + Vector2(0, 0), Color(0.4, 0.35, 0.3), 1.5)
 			draw_line(pos + Vector2(-s*0.35, 0), pos + Vector2(-s*0.35, s*0.5), Color(0.4, 0.35, 0.3), 1.5)
 			draw_line(pos + Vector2(s*0.35, 0), pos + Vector2(s*0.35, s*0.5), Color(0.4, 0.35, 0.3), 1.5)
-		"turret_unlock":
-			# Turret with unlock symbol
-			draw_circle(pos, s*0.5, Color(0.5, 0.5, 0.6))
-			draw_line(pos, pos + Vector2(s*0.8, -s*0.3), Color(0.4, 0.4, 0.5), 3.0)
-			draw_circle(pos + Vector2(0, s*0.5), s*0.25, Color(0.9, 0.8, 0.3))
 		"wall_hp":
 			# Brick with heart/plus
 			var whc = Color(0.6, 0.55, 0.45)

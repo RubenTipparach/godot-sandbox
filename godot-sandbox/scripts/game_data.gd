@@ -30,7 +30,6 @@ var research: Dictionary = {
 	"mining_speed": 0,
 	"xp_gain": 0,
 	"unlock_lightning": 0,
-	"unlock_slow": 0,
 	"unlock_repair": 0,
 	"repair_beams": 0,
 	"repair_rate": 0,
@@ -38,7 +37,6 @@ var research: Dictionary = {
 	"chain_retention": 0,
 	"chain_count": 0,
 	"unlock_wall": 0,
-	"unlock_turret": 0,
 	"wall_health": 0,
 	"factory_rate": 0,
 	"turret_ice": 0,
@@ -58,7 +56,6 @@ const RESEARCH_DATA = {
 	"mining_speed": {"name": "Excavation", "desc": "+10% mining speed", "max": 5, "cost": [10, 20, 35, 55, 80]},
 	"xp_gain": {"name": "Wisdom", "desc": "+10% XP gain", "max": 5, "cost": [15, 30, 50, 80, 120]},
 	"unlock_lightning": {"name": "Lightning Tech", "desc": "Unlock Lightning Tower", "max": 1, "cost": [20]},
-	"unlock_slow": {"name": "Cryo Tech", "desc": "Unlock Slow Tower", "max": 1, "cost": [20]},
 	"unlock_repair": {"name": "Repair Beams", "desc": "Repair nearby buildings", "max": 1, "cost": [5]},
 	"repair_beams": {"name": "Multi-Repair", "desc": "+1 repair beam", "max": 4, "cost": [15, 30, 50, 80]},
 	"repair_rate": {"name": "Rapid Repair", "desc": "+2 HP per tick", "max": 5, "cost": [10, 20, 35, 55, 80]},
@@ -66,12 +63,11 @@ const RESEARCH_DATA = {
 	"chain_retention": {"name": "Conductivity", "desc": "+8% chain retention", "max": 5, "cost": [15, 30, 50, 80, 120]},
 	"chain_count": {"name": "Arc Reach", "desc": "+1 chain bounce", "max": 3, "cost": [20, 40, 70]},
 	"unlock_wall": {"name": "Fortification", "desc": "Unlock Wall building", "max": 1, "cost": [10]},
-	"unlock_turret": {"name": "Gun Turrets", "desc": "Unlock Turret building", "max": 1, "cost": [10]},
 	"wall_health": {"name": "Reinforced Walls", "desc": "+20 wall HP", "max": 5, "cost": [8, 15, 25, 40, 60]},
 	"factory_rate": {"name": "Production Line", "desc": "+15% factory rate", "max": 5, "cost": [10, 20, 35, 55, 80]},
-	"turret_ice": {"name": "Cryo Rounds", "desc": "Turrets slow enemies", "max": 1, "cost": [15]},
-	"turret_fire": {"name": "Incendiary Rounds", "desc": "Turrets burn enemies", "max": 1, "cost": [15]},
-	"turret_acid": {"name": "Acid Rounds", "desc": "+5 turret damage", "max": 5, "cost": [12, 25, 45, 70, 100]},
+	"turret_ice": {"name": "Cryo Tech", "desc": "Unlock Slow Tower", "max": 1, "cost": [20]},
+	"turret_fire": {"name": "Flame Tech", "desc": "Unlock Flame Turret", "max": 1, "cost": [15]},
+	"turret_acid": {"name": "Acid Tech", "desc": "Unlock Acid Turret", "max": 1, "cost": [20]},
 	"turret_spread": {"name": "Multi-Barrel", "desc": "+1 turret bullet", "max": 4, "cost": [20, 40, 70, 110]},
 }
 
@@ -170,7 +166,6 @@ func get_research_bonus(key: String) -> float:
 		"mining_speed": return level * 0.10
 		"xp_gain": return level * 0.10
 		"unlock_lightning": return level * 1.0
-		"unlock_slow": return level * 1.0
 		"unlock_repair": return level * 1.0
 		"repair_beams": return level * 1.0
 		"repair_rate": return level * 2.0
@@ -178,12 +173,11 @@ func get_research_bonus(key: String) -> float:
 		"chain_retention": return level * 0.08
 		"chain_count": return level * 1.0
 		"unlock_wall": return level * 1.0
-		"unlock_turret": return level * 1.0
 		"wall_health": return level * 20.0
 		"factory_rate": return level * 0.15
 		"turret_ice": return level * 1.0
 		"turret_fire": return level * 1.0
-		"turret_acid": return level * 5.0
+		"turret_acid": return level * 1.0
 		"turret_spread": return level * 1.0
 	return 0.0
 

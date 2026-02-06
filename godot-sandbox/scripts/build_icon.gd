@@ -67,14 +67,29 @@ func _gui_input(event):
 
 func _draw():
 	# Background
-	var bg_color = Color(0.2, 0.5, 0.3, 0.9) if is_active else Color(0.15, 0.15, 0.2, 0.9)
-	if not can_afford and not is_active:
-		bg_color = Color(0.12, 0.12, 0.15, 0.9)
+	var bg_color: Color
+	var border_color: Color
+	var icon_alpha: float
+	if locked:
+		bg_color = Color(0.06, 0.06, 0.08, 0.9)
+		border_color = Color(0.15, 0.15, 0.18)
+		icon_alpha = 0.2
+	elif is_active:
+		bg_color = Color(0.2, 0.5, 0.3, 0.9)
+		border_color = Color(0.3, 0.8, 0.4)
+		icon_alpha = 1.0
+	elif can_afford:
+		bg_color = Color(0.15, 0.15, 0.2, 0.9)
+		border_color = Color(0.4, 0.4, 0.5)
+		icon_alpha = 1.0
+	else:
+		bg_color = Color(0.1, 0.1, 0.13, 0.9)
+		border_color = Color(0.2, 0.2, 0.25)
+		icon_alpha = 0.35
 	draw_rect(Rect2(0, 0, 40, 40), bg_color)
-	draw_rect(Rect2(0, 0, 40, 40), Color(0.4, 0.4, 0.5) if can_afford else Color(0.25, 0.25, 0.3), false, 1.0)
+	draw_rect(Rect2(0, 0, 40, 40), border_color, false, 1.0)
 
 	var center = Vector2(20, 20)
-	var icon_alpha = 1.0 if can_afford else 0.4
 
 	# Draw icon based on building type
 	match build_type:
@@ -129,6 +144,24 @@ func _draw():
 			draw_rect(Rect2(12, 10, 16, 22), Color(0.4, 0.4, 0.45, icon_alpha))
 			draw_rect(Rect2(16, 6, 8, 5), Color(0.5, 0.5, 0.55, icon_alpha))
 			draw_rect(Rect2(14, 18, 12, 12), Color(0.3, 0.8, 0.4, icon_alpha * 0.7))
+		"flame_turret":
+			# Circle with flame
+			draw_circle(center, 10, Color(0.5, 0.3, 0.2, icon_alpha))
+			draw_colored_polygon(PackedVector2Array([
+				center + Vector2(-4, 4),
+				center + Vector2(-1, -6),
+				center + Vector2(1, -2),
+				center + Vector2(4, -8),
+				center + Vector2(2, -1),
+				center + Vector2(5, -4),
+				center + Vector2(4, 4),
+			]), Color(1.0, 0.5, 0.1, icon_alpha))
+		"acid_turret":
+			# Circle with green barrel and droplets
+			draw_circle(center, 10, Color(0.3, 0.45, 0.3, icon_alpha))
+			draw_line(center, center + Vector2(12, 0), Color(0.25, 0.4, 0.2, icon_alpha), 3.0)
+			draw_circle(center + Vector2(14, 2), 2, Color(0.3, 0.9, 0.15, icon_alpha))
+			draw_circle(center + Vector2(12, 6), 1.5, Color(0.3, 0.9, 0.15, icon_alpha))
 
 	# Lock overlay when locked
 	if locked:
@@ -140,7 +173,8 @@ func _draw():
 
 	# Hotkey in corner
 	var font = ThemeDB.fallback_font
-	draw_string(font, Vector2(3, 12), hotkey, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.9, 0.9, 0.9, 0.8))
+	var hotkey_alpha = 0.25 if locked else (0.4 if not can_afford else 0.8)
+	draw_string(font, Vector2(3, 12), hotkey, HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color(0.9, 0.9, 0.9, hotkey_alpha))
 
 
 func _process(_delta):
