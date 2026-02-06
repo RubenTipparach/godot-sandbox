@@ -90,6 +90,7 @@ var is_dragging: bool = false
 var drag_start_mouse: Vector2 = Vector2.ZERO
 var drag_start_pan: Vector2 = Vector2.ZERO
 const DRAG_THRESHOLD = 5.0
+const PAN_MARGIN = 60.0  # Extra margin beyond outermost nodes
 
 
 func _ready():
@@ -351,6 +352,33 @@ func _draw_tooltip(key: String):
 	draw_string(font, Vector2(text_x, text_y + 56), cost_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, cost_color)
 
 
+func _clamp_pan():
+	# Calculate tree center (average of all node positions) and extents
+	var avg = Vector2.ZERO
+	var min_pos = Vector2(INF, INF)
+	var max_pos = Vector2(-INF, -INF)
+	for pos in NODE_LAYOUT.values():
+		avg += pos
+		min_pos.x = minf(min_pos.x, pos.x)
+		min_pos.y = minf(min_pos.y, pos.y)
+		max_pos.x = maxf(max_pos.x, pos.x)
+		max_pos.y = maxf(max_pos.y, pos.y)
+	avg /= NODE_LAYOUT.size()
+
+	# Tree half-extent with padding
+	var tree_half = (max_pos - min_pos) / 2.0 + Vector2(HALF_NODE + PAN_MARGIN, HALF_NODE + PAN_MARGIN)
+	var view_half = size / 2.0
+
+	# Center offset: pan_offset that places tree center at screen center
+	var center_pan = -avg
+
+	# Allow panning only as far as needed to see edges
+	var max_pan_x = maxf(0.0, tree_half.x - view_half.x)
+	var max_pan_y = maxf(0.0, tree_half.y - view_half.y)
+	pan_offset.x = clampf(pan_offset.x, center_pan.x - max_pan_x, center_pan.x + max_pan_x)
+	pan_offset.y = clampf(pan_offset.y, center_pan.y - max_pan_y, center_pan.y + max_pan_y)
+
+
 func _gui_input(event: InputEvent):
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
 		if event.pressed:
@@ -367,6 +395,7 @@ func _gui_input(event: InputEvent):
 				is_dragging = true
 			if is_dragging:
 				pan_offset = drag_start_pan + (event.position - drag_start_mouse)
+				_clamp_pan()
 		_update_hovered_node(event.position)
 
 

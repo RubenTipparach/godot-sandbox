@@ -41,11 +41,11 @@ func get_regen_interval() -> float:
 
 
 func _update_power_system(delta):
-	# Calculate generation (HQ=10, Power Plant=20)
+	# Calculate generation (HQ=10, Power Plant=40)
 	var hq_count = get_tree().get_nodes_in_group("hq").size()
 	var all_plants = get_tree().get_nodes_in_group("power_plants").size()
 	var plant_count = all_plants - hq_count  # HQ is also in power_plants group
-	total_power_gen = hq_count * 10.0 + plant_count * 20.0
+	total_power_gen = hq_count * 10.0 + plant_count * 40.0
 
 	# Calculate consumption
 	var turret_count = get_tree().get_nodes_in_group("turrets").size()
@@ -55,9 +55,9 @@ func _update_power_system(delta):
 	var pylon_count = get_tree().get_nodes_in_group("pylons").size()
 	total_power_consumption = turret_count * 5.0 + factory_count * 8.0 + lightning_count * 10.0 + slow_count * 8.0 + pylon_count * 2.0
 
-	# Calculate battery capacity (50 per battery)
+	# Calculate energy storage capacity (HQ = 200 base, each battery = 50)
 	var battery_count = get_tree().get_nodes_in_group("batteries").size()
-	max_power_bank = battery_count * 50.0
+	max_power_bank = hq_count * 200.0 + battery_count * 50.0
 
 	if total_power_gen >= total_power_consumption:
 		power_on = true
@@ -387,6 +387,9 @@ func _on_game_started(start_wave: int):
 	if starting_wave > 1:
 		wave_number = starting_wave - 1
 		wave_timer = 5.0  # Short delay before first wave
+
+	# Start with HQ energy bank full
+	power_bank = 200.0
 
 	# Initialize first wave direction
 	next_wave_direction = randf() * TAU

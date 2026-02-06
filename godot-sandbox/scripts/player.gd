@@ -6,7 +6,7 @@ const BASE_SPEED = 250.0
 const BASE_SHOOT_COOLDOWN = 0.25
 const BASE_MINE_RANGE = 80.0
 const BASE_AUTO_MINE_INTERVAL = 0.5
-const BASE_GEM_COLLECT_RANGE = 80.0
+const BASE_GEM_COLLECT_RANGE = 20.0
 const MAP_HALF_SIZE = 1000.0
 
 var health: int = 100
@@ -291,16 +291,17 @@ func _mine_nearby(qty: int):
 	for i in range(mini(heads, sorted_res.size())):
 		var r = sorted_res[i]["node"]
 		mine_targets.append(r)
+		var res_pos = r.global_position
 		var result = r.mine(qty)
 		if result["type"] == "iron":
 			iron += result["amount"]
 		elif result["type"] == "crystal":
 			crystal += result["amount"]
-		# Drop XP gem at the resource location
-		if result["amount"] > 0:
+		# Drop XP gem when resource is fully depleted
+		if result["amount"] > 0 and not is_instance_valid(r):
 			var gem = preload("res://scenes/xp_gem.tscn").instantiate()
-			gem.global_position = r.global_position if is_instance_valid(r) else global_position
-			gem.xp_value = maxi(1, result["amount"] / 3)
+			gem.global_position = res_pos
+			gem.xp_value = maxi(1, result["amount"])
 			get_tree().current_scene.add_child(gem)
 
 
@@ -444,8 +445,12 @@ const BASE_COSTS = {
 func get_building_cost(type: String) -> Dictionary:
 	var base = BASE_COSTS.get(type, {"iron": 10, "crystal": 5})
 	var count = get_tree().get_nodes_in_group(type + "s").size()
-	# Each additional building costs 50% more (compounding)
-	var multiplier = pow(1.5, count)
+	var multiplier: float
+	match type:
+		"wall", "pylon":
+			multiplier = pow(1.15, count)
+		_:
+			multiplier = pow(1.5, count)
 	return {
 		"iron": int(base["iron"] * multiplier),
 		"crystal": int(base["crystal"] * multiplier)

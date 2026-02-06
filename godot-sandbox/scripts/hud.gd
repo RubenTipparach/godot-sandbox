@@ -1009,30 +1009,29 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 	alien_count_label.text = "Aliens: %d" % ac
 	alien_count_label.visible = ac > 0
 
-	# Power display
-	var power_used = int(power_cons)
-	var power_available = int(power_gen)
-	power_label.text = "Power: %d / %d" % [power_used, power_available]
+	# Energy display
+	power_label.text = "Energy: %d / %d" % [int(power_bank), int(max_power_bank)]
 	if power_gen >= power_cons:
 		power_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
 	else:
 		power_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
 
-	# Power bank bar
+	# Energy bar
+	power_bar_bg.visible = true
+	power_rate_label.visible = true
 	if max_power_bank > 0:
-		power_bar_bg.visible = true
-		power_rate_label.visible = true
 		power_bar_fill.size.x = 170.0 * clampf(power_bank / max_power_bank, 0.0, 1.0)
-		if power_gen >= power_cons:
-			power_bar_fill.color = Color(0.3, 0.6, 1.0)
-			var net = power_gen - power_cons
-			power_rate_label.text = "Battery: +%.0f/s" % net if net > 0 else "Battery: Full"
-		else:
-			power_bar_fill.color = Color(1.0, 0.4, 0.2)
-			power_rate_label.text = "Battery: -%.0f/s" % (power_cons - power_gen)
 	else:
-		power_bar_bg.visible = false
-		power_rate_label.visible = false
+		power_bar_fill.size.x = 0.0
+	var net = power_gen - power_cons
+	if net >= 0:
+		power_bar_fill.color = Color(0.3, 0.6, 1.0)
+		power_rate_label.text = "+%.0f/s" % net
+		power_rate_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
+	else:
+		power_bar_fill.color = Color(1.0, 0.4, 0.2)
+		power_rate_label.text = "%.0f/s" % net
+		power_rate_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.4))
 
 	# Update building costs dynamically
 	_update_build_costs(player)
