@@ -10,6 +10,10 @@ var wave_label: Label
 var timer_label: Label
 var alien_count_label: Label
 var level_label: Label
+var power_label: Label
+var power_bar_bg: ColorRect
+var power_bar_fill: ColorRect
+var power_rate_label: Label
 var alert_label: Label
 var xp_bar_bg: ColorRect
 var xp_bar_fill: ColorRect
@@ -22,7 +26,6 @@ var _upgrade_showing: bool = false
 var death_panel: Control
 var death_stats_label: Label
 var prestige_label: Label
-var start_buttons: Array = []
 
 var start_menu: Control
 var start_prestige_label: Label
@@ -108,6 +111,19 @@ func _ready():
 	wave_label = _lbl(vbox, 16, Color.WHITE)
 	timer_label = _lbl(vbox, 18, Color(1.0, 0.4, 0.4))
 	alien_count_label = _lbl(vbox, 14, Color(1.0, 0.5, 0.4))
+	power_label = _lbl(vbox, 15, Color(0.5, 0.8, 1.0))
+
+	power_bar_bg = ColorRect.new()
+	power_bar_bg.custom_minimum_size = Vector2(170, 10)
+	power_bar_bg.color = Color(0.15, 0.15, 0.25)
+	vbox.add_child(power_bar_bg)
+	power_bar_fill = ColorRect.new()
+	power_bar_fill.color = Color(0.3, 0.6, 1.0)
+	power_bar_fill.position = Vector2.ZERO
+	power_bar_fill.size = Vector2(0, 10)
+	power_bar_bg.add_child(power_bar_fill)
+
+	power_rate_label = _lbl(vbox, 12, Color(0.5, 0.7, 0.9))
 
 	# Horizontal build bar at bottom center
 	var build_bar = PanelContainer.new()
@@ -115,7 +131,7 @@ func _ready():
 	build_bar.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.7)))
 	build_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	build_bar.offset_top = -56; build_bar.offset_bottom = -10
-	build_bar.offset_left = -180; build_bar.offset_right = 180
+	build_bar.offset_left = -200; build_bar.offset_right = 200
 	root.add_child(build_bar)
 
 	var build_hbox = HBoxContainer.new()
@@ -123,13 +139,14 @@ func _ready():
 	build_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
 	build_bar.add_child(build_hbox)
 
-	build_cost_labels.append(_build_icon(build_hbox, "turret", "1", "Turret"))
-	build_cost_labels.append(_build_icon(build_hbox, "factory", "2", "Factory"))
-	build_cost_labels.append(_build_icon(build_hbox, "wall", "3", "Wall"))
-	build_cost_labels.append(_build_icon(build_hbox, "lightning", "4", "Lightning Tower"))
-	build_cost_labels.append(_build_icon(build_hbox, "slow", "5", "Slow Tower"))
-	build_cost_labels.append(_build_icon(build_hbox, "pylon", "6", "Pylon"))
-	build_cost_labels.append(_build_icon(build_hbox, "power_plant", "7", "Power Plant"))
+	build_cost_labels.append(_build_icon(build_hbox, "power_plant", "1", "Power Plant"))
+	build_cost_labels.append(_build_icon(build_hbox, "pylon", "2", "Pylon"))
+	build_cost_labels.append(_build_icon(build_hbox, "factory", "3", "Factory"))
+	build_cost_labels.append(_build_icon(build_hbox, "turret", "4", "Turret"))
+	build_cost_labels.append(_build_icon(build_hbox, "wall", "5", "Wall"))
+	build_cost_labels.append(_build_icon(build_hbox, "lightning", "6", "Lightning Tower"))
+	build_cost_labels.append(_build_icon(build_hbox, "slow", "7", "Slow Tower"))
+	build_cost_labels.append(_build_icon(build_hbox, "battery", "8", "Battery"))
 
 	alert_label = Label.new()
 	alert_label.add_theme_font_size_override("font_size", 36)
@@ -276,34 +293,17 @@ func _build_death_panel(root: Control):
 	prestige_label.offset_right = 300
 	death_panel.add_child(prestige_label)
 
-	var start_title = Label.new()
-	start_title.text = "Choose Starting Wave"
-	start_title.add_theme_font_size_override("font_size", 22)
-	start_title.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
-	start_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	start_title.set_anchors_preset(Control.PRESET_CENTER)
-	start_title.offset_top = -120
-	start_title.offset_left = -200
-	start_title.offset_right = 200
-	death_panel.add_child(start_title)
-
-	var btn_container = HBoxContainer.new()
-	btn_container.set_anchors_preset(Control.PRESET_CENTER)
-	btn_container.offset_top = -70
-	btn_container.offset_left = -300
-	btn_container.offset_right = 300
-	btn_container.alignment = BoxContainer.ALIGNMENT_CENTER
-	btn_container.add_theme_constant_override("separation", 15)
-	death_panel.add_child(btn_container)
-
-	for wave in [1, 5, 10, 15, 20]:
-		var btn = Button.new()
-		btn.text = "Wave %d" % wave
-		btn.custom_minimum_size = Vector2(100, 50)
-		btn.add_theme_font_size_override("font_size", 16)
-		btn.pressed.connect(_on_start_wave_pressed.bind(wave))
-		btn_container.add_child(btn)
-		start_buttons.append({"button": btn, "wave": wave})
+	var menu_btn = Button.new()
+	menu_btn.text = "Return to Menu"
+	menu_btn.custom_minimum_size = Vector2(200, 50)
+	menu_btn.add_theme_font_size_override("font_size", 20)
+	menu_btn.set_anchors_preset(Control.PRESET_CENTER)
+	menu_btn.offset_top = -25
+	menu_btn.offset_left = -100
+	menu_btn.offset_right = 100
+	menu_btn.offset_bottom = 25
+	menu_btn.pressed.connect(_on_death_return_to_menu)
+	death_panel.add_child(menu_btn)
 
 
 func _build_start_menu(root: Control):
@@ -669,22 +669,15 @@ func set_wave_direction(angle: float):
 		minimap_node.set_wave_direction(angle)
 
 
-func _on_start_wave_pressed(wave: int):
+func _on_death_return_to_menu():
 	death_panel.visible = false
-	get_tree().current_scene.restart_game(wave)
-
-
-func _update_death_buttons():
-	var unlocked = GameData.get_available_start_waves()
-	for info in start_buttons:
-		info["button"].disabled = not (info["wave"] in unlocked)
-	prestige_label.text = "Prestige Points: %d" % GameData.prestige_points
+	get_tree().paused = false
+	get_tree().reload_current_scene()
 
 
 func show_death_screen(wave: int, bosses: int, prestige: int):
 	death_stats_label.text = "Survived %d waves | Bosses killed: %d" % [wave, bosses]
 	prestige_label.text = "Prestige Points: %d" % prestige
-	_update_death_buttons()
 	death_panel.visible = true
 
 
@@ -871,6 +864,8 @@ func _get_building_info_text(b: Node2D) -> String:
 			lines.append("Power Range: 150")
 		"Wall":
 			lines.append("Blocks enemies")
+		"Battery":
+			lines.append("Stores 50 power")
 	return "\n".join(lines)
 
 
@@ -895,6 +890,8 @@ func _get_build_type_info(build_type: String) -> String:
 			return "Pylon\nExtends power | Range: 150\nRequires power chain\n" + cost_text
 		"power_plant":
 			return "Power Plant\nProvides power | Range: 120\n" + cost_text
+		"battery":
+			return "Battery\nStores 50 power\n" + cost_text
 	return build_type + "\n" + cost_text
 
 
@@ -975,12 +972,22 @@ func _make_card_style(border_col: Color) -> StyleBoxFlat:
 	return s
 
 
-func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active: bool = false):
+func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active: bool = false, power_gen: float = 0.0, power_cons: float = 0.0, _power_on: bool = true, rates: Dictionary = {}, power_bank: float = 0.0, max_power_bank: float = 0.0):
 	if not is_instance_valid(player):
 		return
 	health_label.text = "HP: %d / %d" % [player.health, player.max_health]
-	iron_label.text = "Iron: %d" % player.iron
-	crystal_label.text = "Crystal: %d" % player.crystal
+
+	var iron_rate = rates.get("iron", 0.0)
+	var crystal_rate = rates.get("crystal", 0.0)
+	if iron_rate > 0:
+		iron_label.text = "Iron: %d  +%.1f/s" % [player.iron, iron_rate]
+	else:
+		iron_label.text = "Iron: %d" % player.iron
+	if crystal_rate > 0:
+		crystal_label.text = "Crystal: %d  +%.1f/s" % [player.crystal, crystal_rate]
+	else:
+		crystal_label.text = "Crystal: %d" % player.crystal
+
 	level_label.text = "Lv %d" % player.level
 	wave_label.text = "Wave: %d" % wave_number
 
@@ -1002,6 +1009,31 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 	alien_count_label.text = "Aliens: %d" % ac
 	alien_count_label.visible = ac > 0
 
+	# Power display
+	var power_used = int(power_cons)
+	var power_available = int(power_gen)
+	power_label.text = "Power: %d / %d" % [power_used, power_available]
+	if power_gen >= power_cons:
+		power_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
+	else:
+		power_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+
+	# Power bank bar
+	if max_power_bank > 0:
+		power_bar_bg.visible = true
+		power_rate_label.visible = true
+		power_bar_fill.size.x = 170.0 * clampf(power_bank / max_power_bank, 0.0, 1.0)
+		if power_gen >= power_cons:
+			power_bar_fill.color = Color(0.3, 0.6, 1.0)
+			var net = power_gen - power_cons
+			power_rate_label.text = "Battery: +%.0f/s" % net if net > 0 else "Battery: Full"
+		else:
+			power_bar_fill.color = Color(1.0, 0.4, 0.2)
+			power_rate_label.text = "Battery: -%.0f/s" % (power_cons - power_gen)
+	else:
+		power_bar_bg.visible = false
+		power_rate_label.visible = false
+
 	# Update building costs dynamically
 	_update_build_costs(player)
 
@@ -1022,6 +1054,15 @@ func _update_build_costs(player: Node2D):
 		# Update icon state for visual feedback
 		info["icon"].can_afford = can_afford
 		info["icon"].is_active = is_active
+
+		# Check research locks
+		match build_type:
+			"lightning":
+				info["icon"].locked = GameData.get_research_bonus("unlock_lightning") < 1.0
+			"slow":
+				info["icon"].locked = GameData.get_research_bonus("unlock_slow") < 1.0
+			_:
+				info["icon"].locked = false
 
 
 func show_wave_alert(wave: int, is_boss: bool = false):

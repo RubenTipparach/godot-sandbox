@@ -18,6 +18,8 @@ var facing_angle: float = 0.0
 var invuln_timer: float = 0.0
 var auto_mine_timer: float = 0.0
 var mine_targets: Array = []
+var repair_targets: Array = []
+var auto_repair_timer: float = 0.0
 var is_dead: bool = false
 var hit_flash_timer: float = 0.0
 var death_particles: Array = []
@@ -178,21 +180,34 @@ func _process(delta):
 			mine_amount *= 5  # 5x mining during boost
 		_mine_nearby(mine_amount)
 
+	# Repair beams
+	if GameData.get_research_bonus("unlock_repair") >= 1.0:
+		auto_repair_timer += delta
+		if auto_repair_timer >= get_mine_interval():
+			auto_repair_timer = 0.0
+			_repair_nearby()
+	else:
+		repair_targets.clear()
+
 	# Hotkey building (instant place at mouse)
-	if Input.is_action_just_pressed("build_turret"):
-		_try_build("turret")
+	if Input.is_action_just_pressed("build_power_plant"):
+		_try_build("power_plant")
+	if Input.is_action_just_pressed("build_pylon"):
+		_try_build("pylon")
 	if Input.is_action_just_pressed("build_factory"):
 		_try_build("factory")
+	if Input.is_action_just_pressed("build_turret"):
+		_try_build("turret")
 	if Input.is_action_just_pressed("build_wall"):
 		_try_build("wall")
 	if Input.is_action_just_pressed("build_lightning"):
-		_try_build("lightning")
+		if GameData.get_research_bonus("unlock_lightning") >= 1.0:
+			_try_build("lightning")
 	if Input.is_action_just_pressed("build_slow"):
-		_try_build("slow")
-	if Input.is_action_just_pressed("build_pylon"):
-		_try_build("pylon")
-	if Input.is_action_just_pressed("build_power_plant"):
-		_try_build("power_plant")
+		if GameData.get_research_bonus("unlock_slow") >= 1.0:
+			_try_build("slow")
+	if Input.is_action_just_pressed("build_battery"):
+		_try_build("battery")
 
 	# Build mode placement (click to place)
 	if build_mode != "":
@@ -252,7 +267,9 @@ func _shoot():
 		b.global_position = global_position + Vector2.from_angle(facing_angle) * 20.0
 		b.damage = 10 + research_damage
 		b.crit_chance = upgrades["crit_chance"] * 0.1
-		b.chain_count = upgrades["chain_lightning"]
+		b.chain_count = upgrades["chain_lightning"] + int(GameData.get_research_bonus("chain_count"))
+		b.chain_damage_bonus = int(GameData.get_research_bonus("chain_damage"))
+		b.chain_retention = 0.6 + GameData.get_research_bonus("chain_retention")
 		b.burn_dps = upgrades["burning"] * 4.0
 		b.slow_amount = upgrades["ice"] * 0.15
 		get_tree().current_scene.add_child(b)
@@ -277,10 +294,36 @@ func _mine_nearby(qty: int):
 		var result = r.mine(qty)
 		if result["type"] == "iron":
 			iron += result["amount"]
-			add_xp(result["amount"] / 3)  # 1 XP per 3 iron
 		elif result["type"] == "crystal":
 			crystal += result["amount"]
-			add_xp(result["amount"] / 2)  # 1 XP per 2 crystal
+		# Drop XP gem at the resource location
+		if result["amount"] > 0:
+			var gem = preload("res://scenes/xp_gem.tscn").instantiate()
+			gem.global_position = r.global_position if is_instance_valid(r) else global_position
+			gem.xp_value = maxi(1, result["amount"] / 3)
+			get_tree().current_scene.add_child(gem)
+
+
+func _repair_nearby():
+	var buildings = get_tree().get_nodes_in_group("buildings")
+	var sorted_buildings: Array = []
+	var repair_range = get_mine_range()
+	for b in buildings:
+		if not is_instance_valid(b): continue
+		if not ("hp" in b and "max_hp" in b): continue
+		if b.hp >= b.max_hp: continue
+		var d = global_position.distance_to(b.global_position)
+		if d < repair_range:
+			sorted_buildings.append({"node": b, "dist": d})
+	sorted_buildings.sort_custom(func(a, b2): return a["dist"] < b2["dist"])
+
+	repair_targets.clear()
+	var heads = 1 + int(GameData.get_research_bonus("repair_beams"))
+	var heal = 2 + int(GameData.get_research_bonus("repair_rate"))
+	for i in range(mini(heads, sorted_buildings.size())):
+		var b = sorted_buildings[i]["node"]
+		repair_targets.append(b)
+		b.hp = mini(b.hp + heal, b.max_hp)
 
 
 func _collect_gems():
@@ -394,6 +437,7 @@ const BASE_COSTS = {
 	"slow": {"iron": 12, "crystal": 8},
 	"pylon": {"iron": 8, "crystal": 3},
 	"power_plant": {"iron": 25, "crystal": 15},
+	"battery": {"iron": 15, "crystal": 8},
 }
 
 
@@ -420,6 +464,11 @@ func confirm_build() -> bool:
 
 
 func _try_build_at(type: String, bp: Vector2) -> bool:
+	# Check research locks
+	if type == "lightning" and GameData.get_research_bonus("unlock_lightning") < 1.0:
+		return false
+	if type == "slow" and GameData.get_research_bonus("unlock_slow") < 1.0:
+		return false
 	if global_position.distance_to(bp) > BUILD_RANGE:
 		return false
 	for b in get_tree().get_nodes_in_group("buildings"):
@@ -452,6 +501,8 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 			building = preload("res://scenes/pylon.tscn").instantiate()
 		"power_plant":
 			building = preload("res://scenes/power_plant.tscn").instantiate()
+		"battery":
+			building = preload("res://scenes/battery.tscn").instantiate()
 
 	if building:
 		building.global_position = bp
@@ -571,6 +622,17 @@ func _draw():
 			draw_line(Vector2.ZERO, target_local, Color(1, 1, 1, 0.4 * flicker), 1.0)
 			draw_circle(target_local, 5.0 * flicker, Color(laser_color.r, laser_color.g, laser_color.b, 0.3))
 
+	# Repair beams
+	for target in repair_targets:
+		if is_instance_valid(target):
+			var target_local = target.global_position - global_position
+			var repair_color = Color(0.3, 1.0, 0.5)
+			var flicker = 0.7 + sin(Time.get_ticks_msec() * 0.02 + 1.0) * 0.3
+			draw_line(Vector2.ZERO, target_local, Color(repair_color.r, repair_color.g, repair_color.b, 0.15 * flicker), 6.0)
+			draw_line(Vector2.ZERO, target_local, Color(repair_color.r, repair_color.g, repair_color.b, 0.5 * flicker), 2.0)
+			draw_line(Vector2.ZERO, target_local, Color(1, 1, 1, 0.4 * flicker), 1.0)
+			draw_circle(target_local, 5.0 * flicker, Color(repair_color.r, repair_color.g, repair_color.b, 0.3))
+
 	# Magnet effect
 	if magnet_timer > 0:
 		var mag_alpha = 0.1 + sin(Time.get_ticks_msec() * 0.008) * 0.05
@@ -650,3 +712,6 @@ func _draw():
 			"power_plant":
 				draw_rect(Rect2(ghost_pos.x - 22, ghost_pos.y - 15, 44, 30), ghost_color)
 				draw_circle(ghost_pos + Vector2(0, -8), 8, ghost_color.lightened(0.3))
+			"battery":
+				draw_rect(Rect2(ghost_pos.x - 14, ghost_pos.y - 18, 28, 36), ghost_color)
+				draw_rect(Rect2(ghost_pos.x - 6, ghost_pos.y - 22, 12, 6), ghost_color.lightened(0.3))

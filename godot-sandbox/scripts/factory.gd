@@ -18,6 +18,9 @@ func get_building_name() -> String:
 
 
 func is_powered() -> bool:
+	var main = get_tree().current_scene
+	if main and "power_on" in main and not main.power_on:
+		return false
 	for plant in get_tree().get_nodes_in_group("power_plants"):
 		if is_instance_valid(plant) and global_position.distance_to(plant.global_position) < plant.POWER_RANGE:
 			return true

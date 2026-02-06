@@ -25,6 +25,20 @@ const NODE_LAYOUT = {
 
 	# Bottom - Turret
 	"turret_damage": Vector2(0, 200),
+
+	# Bottom row - Building unlocks
+	"unlock_lightning": Vector2(-100, 300),
+	"unlock_slow": Vector2(100, 300),
+
+	# Right branch - Repair
+	"unlock_repair": Vector2(200, 100),
+	"repair_beams": Vector2(260, 200),
+	"repair_rate": Vector2(140, 200),
+
+	# Left branch - Chain Lightning
+	"chain_damage": Vector2(-200, 400),
+	"chain_retention": Vector2(-100, 400),
+	"chain_count": Vector2(0, 400),
 }
 
 # Connections between nodes (prerequisites)
@@ -38,6 +52,14 @@ const NODE_CONNECTIONS = [
 	["starting_crystal", "factory_speed"],
 	["turret_damage", "starting_iron"],
 	["turret_damage", "starting_crystal"],
+	["unlock_lightning", "turret_damage"],
+	["unlock_slow", "turret_damage"],
+	["unlock_repair", "factory_speed"],
+	["repair_beams", "unlock_repair"],
+	["repair_rate", "unlock_repair"],
+	["chain_damage", "unlock_lightning"],
+	["chain_retention", "unlock_lightning"],
+	["chain_count", "unlock_lightning"],
 ]
 
 # Node icons (simple shapes drawn procedurally)
@@ -51,10 +73,23 @@ const NODE_ICONS = {
 	"factory_speed": "factory",
 	"mining_speed": "mining",
 	"xp_gain": "xp",
+	"unlock_lightning": "lightning",
+	"unlock_slow": "slow",
+	"unlock_repair": "repair",
+	"repair_beams": "repair_multi",
+	"repair_rate": "repair_fast",
+	"chain_damage": "chain_power",
+	"chain_retention": "chain_conduct",
+	"chain_count": "chain_reach",
 }
 
 var hovered_node: String = ""
 var tree_center: Vector2 = Vector2.ZERO
+var pan_offset: Vector2 = Vector2.ZERO
+var is_dragging: bool = false
+var drag_start_mouse: Vector2 = Vector2.ZERO
+var drag_start_pan: Vector2 = Vector2.ZERO
+const DRAG_THRESHOLD = 5.0
 
 
 func _ready():
@@ -70,13 +105,13 @@ func _draw():
 
 	# Draw connections first (behind nodes)
 	for conn in NODE_CONNECTIONS:
-		var from_pos = tree_center + NODE_LAYOUT[conn[0]]
-		var to_pos = tree_center + NODE_LAYOUT[conn[1]]
+		var from_pos = tree_center + pan_offset + NODE_LAYOUT[conn[0]]
+		var to_pos = tree_center + pan_offset + NODE_LAYOUT[conn[1]]
 		draw_line(from_pos, to_pos, Color(0.4, 0.4, 0.5), 2.0)
 
 	# Draw nodes
 	for key in NODE_LAYOUT.keys():
-		var pos = tree_center + NODE_LAYOUT[key]
+		var pos = tree_center + pan_offset + NODE_LAYOUT[key]
 		_draw_node(key, pos)
 
 	# Draw tooltip for hovered node
@@ -195,6 +230,87 @@ func _draw_icon(pos: Vector2, icon_type: String, is_owned: bool):
 			draw_circle(pos, s*0.7, Color(0.2, 0.5, 0.9))
 			draw_circle(pos, s*0.35, Color(0.1, 0.2, 0.4))
 			draw_circle(pos + Vector2(-s*0.1, -s*0.1), s*0.12, Color(1.0, 1.0, 1.0))
+		"lightning":
+			# Lightning bolt
+			draw_colored_polygon(PackedVector2Array([
+				pos + Vector2(-s*0.3, -s*0.8),
+				pos + Vector2(s*0.3, -s*0.1),
+				pos + Vector2(-s*0.1, -s*0.1),
+				pos + Vector2(s*0.3, s*0.8),
+				pos + Vector2(-s*0.3, s*0.1),
+				pos + Vector2(s*0.1, s*0.1),
+			]), Color(0.5, 0.7, 1.0))
+		"slow":
+			# Ice crystal / snowflake
+			for i in range(3):
+				var angle = TAU * i / 3.0
+				var p1 = pos + Vector2.from_angle(angle) * s * 0.8
+				var p2 = pos + Vector2.from_angle(angle + PI) * s * 0.8
+				draw_line(p1, p2, Color(0.5, 0.8, 1.0), 2.0)
+		"repair":
+			# Wrench shape
+			var wc = Color(0.3, 1.0, 0.5)
+			draw_line(pos + Vector2(-s*0.5, s*0.5), pos + Vector2(s*0.2, -s*0.2), wc, 3.0)
+			draw_line(pos + Vector2(s*0.2, -s*0.2), pos + Vector2(s*0.6, -s*0.6), wc, 3.0)
+			draw_line(pos + Vector2(s*0.2, -s*0.2), pos + Vector2(s*0.6, -s*0.0), wc, 3.0)
+			draw_circle(pos + Vector2(-s*0.5, s*0.5), s*0.25, wc)
+		"repair_multi":
+			# Multiple beams icon
+			var mc = Color(0.3, 1.0, 0.5)
+			draw_circle(pos + Vector2(0, s*0.4), s*0.25, mc)
+			draw_line(pos + Vector2(0, s*0.4), pos + Vector2(-s*0.6, -s*0.5), mc, 2.0)
+			draw_line(pos + Vector2(0, s*0.4), pos + Vector2(0, -s*0.7), mc, 2.0)
+			draw_line(pos + Vector2(0, s*0.4), pos + Vector2(s*0.6, -s*0.5), mc, 2.0)
+			draw_circle(pos + Vector2(-s*0.6, -s*0.5), s*0.15, mc)
+			draw_circle(pos + Vector2(0, -s*0.7), s*0.15, mc)
+			draw_circle(pos + Vector2(s*0.6, -s*0.5), s*0.15, mc)
+		"repair_fast":
+			# Fast repair - wrench with speed lines
+			var fc = Color(0.3, 1.0, 0.5)
+			draw_line(pos + Vector2(-s*0.3, s*0.3), pos + Vector2(s*0.3, -s*0.3), fc, 3.0)
+			draw_circle(pos + Vector2(-s*0.3, s*0.3), s*0.2, fc)
+			# Speed lines
+			draw_line(pos + Vector2(s*0.3, s*0.1), pos + Vector2(s*0.7, s*0.1), Color(1.0, 0.9, 0.3), 2.0)
+			draw_line(pos + Vector2(s*0.2, s*0.4), pos + Vector2(s*0.6, s*0.4), Color(1.0, 0.9, 0.3), 2.0)
+			draw_line(pos + Vector2(s*0.1, s*0.7), pos + Vector2(s*0.5, s*0.7), Color(1.0, 0.9, 0.3), 2.0)
+		"chain_power":
+			# Lightning bolt with plus sign (more damage)
+			var cc = Color(0.5, 0.7, 1.0)
+			draw_colored_polygon(PackedVector2Array([
+				pos + Vector2(-s*0.2, -s*0.8),
+				pos + Vector2(s*0.2, -s*0.1),
+				pos + Vector2(0, -s*0.1),
+				pos + Vector2(s*0.2, s*0.6),
+				pos + Vector2(-s*0.2, s*0.1),
+				pos + Vector2(0, s*0.1),
+			]), cc)
+			# Plus sign
+			draw_line(pos + Vector2(s*0.4, -s*0.5), pos + Vector2(s*0.8, -s*0.5), Color(1.0, 0.9, 0.3), 2.5)
+			draw_line(pos + Vector2(s*0.6, -s*0.7), pos + Vector2(s*0.6, -s*0.3), Color(1.0, 0.9, 0.3), 2.5)
+		"chain_conduct":
+			# Two connected bolts (damage retention)
+			var dc = Color(0.5, 0.7, 1.0)
+			# First bolt
+			draw_line(pos + Vector2(-s*0.7, -s*0.4), pos + Vector2(-s*0.2, 0), dc, 2.5)
+			draw_line(pos + Vector2(-s*0.2, 0), pos + Vector2(-s*0.5, 0), dc, 2.5)
+			draw_line(pos + Vector2(-s*0.5, 0), pos + Vector2(0, s*0.4), dc, 2.5)
+			# Arrow to second bolt
+			draw_line(pos + Vector2(0, 0), pos + Vector2(s*0.3, 0), Color(1.0, 0.9, 0.3), 2.0)
+			# Second bolt
+			draw_line(pos + Vector2(s*0.2, -s*0.4), pos + Vector2(s*0.5, 0), dc, 2.5)
+			draw_line(pos + Vector2(s*0.5, 0), pos + Vector2(s*0.3, 0), dc, 2.5)
+			draw_line(pos + Vector2(s*0.3, 0), pos + Vector2(s*0.7, s*0.4), dc, 2.5)
+		"chain_reach":
+			# Lightning bolt with extending arcs (more bounces)
+			var rc = Color(0.5, 0.7, 1.0)
+			draw_circle(pos, s*0.3, rc)
+			# Radiating arcs
+			for ci in range(3):
+				var ca = TAU * ci / 3.0 - PI / 6.0
+				var p1 = pos + Vector2.from_angle(ca) * s * 0.4
+				var p2 = pos + Vector2.from_angle(ca) * s * 0.8
+				draw_line(p1, p2, rc, 2.0)
+				draw_circle(p2, s*0.15, rc)
 
 
 func _draw_tooltip(key: String):
@@ -210,7 +326,7 @@ func _draw_tooltip(key: String):
 	var cost_text = "MAXED" if is_maxed else "Cost: %d P" % cost
 
 	var font = ThemeDB.fallback_font
-	var pos = tree_center + NODE_LAYOUT[key]
+	var pos = tree_center + pan_offset + NODE_LAYOUT[key]
 
 	# Position tooltip to the right of node, or left if too close to edge
 	var tooltip_x = pos.x + HALF_NODE + 15
@@ -236,18 +352,28 @@ func _draw_tooltip(key: String):
 
 
 func _gui_input(event: InputEvent):
-	if event is InputEventMouseMotion:
-		_update_hovered_node(event.position)
-	elif event is InputEventMouseButton:
-		if event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-			if hovered_node != "":
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		if event.pressed:
+			is_dragging = false
+			drag_start_mouse = event.position
+			drag_start_pan = pan_offset
+		else:
+			if not is_dragging and hovered_node != "":
 				_try_purchase(hovered_node)
+			is_dragging = false
+	elif event is InputEventMouseMotion:
+		if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
+			if event.position.distance_to(drag_start_mouse) > DRAG_THRESHOLD:
+				is_dragging = true
+			if is_dragging:
+				pan_offset = drag_start_pan + (event.position - drag_start_mouse)
+		_update_hovered_node(event.position)
 
 
 func _update_hovered_node(mouse_pos: Vector2):
 	hovered_node = ""
 	for key in NODE_LAYOUT.keys():
-		var node_pos = tree_center + NODE_LAYOUT[key]
+		var node_pos = tree_center + pan_offset + NODE_LAYOUT[key]
 		if mouse_pos.distance_to(node_pos) < HALF_NODE + 5:
 			hovered_node = key
 			break

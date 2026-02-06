@@ -12,6 +12,8 @@ var chain_count: int = 0
 var burn_dps: float = 0.0
 var slow_amount: float = 0.0
 var crit_chance: float = 0.0
+var chain_damage_bonus: int = 0
+var chain_retention: float = 0.6
 
 
 func _process(delta):
@@ -76,7 +78,8 @@ func _chain_lightning(start: Node2D):
 				nearest_dist = d
 				nearest = alien
 		if nearest:
-			nearest.take_damage(int(damage * 0.6))
+			var chain_dmg = int(damage * chain_retention) + chain_damage_bonus
+			nearest.take_damage(chain_dmg)
 			if burn_dps > 0 and nearest.has_method("apply_burn"):
 				nearest.apply_burn(burn_dps * 0.5)
 			if slow_amount > 0 and nearest.has_method("apply_slow"):

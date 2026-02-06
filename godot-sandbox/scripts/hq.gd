@@ -64,7 +64,8 @@ func _draw():
 	var font = ThemeDB.fallback_font
 	draw_string(font, Vector2(-8, -30), "HQ", HORIZONTAL_ALIGNMENT_CENTER, -1, 12, Color(0.9, 0.95, 1.0))
 
-	# Power range indicator
+	# Power range disc (filled, semi-transparent blue)
+	draw_circle(Vector2.ZERO, POWER_RANGE, Color(0.2, 0.5, 1.0, 0.06))
 	draw_arc(Vector2.ZERO, POWER_RANGE, 0, TAU, 48, Color(0.3, 0.6, 1.0, 0.08), 1.5)
 
 	# HP bar (larger for HQ)

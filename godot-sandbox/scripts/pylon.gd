@@ -28,6 +28,9 @@ func take_damage(amount: int):
 
 
 func is_powered() -> bool:
+	var main = get_tree().current_scene
+	if main and "power_on" in main and not main.power_on:
+		return false
 	# Check if connected to a power plant (directly or through other pylons)
 	return _trace_power_to_plant([self])
 
@@ -121,7 +124,9 @@ func _draw():
 			Vector2(-2, 2), Vector2(0.5, -1), Vector2(-0.5, -1), Vector2(2, -10)
 		]), warn_color)
 
-	# Range indicator (faint)
+	# Power range disc (only when powered)
+	if powered:
+		draw_circle(Vector2.ZERO, POWER_RANGE, Color(0.2, 0.5, 1.0, 0.05))
 	draw_arc(Vector2.ZERO, POWER_RANGE, 0, TAU, 32, Color(0.3, 0.6, 1.0, 0.05), 1.0)
 
 	# HP bar

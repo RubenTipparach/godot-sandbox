@@ -20,6 +20,13 @@ var bosses_killed: int = 0
 var starting_wave: int = 1
 var next_wave_direction: float = 0.0  # Angle for next wave spawn
 
+# Global power system
+var total_power_gen: float = 0.0
+var total_power_consumption: float = 0.0
+var power_bank: float = 0.0
+var max_power_bank: float = 0.0
+var power_on: bool = true
+
 
 func get_max_resources() -> int:
 	# More rocks spawn as waves progress
@@ -31,6 +38,57 @@ func get_regen_interval() -> float:
 	if is_instance_valid(player_node):
 		base /= player_node.get_rock_regen_multiplier()
 	return base
+
+
+func _update_power_system(delta):
+	# Calculate generation (HQ=10, Power Plant=20)
+	var hq_count = get_tree().get_nodes_in_group("hq").size()
+	var all_plants = get_tree().get_nodes_in_group("power_plants").size()
+	var plant_count = all_plants - hq_count  # HQ is also in power_plants group
+	total_power_gen = hq_count * 10.0 + plant_count * 20.0
+
+	# Calculate consumption
+	var turret_count = get_tree().get_nodes_in_group("turrets").size()
+	var factory_count = get_tree().get_nodes_in_group("factories").size()
+	var lightning_count = get_tree().get_nodes_in_group("lightnings").size()
+	var slow_count = get_tree().get_nodes_in_group("slows").size()
+	var pylon_count = get_tree().get_nodes_in_group("pylons").size()
+	total_power_consumption = turret_count * 5.0 + factory_count * 8.0 + lightning_count * 10.0 + slow_count * 8.0 + pylon_count * 2.0
+
+	# Calculate battery capacity (50 per battery)
+	var battery_count = get_tree().get_nodes_in_group("batteries").size()
+	max_power_bank = battery_count * 50.0
+
+	if total_power_gen >= total_power_consumption:
+		power_on = true
+		# Store surplus in bank
+		if max_power_bank > 0:
+			power_bank = minf(power_bank + (total_power_gen - total_power_consumption) * delta, max_power_bank)
+	else:
+		if max_power_bank > 0 and power_bank > 0:
+			# Drain bank to cover deficit
+			power_bank -= (total_power_consumption - total_power_gen) * delta
+			if power_bank <= 0:
+				power_bank = 0.0
+				power_on = false
+			else:
+				power_on = true
+		else:
+			power_on = false
+
+
+func get_factory_rates() -> Dictionary:
+	var iron_per_sec = 0.0
+	var crystal_per_sec = 0.0
+	for f in get_tree().get_nodes_in_group("factories"):
+		if not is_instance_valid(f):
+			continue
+		if f.is_powered():
+			var interval = f.BASE_GENERATE_INTERVAL / (1.0 + f.speed_bonus)
+			iron_per_sec += 2.0 / interval
+			crystal_per_sec += 1.0 / interval
+	return {"iron": iron_per_sec, "crystal": crystal_per_sec}
+
 
 var player_node: Node2D
 var buildings_node: Node2D
@@ -51,13 +109,14 @@ func _setup_inputs():
 	_add_key_action("move_down", KEY_S)
 	_add_key_action("move_left", KEY_A)
 	_add_key_action("move_right", KEY_D)
-	_add_key_action("build_turret", KEY_1)
-	_add_key_action("build_factory", KEY_2)
-	_add_key_action("build_wall", KEY_3)
-	_add_key_action("build_lightning", KEY_4)
-	_add_key_action("build_slow", KEY_5)
-	_add_key_action("build_pylon", KEY_6)
-	_add_key_action("build_power_plant", KEY_7)
+	_add_key_action("build_power_plant", KEY_1)
+	_add_key_action("build_pylon", KEY_2)
+	_add_key_action("build_factory", KEY_3)
+	_add_key_action("build_turret", KEY_4)
+	_add_key_action("build_wall", KEY_5)
+	_add_key_action("build_lightning", KEY_6)
+	_add_key_action("build_slow", KEY_7)
+	_add_key_action("build_battery", KEY_8)
 	_add_key_action("pause", KEY_ESCAPE)
 	_add_mouse_action("shoot", MOUSE_BUTTON_LEFT)
 
@@ -122,6 +181,8 @@ func _process(delta):
 	if game_over:
 		return
 
+	_update_power_system(delta)
+
 	var alien_count = get_tree().get_nodes_in_group("aliens").size()
 
 	# Wave logic: countdown only when no aliens
@@ -152,7 +213,8 @@ func _process(delta):
 		_try_show_upgrade()
 
 	if is_instance_valid(hud_node):
-		hud_node.update_hud(player_node, wave_timer, wave_number, wave_active)
+		var rates = get_factory_rates()
+		hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank)
 
 	queue_redraw()
 

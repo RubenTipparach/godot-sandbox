@@ -7,6 +7,7 @@ var can_afford: bool = true
 var display_name: String = ""
 var iron_cost: int = 0
 var crystal_cost: int = 0
+var locked: bool = false
 
 signal pressed
 
@@ -58,6 +59,8 @@ func _make_custom_tooltip(_for_text: String) -> Control:
 
 
 func _gui_input(event):
+	if locked:
+		return
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		pressed.emit()
 
@@ -121,6 +124,19 @@ func _draw():
 			draw_rect(Rect2(8, 14, 24, 18), Color(0.45, 0.45, 0.5, icon_alpha))
 			draw_circle(center + Vector2(0, -2), 6, Color(0.3, 0.6, 1.0, icon_alpha))
 			draw_circle(center + Vector2(0, -2), 3, Color(0.5, 0.8, 1.0, icon_alpha))
+		"battery":
+			# Battery shape
+			draw_rect(Rect2(12, 10, 16, 22), Color(0.4, 0.4, 0.45, icon_alpha))
+			draw_rect(Rect2(16, 6, 8, 5), Color(0.5, 0.5, 0.55, icon_alpha))
+			draw_rect(Rect2(14, 18, 12, 12), Color(0.3, 0.8, 0.4, icon_alpha * 0.7))
+
+	# Lock overlay when locked
+	if locked:
+		draw_rect(Rect2(0, 0, 40, 40), Color(0, 0, 0, 0.6))
+		# Lock body
+		draw_rect(Rect2(14, 20, 12, 10), Color(0.6, 0.5, 0.3))
+		# Lock shackle
+		draw_arc(Vector2(20, 20), 4, PI, TAU, 12, Color(0.5, 0.4, 0.25), 2.0)
 
 	# Hotkey in corner
 	var font = ThemeDB.fallback_font

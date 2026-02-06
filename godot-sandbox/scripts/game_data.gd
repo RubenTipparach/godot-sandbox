@@ -29,6 +29,14 @@ var research: Dictionary = {
 	"factory_speed": 0,
 	"mining_speed": 0,
 	"xp_gain": 0,
+	"unlock_lightning": 0,
+	"unlock_slow": 0,
+	"unlock_repair": 0,
+	"repair_beams": 0,
+	"repair_rate": 0,
+	"chain_damage": 0,
+	"chain_retention": 0,
+	"chain_count": 0,
 }
 
 const RESEARCH_DATA = {
@@ -41,6 +49,14 @@ const RESEARCH_DATA = {
 	"factory_speed": {"name": "Automation", "desc": "+10% factory speed", "max": 5, "cost": [12, 25, 45, 70, 100]},
 	"mining_speed": {"name": "Excavation", "desc": "+10% mining speed", "max": 5, "cost": [10, 20, 35, 55, 80]},
 	"xp_gain": {"name": "Wisdom", "desc": "+10% XP gain", "max": 5, "cost": [15, 30, 50, 80, 120]},
+	"unlock_lightning": {"name": "Lightning Tech", "desc": "Unlock Lightning Tower", "max": 1, "cost": [20]},
+	"unlock_slow": {"name": "Cryo Tech", "desc": "Unlock Slow Tower", "max": 1, "cost": [20]},
+	"unlock_repair": {"name": "Repair Beams", "desc": "Repair nearby buildings", "max": 1, "cost": [25]},
+	"repair_beams": {"name": "Multi-Repair", "desc": "+1 repair beam", "max": 4, "cost": [15, 30, 50, 80]},
+	"repair_rate": {"name": "Rapid Repair", "desc": "+2 HP per tick", "max": 5, "cost": [10, 20, 35, 55, 80]},
+	"chain_damage": {"name": "Arc Power", "desc": "+3 chain damage", "max": 5, "cost": [12, 25, 45, 70, 100]},
+	"chain_retention": {"name": "Conductivity", "desc": "+8% chain retention", "max": 5, "cost": [15, 30, 50, 80, 120]},
+	"chain_count": {"name": "Arc Reach", "desc": "+1 chain bounce", "max": 3, "cost": [20, 40, 70]},
 }
 
 
@@ -137,6 +153,14 @@ func get_research_bonus(key: String) -> float:
 		"factory_speed": return level * 0.10
 		"mining_speed": return level * 0.10
 		"xp_gain": return level * 0.10
+		"unlock_lightning": return level * 1.0
+		"unlock_slow": return level * 1.0
+		"unlock_repair": return level * 1.0
+		"repair_beams": return level * 1.0
+		"repair_rate": return level * 2.0
+		"chain_damage": return level * 3.0
+		"chain_retention": return level * 0.08
+		"chain_count": return level * 1.0
 	return 0.0
 
 

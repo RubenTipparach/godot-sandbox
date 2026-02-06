@@ -72,7 +72,8 @@ func _draw():
 		draw_circle(Vector2(-13, 18 + offset * 3), 2.0, Color(0.7, 0.7, 0.8, alpha * 0.3))
 		draw_circle(Vector2(13, 18 + offset * 3), 2.0, Color(0.7, 0.7, 0.8, alpha * 0.3))
 
-	# Power range indicator
+	# Power range disc (filled, semi-transparent blue)
+	draw_circle(Vector2.ZERO, POWER_RANGE, Color(0.2, 0.5, 1.0, 0.06))
 	draw_arc(Vector2.ZERO, POWER_RANGE, 0, TAU, 48, Color(0.3, 0.6, 1.0, 0.08), 1.5)
 
 	# HP bar
