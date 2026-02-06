@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://bo54ulan5hbfh" path="res://scripts/music_player.gd" id="1_jxdhu"]
 [ext_resource type="AudioStream" uid="uid://c4cvjvvjsmxsb" path="res://music/battle_intro.wav" id="2_ql6qh"]
-[ext_resource type="AudioStream" uid="uid://5vejjxqbjfwk" path="res://music/pre-boss.wav" id="3_l7xiw"]
+[ext_resource type="AudioStream" uid="uid://jt8g8svtnqqk" path="res://music/build_loop.wav" id="3_l7xiw"]
 
 [node name="MusicPlayer" type="Node" unique_id=483043305]
 process_mode = 3

@@ -4,6 +4,7 @@ extends Node
 const BATTLE_INTRO = preload("uid://c4cvjvvjsmxsb") # Not sure if UID is better/worse/equal than using file location
 const BATTLE_LOOP = preload("uid://rsxc1vuj2xlc")
 const PRE_BOSS = preload("uid://5vejjxqbjfwk")
+const BUILD_LOOP = preload("uid://jt8g8svtnqqk")
 
 var default_crossfade_time: float = 2.5
 var current_player: AudioStreamPlayer # The audiostreamplayer that is actively playing right now
@@ -25,6 +26,11 @@ func start_battle_music():
 	battle_audio.play(0)
 
 func start_build_music():
+	var main = get_tree().current_scene
+	if main.has_method("on_player_died"): # Not sure if there's a better verification, this should work anyway
+		if main.wave_number + 1 % 5 == 0:
+			build_audio.stream = PRE_BOSS
+		else: build_audio.stream = BUILD_LOOP
 	cross_fade(build_audio, current_player)
 	current_player = build_audio
 	build_audio.play(0)
@@ -44,7 +50,7 @@ func cross_fade(fade_in: AudioStreamPlayer, fade_out: AudioStreamPlayer, time: f
 		return
 	fade_in_tween.parallel()
 	var fade_out_tween = create_tween()
-	fade_out_tween.tween_callback(func(): fade_out.stop()) # Stop the player once it reaches 0 volume
+	fade_out_tween.finished.connect(func(): fade_out.stop()) # Stop the player once it reaches 0 volume
 	fade_out_tween.tween_property(fade_out, "volume_linear", 0, time)
 
 func on_battle_audio_stream_finished():
