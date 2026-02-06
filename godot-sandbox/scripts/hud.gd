@@ -814,18 +814,26 @@ func _update_building_tooltip_desktop(cam: Camera2D):
 
 
 func _update_building_tooltip_mobile(cam: Camera2D):
+	var player = _get_player()
+	var vp_size = get_viewport().get_visible_rect().size
+
+	# Show build-type tooltip while in build mode
+	if player and player.is_in_build_mode():
+		var info = _get_build_type_info(player.build_mode)
+		if info != "":
+			building_tooltip_label.text = info
+			building_tooltip.visible = true
+			# Position above the confirm panel, centered
+			building_tooltip.position = Vector2(vp_size.x / 2.0 - 60, vp_size.y - 160)
+			var ts = building_tooltip.size
+			building_tooltip.position.x = clampf(vp_size.x / 2.0 - ts.x / 2.0, 5, vp_size.x - ts.x - 5)
+		return
+
 	if selected_building == null or not is_instance_valid(selected_building):
 		selected_building = null
 		building_tooltip.visible = false
 		return
 
-	# Hide tooltip while in build mode
-	var player = _get_player()
-	if player and player.is_in_build_mode():
-		building_tooltip.visible = false
-		return
-
-	var vp_size = get_viewport().get_visible_rect().size
 	var screen_pos = (selected_building.global_position - cam.global_position) * cam.zoom + vp_size / 2.0
 	building_tooltip_label.text = _get_building_info_text(selected_building)
 	building_tooltip.visible = true
@@ -864,6 +872,30 @@ func _get_building_info_text(b: Node2D) -> String:
 		"Wall":
 			lines.append("Blocks enemies")
 	return "\n".join(lines)
+
+
+func _get_build_type_info(build_type: String) -> String:
+	var player = _get_player()
+	var cost_text = ""
+	if player:
+		var cost = player.get_building_cost(build_type)
+		cost_text = "Cost: %dI + %dC" % [cost["iron"], cost["crystal"]]
+	match build_type:
+		"turret":
+			return "Turret\nDMG: 8 | Range: 250\nRequires power\n" + cost_text
+		"factory":
+			return "Factory\nProduces Iron & Crystal\nRequires power\n" + cost_text
+		"wall":
+			return "Wall\nHP: 150 | Blocks enemies\n" + cost_text
+		"lightning":
+			return "Lightning Tower\nDMG: 15 | Range: 180\nRequires power\n" + cost_text
+		"slow":
+			return "Slow Tower\nSlow: 50% | Range: 150\nRequires power\n" + cost_text
+		"pylon":
+			return "Pylon\nExtends power | Range: 150\nRequires power chain\n" + cost_text
+		"power_plant":
+			return "Power Plant\nProvides power | Range: 120\n" + cost_text
+	return build_type + "\n" + cost_text
 
 
 func _lbl(parent: Node, sz: int, col: Color = Color.WHITE) -> Label:

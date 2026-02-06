@@ -159,8 +159,6 @@ func _process(delta):
 			var nearest_alien = _find_nearest_alien()
 			if nearest_alien:
 				facing_angle = (nearest_alien.global_position - global_position).angle()
-			elif input != Vector2.ZERO:
-				facing_angle = input.angle()
 	else:
 		facing_angle = (get_global_mouse_position() - global_position).angle()
 	shoot_timer = maxf(0.0, shoot_timer - delta)
