@@ -1,10 +1,11 @@
 extends Node
 ## MusicPlayer class is setup as an autoload so that it can play seamlessly through different instantiated scenes if needed
 
-const BATTLE_INTRO = preload("uid://c4cvjvvjsmxsb") # Not sure if UID is better/worse/equal than using file location
-const BATTLE_LOOP = preload("uid://rsxc1vuj2xlc")
+# Not sure if UID is better/worse/equal than using file location
 const PRE_BOSS = preload("uid://5vejjxqbjfwk")
 const BUILD_LOOP = preload("uid://jt8g8svtnqqk")
+const BATTLE_INTRO_001 = preload("uid://btuq4oicfg0rj") 
+const BATTLE_LOOP_001 = preload("uid://cnal5xt4x4wov") 
 
 var default_crossfade_time: float = 2.5
 var current_player: AudioStreamPlayer # The audiostreamplayer that is actively playing right now
@@ -20,7 +21,7 @@ func game_started():
 	start_menu_music()
 
 func start_battle_music():
-	battle_audio.stream = BATTLE_INTRO
+	battle_audio.stream = BATTLE_INTRO_001
 	cross_fade(battle_audio, current_player)
 	current_player = battle_audio
 	battle_audio.play(0)
@@ -57,6 +58,6 @@ func cross_fade(fade_in: AudioStreamPlayer, fade_out: AudioStreamPlayer, time: f
 	fade_out_tween.tween_property(fade_out, "volume_linear", 0, time)
 
 func on_battle_audio_stream_finished():
-	if battle_audio.stream == BATTLE_INTRO:
-		battle_audio.stream = BATTLE_LOOP
+	if battle_audio.stream == BATTLE_INTRO_001:
+		battle_audio.stream = BATTLE_LOOP_001
 		battle_audio.play(0)

@@ -9,6 +9,16 @@ const BASE_AUTO_MINE_INTERVAL = 0.5
 const BASE_GEM_COLLECT_RANGE = 80.0
 const MAP_HALF_SIZE = 1000.0
 
+## SFX STREAMS ##
+const MINING_LASER_SOUND = preload("uid://c605m7wnf8mmk")
+const MINING_LASER_SOUND_END = preload("uid://ckujswy7m8f0r")
+
+## ----------- ##
+## SFX PLAYERS ##
+@onready var mining_sfx_player: AudioStreamPlayer2D = $MiningSFXPlayer
+@onready var shooting_sfx_player: AudioStreamPlayer2D = $ShootingSFXPlayer
+## ----------- ##
+
 var health: int = 100
 var max_health: int = 100
 var iron: int = 0
@@ -230,6 +240,7 @@ func _process(delta):
 		_process_orbitals(delta)
 	if upgrades["health_regen"] > 0:
 		_process_regen(delta)
+	_play_sfx()
 
 	queue_redraw()
 
@@ -396,6 +407,17 @@ func _spawn_popup(text: String, color: Color):
 	popup.text = text
 	popup.color = color
 	get_tree().current_scene.add_child(popup)
+
+
+func _play_sfx():
+
+	if not mine_targets.any(is_instance_valid):
+		if mining_sfx_player.stream != MINING_LASER_SOUND_END:
+			mining_sfx_player.stream = MINING_LASER_SOUND_END
+			mining_sfx_player.play()
+	elif not mining_sfx_player.playing or mining_sfx_player.stream != MINING_LASER_SOUND:
+		mining_sfx_player.stream = MINING_LASER_SOUND
+		mining_sfx_player.play()
 
 
 func add_xp(amount: int):
