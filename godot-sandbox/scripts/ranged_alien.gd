@@ -18,6 +18,7 @@ var slow_factor: float = 1.0
 var slow_timer: float = 0.0
 var orbital_cooldown: float = 0.0
 var hit_flash_timer: float = 0.0
+var acid_timer: float = 0.0
 
 
 func _ready():
@@ -41,6 +42,7 @@ func apply_slow(amount: float, duration: float = 2.0):
 func _process(delta):
 	orbital_cooldown = maxf(0.0, orbital_cooldown - delta)
 	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
+	acid_timer = maxf(0.0, acid_timer - delta)
 
 	if burn_timer > 0:
 		burn_timer -= delta
@@ -150,6 +152,8 @@ func _draw():
 		body_color = body_color.lerp(Color(1, 0.5, 0), 0.4)
 	if slow_timer > 0 and hit_flash_timer <= 0:
 		body_color = body_color.lerp(Color(0.5, 0.8, 1.0), 0.4)
+	if acid_timer > 0 and hit_flash_timer <= 0:
+		body_color = body_color.lerp(Color(0.2, 0.9, 0.1), 0.5)
 
 	var pts = PackedVector2Array([
 		Vector2(0, -size),
@@ -163,6 +167,9 @@ func _draw():
 
 	draw_circle(Vector2(0, -2), 4, Color(1, 0.3, 1))
 	draw_circle(Vector2(0, -2), 2, Color(0.2, 0, 0.2))
+
+	if acid_timer > 0:
+		draw_arc(Vector2.ZERO, size + 2, 0, TAU, 12, Color(0.2, 0.9, 0.1, 0.4), 1.5)
 
 	if hp < max_hp:
 		draw_rect(Rect2(-size, -size - 8, size * 2, 3), Color(0.3, 0, 0))
