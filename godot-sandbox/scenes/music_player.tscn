@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://cjyl1eyw0e4yk"]
 
 [ext_resource type="Script" uid="uid://bo54ulan5hbfh" path="res://scripts/music_player.gd" id="1_jxdhu"]
-[ext_resource type="AudioStream" uid="uid://c4cvjvvjsmxsb" path="res://music/battle_intro.wav" id="2_ql6qh"]
+[ext_resource type="AudioStream" uid="uid://btuq4oicfg0rj" path="res://music/battle_intro-001.wav" id="2_yalyj"]
 [ext_resource type="AudioStream" uid="uid://jt8g8svtnqqk" path="res://music/build_loop.wav" id="3_l7xiw"]
 [ext_resource type="AudioStream" uid="uid://s1up1xq8akaw" path="res://music/menu.wav" id="4_yalyj"]
 
@@ -10,7 +10,7 @@ process_mode = 3
 script = ExtResource("1_jxdhu")
 
 [node name="BattleAudio" type="AudioStreamPlayer" parent="." unique_id=1966927585]
-stream = ExtResource("2_ql6qh")
+stream = ExtResource("2_yalyj")
 bus = &"Music"
 
 [node name="BuildAudio" type="AudioStreamPlayer" parent="." unique_id=345349054]

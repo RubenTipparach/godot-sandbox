@@ -4,8 +4,8 @@ extends Node
 # Not sure if UID is better/worse/equal than using file location
 const PRE_BOSS = preload("uid://5vejjxqbjfwk")
 const BUILD_LOOP = preload("uid://jt8g8svtnqqk")
-const BATTLE_INTRO_001 = preload("uid://btuq4oicfg0rj") 
-const BATTLE_LOOP_001 = preload("uid://cnal5xt4x4wov") 
+const BATTLE_INTRO_001 = preload("uid://btuq4oicfg0rj")
+const BATTLE_LOOP_001 = preload("uid://cnal5xt4x4wov")
 
 var default_crossfade_time: float = 2.5
 var current_player: AudioStreamPlayer # The audiostreamplayer that is actively playing right now
