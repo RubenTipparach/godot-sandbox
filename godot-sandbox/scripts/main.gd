@@ -376,6 +376,7 @@ func _on_upgrade_chosen(upgrade_key: String):
 
 
 func _on_game_started(start_wave: int):
+	MusicPlayer.start_build_music() ## Assuming we start the game in build mode everytime
 	starting_wave = start_wave
 	# Apply research bonuses
 	if is_instance_valid(player_node):

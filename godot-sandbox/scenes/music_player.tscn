@@ -3,6 +3,7 @@
 [ext_resource type="Script" uid="uid://bo54ulan5hbfh" path="res://scripts/music_player.gd" id="1_jxdhu"]
 [ext_resource type="AudioStream" uid="uid://c4cvjvvjsmxsb" path="res://music/battle_intro.wav" id="2_ql6qh"]
 [ext_resource type="AudioStream" uid="uid://jt8g8svtnqqk" path="res://music/build_loop.wav" id="3_l7xiw"]
+[ext_resource type="AudioStream" uid="uid://s1up1xq8akaw" path="res://music/menu.wav" id="4_yalyj"]
 
 [node name="MusicPlayer" type="Node" unique_id=483043305]
 process_mode = 3
@@ -17,4 +18,5 @@ stream = ExtResource("3_l7xiw")
 bus = &"Music"
 
 [node name="MenuAudio" type="AudioStreamPlayer" parent="." unique_id=1500637640]
+stream = ExtResource("4_yalyj")
 bus = &"Music"
