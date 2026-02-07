@@ -538,6 +538,46 @@ func can_afford(type: String) -> bool:
 	return iron >= cost["iron"] and crystal >= cost["crystal"]
 
 
+func get_building_type_string(building: Node2D) -> String:
+	if not building.has_method("get_building_name"):
+		return ""
+	match building.get_building_name():
+		"Turret": return "turret"
+		"Factory": return "factory"
+		"Wall": return "wall"
+		"Lightning Tower": return "lightning"
+		"Slow Tower": return "slow"
+		"Pylon": return "pylon"
+		"Power Plant": return "power_plant"
+		"Battery": return "battery"
+		"Flame Turret": return "flame_turret"
+		"Acid Turret": return "acid_turret"
+		"Repair Drone": return "repair_drone"
+	return ""
+
+
+func get_recycle_value(building: Node2D) -> Dictionary:
+	var type_str = get_building_type_string(building)
+	if type_str == "":
+		return {"iron": 0, "crystal": 0}
+	var base = CFG.get_base_cost(type_str)
+	var hp_ratio = 1.0
+	if "hp" in building and "max_hp" in building and building.max_hp > 0:
+		hp_ratio = float(building.hp) / float(building.max_hp)
+	return {
+		"iron": int(base["iron"] * hp_ratio),
+		"crystal": int(base["crystal"] * hp_ratio)
+	}
+
+
+func recycle_building(building: Node2D) -> Dictionary:
+	var value = get_recycle_value(building)
+	iron += value["iron"]
+	crystal += value["crystal"]
+	building.queue_free()
+	return value
+
+
 func _process_aura(delta):
 	aura_timer += delta
 	if aura_timer >= 0.5:
