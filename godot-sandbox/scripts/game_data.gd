@@ -124,11 +124,7 @@ func record_run(wave_reached: int, bosses_killed: int):
 		highest_wave = wave_reached
 	total_bosses_killed += bosses_killed
 	total_runs += 1
-	# Award prestige based on wave reached
-	var earned = wave_reached / 2
-	if bosses_killed > 0:
-		earned += bosses_killed * 3
-	prestige_points += earned
+	# Prestige is now earned by collecting physical orb drops during gameplay
 	# Auto-unlock starting waves based on progress
 	_auto_unlock_waves(wave_reached)
 	save_data()

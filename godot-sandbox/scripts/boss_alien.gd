@@ -136,9 +136,11 @@ func _die():
 		gem.xp_value = maxi(xp_value / 5, 1)
 		gem.gem_size = 2
 		get_tree().current_scene.add_child(gem)
-	# Drop prestige based on wave level (higher wave = more prestige)
-	var prestige_amount = 1 + wave_level / 5
-	GameData.add_prestige(prestige_amount)
+	# Drop 5 prestige orbs spread around death position
+	for i in range(5):
+		var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
+		orb.global_position = global_position + Vector2(randf_range(-25, 25), randf_range(-25, 25))
+		get_tree().current_scene.add_child(orb)
 	# Boss always drops a heal
 	var powerup = preload("res://scenes/powerup.tscn").instantiate()
 	powerup.global_position = global_position

@@ -1293,7 +1293,7 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 		power_rate_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.4))
 
 	# Prestige earned this run
-	prestige_hud_label.text = "Prestige: +%d" % prestige_earned
+	prestige_hud_label.text = "Prestige: %d" % prestige_earned
 
 	# Update building costs dynamically
 	_update_build_costs(player)

@@ -226,6 +226,7 @@ func _process(delta):
 				cancel_build_mode()
 
 	_collect_gems()
+	_collect_prestige_orbs()
 	_collect_powerups()
 	if upgrades["damage_aura"] > 0:
 		_process_aura(delta)
@@ -337,6 +338,15 @@ func _collect_gems():
 		if global_position.distance_to(gem.global_position) < collect_range:
 			add_xp(gem.xp_value)
 			gem.collect()
+
+
+func _collect_prestige_orbs():
+	var collect_range = get_gem_range()
+	for orb in get_tree().get_nodes_in_group("prestige_orbs"):
+		if not is_instance_valid(orb): continue
+		if global_position.distance_to(orb.global_position) < collect_range:
+			GameData.add_prestige(orb.prestige_value)
+			orb.collect()
 
 
 func _collect_powerups():
