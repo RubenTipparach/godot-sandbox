@@ -53,6 +53,7 @@ var upgrades = {
 	"dodge": 0,
 	"armor": 0,
 	"crit_chance": 0,
+	"pickup_range": 0,
 }
 
 var aura_timer: float = 0.0
@@ -110,7 +111,7 @@ func get_rock_regen_multiplier() -> float:
 func get_gem_range() -> float:
 	if magnet_timer > 0:
 		return CFG.magnet_range
-	return CFG.gem_collect_range
+	return CFG.gem_collect_range + upgrades["pickup_range"] * CFG.pickup_range_per_level + GameData.get_research_bonus("pickup_range")
 
 
 func _process(delta):
@@ -307,6 +308,11 @@ func _mine_nearby(qty: int):
 			gem.global_position = res_pos
 			gem.xp_value = maxi(1, result["amount"])
 			get_tree().current_scene.add_child(gem)
+			# 1 in 5 chance to drop a prestige orb from depleted rock
+			if randi() % 5 == 0:
+				var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
+				orb.global_position = res_pos
+				get_tree().current_scene.add_child(orb)
 
 
 func _repair_nearby():

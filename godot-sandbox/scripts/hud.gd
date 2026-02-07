@@ -74,6 +74,7 @@ const UPGRADE_DATA = {
 	"dodge": {"name": "Evasion", "color": Color(0.6, 0.8, 1.0), "max": 5},
 	"armor": {"name": "Plating", "color": Color(0.5, 0.5, 0.6), "max": 5},
 	"crit_chance": {"name": "Critical Hit", "color": Color(1.0, 0.4, 0.2), "max": 5},
+	"pickup_range": {"name": "Magnetic Field", "color": Color(1.0, 0.9, 0.3), "max": 5},
 }
 
 
@@ -1410,6 +1411,7 @@ func _desc(key: String, lv: int) -> String:
 		"dodge": return "%d%% chance to dodge attacks" % (lv * 8)
 		"armor": return "Reduce damage by %d" % (lv * 2)
 		"crit_chance": return "%d%% chance for 2x damage" % (lv * 10)
+		"pickup_range": return "+15 pickup range (+%dpx total)" % (lv * 15)
 	return ""
 
 

@@ -3,6 +3,8 @@ extends Node2D
 var xp_value: int = 1
 var gem_size: int = 1
 var bob_offset: float = 0.0
+var trail: Array = []
+const MAX_TRAIL = 6
 
 
 func _ready():
@@ -11,6 +13,8 @@ func _ready():
 
 
 func _process(delta):
+	var old_pos = global_position
+
 	for p in get_tree().get_nodes_in_group("player"):
 		if not is_instance_valid(p): continue
 		var dist = global_position.distance_to(p.global_position)
@@ -25,6 +29,16 @@ func _process(delta):
 			var dir = (p.global_position - global_position).normalized()
 			position += dir * 300.0 * (1.0 - dist / 120.0) * delta
 
+	# Trail when moving toward player
+	if global_position.distance_to(old_pos) > 1.0:
+		trail.append({"pos": old_pos - global_position, "life": 0.25})
+	for i in range(trail.size() - 1, -1, -1):
+		trail[i]["life"] -= delta
+		if trail[i]["life"] <= 0:
+			trail.remove_at(i)
+	while trail.size() > MAX_TRAIL:
+		trail.remove_at(0)
+
 	bob_offset += delta * 3.0
 	queue_redraw()
 
@@ -38,6 +52,11 @@ func _draw():
 	var color = colors[clampi(gem_size - 1, 0, 2)]
 	var sz = 3.0 + gem_size * 1.5
 	var bob = sin(bob_offset) * 2.0
+
+	# Draw trail
+	for t in trail:
+		var alpha = t["life"] / 0.25
+		draw_circle(t["pos"], sz * 0.4 * alpha, Color(color.r, color.g, color.b, 0.3 * alpha))
 
 	var pts = PackedVector2Array([
 		Vector2(0, -sz + bob),
