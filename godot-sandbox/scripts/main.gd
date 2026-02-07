@@ -156,6 +156,8 @@ func _create_world():
 	hud_node.upgrade_chosen.connect(_on_upgrade_chosen)
 	hud_node.game_started.connect(_on_game_started)
 
+	MusicPlayer.game_started()
+
 	_spawn_resources()
 
 
@@ -188,11 +190,13 @@ func _process(delta):
 	# Wave logic: countdown only when no aliens
 	if wave_active:
 		if alien_count == 0:
+			MusicPlayer.start_build_music() # Queue building music
 			wave_active = false
 			pending_upgrades += 1
 	else:
 		wave_timer -= delta
 		if wave_timer <= 0:
+			MusicPlayer.start_battle_music() # Queue battle music
 			wave_number += 1
 			_spawn_wave()
 			wave_timer = CFG.wave_interval
@@ -373,6 +377,7 @@ func _on_upgrade_chosen(upgrade_key: String):
 
 
 func _on_game_started(start_wave: int):
+	MusicPlayer.start_build_music() ## Assuming we start the game in build mode everytime
 	starting_wave = start_wave
 	# Apply research bonuses
 	if is_instance_valid(player_node):
