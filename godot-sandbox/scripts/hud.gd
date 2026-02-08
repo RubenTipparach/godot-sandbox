@@ -1,5 +1,7 @@
 extends CanvasLayer
 
+const CFG = preload("res://resources/game_config.tres")
+
 signal upgrade_chosen(upgrade_key: String)
 signal game_started(wave: int)
 
@@ -23,6 +25,9 @@ var alert_timer: float = 0.0
 var upgrade_panel: Control
 var card_info: Array = []
 var _upgrade_showing: bool = false
+var vote_status_label: Label
+var _local_vote_key: String = ""
+var _vote_locked: bool = false
 
 var death_panel: Control
 var death_stats_label: Label
@@ -49,9 +54,31 @@ var selected_building: Node2D = null
 var build_confirm_panel: HBoxContainer = null
 var confirm_btn: Button = null
 var cancel_build_btn: Button = null
-var recycle_panel: PanelContainer = null
+
+var lobby_panel: Control
+var lobby_code_label: Label
+var lobby_code_input: LineEdit
+var lobby_status_label: Label
+var lobby_start_btn: Button
+var lobby_connect_btn: Button
+var lobby_host_section: VBoxContainer
+var lobby_client_section: VBoxContainer
+var partner_panels: Array = []  # Array of {"panel": PanelContainer, "label": Label}
+
+var lobby_name_input: LineEdit
+var local_player_name: String = ""
+var lobby_players_label: Label
+var respawn_label: Label
+var respawn_countdown: float = 0.0
+var room_code_label: Label
+var building_info_panel: PanelContainer = null
+var building_info_label: Label = null
 var recycle_btn: Button = null
-var recycle_info_label: Label = null
+var toggle_power_btn: Button = null
+var hq_health_label: Label
+var hq_bar_bg: ColorRect
+var hq_bar_fill: ColorRect
+var hq_panel: PanelContainer
 
 const UPGRADE_DATA = {
 	"chain_lightning": {"name": "Chain Lightning", "color": Color(0.3, 0.7, 1.0), "max": 5},
@@ -158,6 +185,27 @@ func _ready():
 	timer_label = _lbl(wave_vbox, 17, Color(1.0, 0.4, 0.4))
 	alien_count_label = _lbl(wave_vbox, 13, Color(1.0, 0.5, 0.4))
 
+	# --- HQ Health Panel ---
+	hq_panel = PanelContainer.new()
+	hq_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hq_panel.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
+	left_col.add_child(hq_panel)
+	var hq_vbox = VBoxContainer.new()
+	hq_vbox.add_theme_constant_override("separation", 2)
+	hq_panel.add_child(hq_vbox)
+
+	hq_health_label = _lbl(hq_vbox, 15, Color(0.5, 0.8, 1.0))
+
+	hq_bar_bg = ColorRect.new()
+	hq_bar_bg.custom_minimum_size = Vector2(170, 8)
+	hq_bar_bg.color = Color(0.15, 0.15, 0.25)
+	hq_vbox.add_child(hq_bar_bg)
+	hq_bar_fill = ColorRect.new()
+	hq_bar_fill.color = Color(0.3, 0.8, 1.0)
+	hq_bar_fill.position = Vector2.ZERO
+	hq_bar_fill.size = Vector2(170, 8)
+	hq_bar_bg.add_child(hq_bar_fill)
+
 	# Horizontal build bar at bottom center
 	var build_bar = PanelContainer.new()
 	build_bar.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -201,13 +249,57 @@ func _ready():
 	minimap_node.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(minimap_node)
 
+	# Partner health panels (MP only, top-right below minimap) - up to 3 partners
+	for i in range(3):
+		var pp = PanelContainer.new()
+		pp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pp.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
+		pp.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		pp.offset_left = -170
+		pp.offset_top = 175 + i * 32
+		pp.offset_right = -10
+		pp.visible = false
+		root.add_child(pp)
+		var plbl = Label.new()
+		plbl.add_theme_font_size_override("font_size", 14)
+		plbl.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
+		pp.add_child(plbl)
+		partner_panels.append({"panel": pp, "label": plbl})
+
+	# Respawn countdown overlay (centered, large, hidden by default)
+	respawn_label = Label.new()
+	respawn_label.add_theme_font_size_override("font_size", 32)
+	respawn_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+	respawn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	respawn_label.set_anchors_preset(Control.PRESET_CENTER)
+	respawn_label.offset_top = -40
+	respawn_label.offset_left = -200
+	respawn_label.offset_right = 200
+	respawn_label.visible = false
+	respawn_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(respawn_label)
+
+	# Room code label (top-right, below minimap, above partner panels)
+	room_code_label = Label.new()
+	room_code_label.add_theme_font_size_override("font_size", 13)
+	room_code_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3, 0.7))
+	room_code_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	room_code_label.offset_left = -170
+	room_code_label.offset_top = 172
+	room_code_label.offset_right = -10
+	room_code_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	room_code_label.visible = false
+	room_code_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(room_code_label)
+
 	_build_upgrade_panel(root)
 	_build_death_panel(root)
 	_build_start_menu(root)
 	_build_research_panel(root)
 	_build_pause_menu(root)
+	_build_lobby_panel(root)
 	_build_building_tooltip(root)
-	_build_recycle_panel(root)
+	_build_building_info_panel(root)
 
 	# Detect mobile and add virtual controls
 	is_mobile = _detect_mobile()
@@ -282,8 +374,35 @@ func _build_upgrade_panel(root: Control):
 		dl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		vb.add_child(dl)
 
+		var vote_lbl = Label.new()
+		vote_lbl.add_theme_font_size_override("font_size", 13)
+		vote_lbl.add_theme_color_override("font_color", Color(0.9, 0.9, 0.3))
+		vote_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vote_lbl.visible = false
+		vb.add_child(vote_lbl)
+
+		var voters_lbl = Label.new()
+		voters_lbl.add_theme_font_size_override("font_size", 11)
+		voters_lbl.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+		voters_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		voters_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		voters_lbl.visible = false
+		vb.add_child(voters_lbl)
+
 		card.gui_input.connect(_on_card_click.bind(i))
-		card_info.append({"panel": card, "name_lbl": nl, "lvl_lbl": ll, "desc_lbl": dl, "key": ""})
+		card_info.append({"panel": card, "name_lbl": nl, "lvl_lbl": ll, "desc_lbl": dl, "vote_count_lbl": vote_lbl, "voters_lbl": voters_lbl, "key": ""})
+
+	vote_status_label = Label.new()
+	vote_status_label.add_theme_font_size_override("font_size", 16)
+	vote_status_label.add_theme_color_override("font_color", Color(0.9, 0.8, 0.3))
+	vote_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vote_status_label.set_anchors_preset(Control.PRESET_CENTER)
+	vote_status_label.offset_top = 85
+	vote_status_label.offset_left = -250
+	vote_status_label.offset_right = 250
+	vote_status_label.visible = false
+	vote_status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	upgrade_panel.add_child(vote_status_label)
 
 
 func _build_death_panel(root: Control):
@@ -427,6 +546,31 @@ func _build_start_menu(root: Control):
 	research_btn.offset_bottom = 90
 	research_btn.pressed.connect(_on_research_btn_pressed)
 	start_menu.add_child(research_btn)
+
+	var coop_container = HBoxContainer.new()
+	coop_container.set_anchors_preset(Control.PRESET_CENTER)
+	coop_container.offset_top = 100
+	coop_container.offset_left = -160
+	coop_container.offset_right = 160
+	coop_container.alignment = BoxContainer.ALIGNMENT_CENTER
+	coop_container.add_theme_constant_override("separation", 20)
+	start_menu.add_child(coop_container)
+
+	var host_btn = Button.new()
+	host_btn.text = "Host Co-op"
+	host_btn.custom_minimum_size = Vector2(150, 45)
+	host_btn.add_theme_font_size_override("font_size", 18)
+	host_btn.add_theme_color_override("font_color", Color(0.3, 0.9, 0.5))
+	host_btn.pressed.connect(_on_host_coop_pressed)
+	coop_container.add_child(host_btn)
+
+	var join_btn = Button.new()
+	join_btn.text = "Join Co-op"
+	join_btn.custom_minimum_size = Vector2(150, 45)
+	join_btn.add_theme_font_size_override("font_size", 18)
+	join_btn.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
+	join_btn.pressed.connect(_on_join_coop_pressed)
+	coop_container.add_child(join_btn)
 
 	var debug_toggle_btn = Button.new()
 	debug_toggle_btn.text = "Debug"
@@ -593,6 +737,171 @@ func _build_pause_menu(root: Control):
 	vbox.add_child(prestige_btn)
 
 
+func _build_lobby_panel(root: Control):
+	lobby_panel = Control.new()
+	lobby_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lobby_panel.visible = false
+	lobby_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	root.add_child(lobby_panel)
+
+	var bg = ColorRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0.02, 0.02, 0.08, 0.95)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	lobby_panel.add_child(bg)
+
+	var title = Label.new()
+	title.text = "CO-OP LOBBY"
+	title.add_theme_font_size_override("font_size", 36)
+	title.add_theme_color_override("font_color", Color(0.3, 0.9, 0.5))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	title.offset_top = 80
+	title.offset_left = -200
+	title.offset_right = 200
+	lobby_panel.add_child(title)
+
+	# Name input (shared by host and client)
+	var name_row = HBoxContainer.new()
+	name_row.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	name_row.offset_top = 135
+	name_row.offset_left = -150
+	name_row.offset_right = 150
+	name_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	name_row.add_theme_constant_override("separation", 8)
+	lobby_panel.add_child(name_row)
+
+	var name_title = Label.new()
+	name_title.text = "Your Name:"
+	name_title.add_theme_font_size_override("font_size", 16)
+	name_title.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	name_row.add_child(name_title)
+
+	lobby_name_input = LineEdit.new()
+	lobby_name_input.max_length = 12
+	lobby_name_input.placeholder_text = "Player"
+	lobby_name_input.custom_minimum_size = Vector2(140, 36)
+	lobby_name_input.add_theme_font_size_override("font_size", 18)
+	name_row.add_child(lobby_name_input)
+
+	# Host section - shows room code
+	lobby_host_section = VBoxContainer.new()
+	lobby_host_section.set_anchors_preset(Control.PRESET_CENTER)
+	lobby_host_section.offset_top = -50
+	lobby_host_section.offset_left = -200
+	lobby_host_section.offset_right = 200
+	lobby_host_section.offset_bottom = 60
+	lobby_host_section.alignment = BoxContainer.ALIGNMENT_CENTER
+	lobby_host_section.add_theme_constant_override("separation", 12)
+	lobby_host_section.visible = false
+	lobby_panel.add_child(lobby_host_section)
+
+	var code_title = Label.new()
+	code_title.text = "Room Code:"
+	code_title.add_theme_font_size_override("font_size", 18)
+	code_title.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	code_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_host_section.add_child(code_title)
+
+	lobby_code_label = Label.new()
+	lobby_code_label.text = "------"
+	lobby_code_label.add_theme_font_size_override("font_size", 48)
+	lobby_code_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	lobby_code_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_host_section.add_child(lobby_code_label)
+
+	var share_hint = Label.new()
+	share_hint.text = "Share this code with your friends"
+	share_hint.add_theme_font_size_override("font_size", 14)
+	share_hint.add_theme_color_override("font_color", Color(0.5, 0.5, 0.6))
+	share_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_host_section.add_child(share_hint)
+
+	# Client section - code input
+	lobby_client_section = VBoxContainer.new()
+	lobby_client_section.set_anchors_preset(Control.PRESET_CENTER)
+	lobby_client_section.offset_top = -50
+	lobby_client_section.offset_left = -200
+	lobby_client_section.offset_right = 200
+	lobby_client_section.offset_bottom = 60
+	lobby_client_section.alignment = BoxContainer.ALIGNMENT_CENTER
+	lobby_client_section.add_theme_constant_override("separation", 12)
+	lobby_client_section.visible = false
+	lobby_panel.add_child(lobby_client_section)
+
+	var input_title = Label.new()
+	input_title.text = "Enter Room Code:"
+	input_title.add_theme_font_size_override("font_size", 18)
+	input_title.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	input_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_client_section.add_child(input_title)
+
+	lobby_code_input = LineEdit.new()
+	lobby_code_input.max_length = 6
+	lobby_code_input.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_code_input.placeholder_text = "ABC123"
+	lobby_code_input.custom_minimum_size = Vector2(200, 50)
+	lobby_code_input.add_theme_font_size_override("font_size", 32)
+	lobby_client_section.add_child(lobby_code_input)
+
+	lobby_connect_btn = Button.new()
+	lobby_connect_btn.text = "Connect"
+	lobby_connect_btn.custom_minimum_size = Vector2(200, 45)
+	lobby_connect_btn.add_theme_font_size_override("font_size", 18)
+	lobby_connect_btn.pressed.connect(_on_lobby_connect_pressed)
+	lobby_client_section.add_child(lobby_connect_btn)
+
+	# Shared status label
+	lobby_status_label = Label.new()
+	lobby_status_label.text = ""
+	lobby_status_label.add_theme_font_size_override("font_size", 20)
+	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	lobby_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_status_label.set_anchors_preset(Control.PRESET_CENTER)
+	lobby_status_label.offset_top = 80
+	lobby_status_label.offset_left = -250
+	lobby_status_label.offset_right = 250
+	lobby_panel.add_child(lobby_status_label)
+
+	# Connected players list
+	lobby_players_label = Label.new()
+	lobby_players_label.add_theme_font_size_override("font_size", 15)
+	lobby_players_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.9))
+	lobby_players_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_players_label.set_anchors_preset(Control.PRESET_CENTER)
+	lobby_players_label.offset_top = 100
+	lobby_players_label.offset_left = -250
+	lobby_players_label.offset_right = 250
+	lobby_panel.add_child(lobby_players_label)
+
+	# Start button (host only)
+	lobby_start_btn = Button.new()
+	lobby_start_btn.text = "Start Game"
+	lobby_start_btn.custom_minimum_size = Vector2(200, 50)
+	lobby_start_btn.add_theme_font_size_override("font_size", 22)
+	lobby_start_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
+	lobby_start_btn.disabled = true
+	lobby_start_btn.set_anchors_preset(Control.PRESET_CENTER)
+	lobby_start_btn.offset_top = 135
+	lobby_start_btn.offset_left = -100
+	lobby_start_btn.offset_right = 100
+	lobby_start_btn.offset_bottom = 185
+	lobby_start_btn.pressed.connect(_on_lobby_start_pressed)
+	lobby_panel.add_child(lobby_start_btn)
+
+	var back_btn = Button.new()
+	back_btn.text = "Back"
+	back_btn.custom_minimum_size = Vector2(150, 45)
+	back_btn.add_theme_font_size_override("font_size", 18)
+	back_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	back_btn.offset_top = -60
+	back_btn.offset_left = -75
+	back_btn.offset_right = 75
+	back_btn.offset_bottom = -15
+	back_btn.pressed.connect(_on_lobby_back_pressed)
+	lobby_panel.add_child(back_btn)
+
+
 func _build_building_tooltip(root: Control):
 	building_tooltip = PanelContainer.new()
 	building_tooltip.visible = false
@@ -613,38 +922,50 @@ func _build_building_tooltip(root: Control):
 	building_tooltip.add_child(building_tooltip_label)
 
 
-func _build_recycle_panel(root: Control):
-	recycle_panel = PanelContainer.new()
-	recycle_panel.visible = false
-	recycle_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+func _build_building_info_panel(root: Control):
+	building_info_panel = PanelContainer.new()
+	building_info_panel.visible = false
+	building_info_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0.15, 0.1, 0.1, 0.95)
+	style.bg_color = Color(0.12, 0.12, 0.15, 0.95)
 	style.set_corner_radius_all(6)
-	style.border_color = Color(0.8, 0.4, 0.2)
+	style.border_color = Color(0.4, 0.5, 0.7)
 	style.set_border_width_all(1)
 	style.content_margin_left = 10
 	style.content_margin_right = 10
 	style.content_margin_top = 6
 	style.content_margin_bottom = 6
-	recycle_panel.add_theme_stylebox_override("panel", style)
-	root.add_child(recycle_panel)
+	building_info_panel.add_theme_stylebox_override("panel", style)
+	root.add_child(building_info_panel)
 
 	var vbox = VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 4)
-	recycle_panel.add_child(vbox)
+	building_info_panel.add_child(vbox)
 
-	recycle_info_label = Label.new()
-	recycle_info_label.add_theme_font_size_override("font_size", 13)
-	recycle_info_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
-	vbox.add_child(recycle_info_label)
+	building_info_label = Label.new()
+	building_info_label.add_theme_font_size_override("font_size", 13)
+	building_info_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
+	vbox.add_child(building_info_label)
+
+	var btn_row = HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(btn_row)
+
+	toggle_power_btn = Button.new()
+	toggle_power_btn.text = "Disable"
+	toggle_power_btn.custom_minimum_size = Vector2(80, 32)
+	toggle_power_btn.add_theme_font_size_override("font_size", 14)
+	toggle_power_btn.add_theme_color_override("font_color", Color(0.9, 0.8, 0.3))
+	toggle_power_btn.pressed.connect(_on_toggle_power_pressed)
+	btn_row.add_child(toggle_power_btn)
 
 	recycle_btn = Button.new()
 	recycle_btn.text = "Recycle"
-	recycle_btn.custom_minimum_size = Vector2(100, 36)
-	recycle_btn.add_theme_font_size_override("font_size", 16)
+	recycle_btn.custom_minimum_size = Vector2(100, 32)
+	recycle_btn.add_theme_font_size_override("font_size", 14)
 	recycle_btn.add_theme_color_override("font_color", Color(1.0, 0.6, 0.2))
 	recycle_btn.pressed.connect(_on_recycle_pressed)
-	vbox.add_child(recycle_btn)
+	btn_row.add_child(recycle_btn)
 
 
 func _detect_mobile() -> bool:
@@ -852,9 +1173,6 @@ func _unhandled_input(event: InputEvent):
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if player and not player.is_in_build_mode():
 				_handle_building_tap(event.position)
-		elif event.button_index == MOUSE_BUTTON_RIGHT:
-			if selected_building != null and (not player or not player.is_in_build_mode()):
-				selected_building = null
 
 
 func _screen_to_world(screen_pos: Vector2):
@@ -908,10 +1226,21 @@ func _on_recycle_pressed():
 	var player = _get_player()
 	if player and selected_building and is_instance_valid(selected_building):
 		var pos = selected_building.global_position
-		var value = player.recycle_building(selected_building)
+		var value = player.get_recycle_value(selected_building)
+		get_tree().current_scene.recycle_building(selected_building)
 		_spawn_recycle_popup(pos, value)
 		selected_building = null
-		recycle_panel.visible = false
+		building_info_panel.visible = false
+
+
+func _on_toggle_power_pressed():
+	if not selected_building or not is_instance_valid(selected_building):
+		return
+	if "manually_disabled" not in selected_building:
+		return
+	selected_building.manually_disabled = not selected_building.manually_disabled
+	if NetworkManager.is_multiplayer_active():
+		get_tree().current_scene.sync_building_toggle(selected_building)
 
 
 func _spawn_recycle_popup(pos: Vector2, value: Dictionary):
@@ -922,58 +1251,71 @@ func _spawn_recycle_popup(pos: Vector2, value: Dictionary):
 	get_tree().current_scene.add_child(popup)
 
 
-func _update_recycle_panel():
+func _update_building_info_panel():
 	if not _game_started or get_tree().paused:
-		if recycle_panel:
-			recycle_panel.visible = false
+		if building_info_panel:
+			building_info_panel.visible = false
 		return
 
 	var player = _get_player()
 	if not player:
-		if recycle_panel:
-			recycle_panel.visible = false
+		if building_info_panel:
+			building_info_panel.visible = false
 		return
 
-	# Don't show recycle panel while in build mode
 	if player.is_in_build_mode():
-		if recycle_panel:
-			recycle_panel.visible = false
+		if building_info_panel:
+			building_info_panel.visible = false
 		return
 
 	if selected_building == null or not is_instance_valid(selected_building):
 		selected_building = null
-		if recycle_panel:
-			recycle_panel.visible = false
-		return
-
-	# Don't allow recycling HQ
-	if selected_building.is_in_group("hq"):
-		if recycle_panel:
-			recycle_panel.visible = false
+		if building_info_panel:
+			building_info_panel.visible = false
 		return
 
 	var cam = get_viewport().get_camera_2d()
 	if not cam:
-		if recycle_panel:
-			recycle_panel.visible = false
+		if building_info_panel:
+			building_info_panel.visible = false
 		return
 
 	var vp_size = get_viewport().get_visible_rect().size
 	var screen_pos = (selected_building.global_position - cam.global_position) * cam.zoom + vp_size / 2.0
 
-	# Calculate recycle value
-	var value = player.get_recycle_value(selected_building)
-	var name_text = selected_building.get_building_name() if selected_building.has_method("get_building_name") else "Building"
-	var hp_text = ""
+	# Build info text
+	var bname = selected_building.get_building_name() if selected_building.has_method("get_building_name") else "Building"
+	var info = bname
 	if "hp" in selected_building and "max_hp" in selected_building:
-		hp_text = "HP: %d/%d\n" % [selected_building.hp, selected_building.max_hp]
-	recycle_info_label.text = "%s\n%sRefund: %dI + %dC" % [name_text, hp_text, value["iron"], value["crystal"]]
+		info += "\nHP: %d/%d" % [selected_building.hp, selected_building.max_hp]
+	# Power status
+	if selected_building.has_method("is_powered"):
+		if "manually_disabled" in selected_building and selected_building.manually_disabled:
+			info += "\nPower: Disabled"
+		elif selected_building.is_powered():
+			info += "\nPower: On"
+		else:
+			info += "\nPower: Off"
+	building_info_label.text = info
 
-	recycle_panel.visible = true
-	var panel_size = recycle_panel.size
-	recycle_panel.position = Vector2(screen_pos.x - panel_size.x / 2.0, screen_pos.y - panel_size.y - 30)
-	recycle_panel.position.x = clampf(recycle_panel.position.x, 5, vp_size.x - panel_size.x - 5)
-	recycle_panel.position.y = clampf(recycle_panel.position.y, 5, vp_size.y - panel_size.y - 5)
+	# Toggle power button: only for buildings with manually_disabled
+	var has_toggle = "manually_disabled" in selected_building
+	toggle_power_btn.visible = has_toggle
+	if has_toggle:
+		toggle_power_btn.text = "Enable" if selected_building.manually_disabled else "Disable"
+
+	# Recycle button: hide for HQ, show refund for others
+	var is_hq = selected_building.is_in_group("hq")
+	recycle_btn.visible = not is_hq
+	if not is_hq:
+		var value = player.get_recycle_value(selected_building)
+		recycle_btn.text = "Recycle (+%dI +%dC)" % [value["iron"], value["crystal"]]
+
+	building_info_panel.visible = true
+	var panel_size = building_info_panel.size
+	building_info_panel.position = Vector2(screen_pos.x - panel_size.x / 2.0, screen_pos.y - panel_size.y - 30)
+	building_info_panel.position.x = clampf(building_info_panel.position.x, 5, vp_size.x - panel_size.x - 5)
+	building_info_panel.position.y = clampf(building_info_panel.position.y, 5, vp_size.y - panel_size.y - 5)
 
 
 func _process(delta):
@@ -1001,8 +1343,8 @@ func _process(delta):
 				build_confirm_panel.position.x = clampf(build_confirm_panel.position.x, 5, vp_size.x - panel_w - 5)
 				build_confirm_panel.position.y = clampf(build_confirm_panel.position.y, 5, vp_size.y - panel_h - 5)
 
-	# Update recycle panel
-	_update_recycle_panel()
+	# Update building info panel
+	_update_building_info_panel()
 
 	# Update building tooltip
 	_update_building_tooltip()
@@ -1013,8 +1355,8 @@ func _update_building_tooltip():
 		building_tooltip.visible = false
 		return
 
-	# Hide tooltip when recycle panel is showing
-	if recycle_panel and recycle_panel.visible:
+	# Hide tooltip when building info panel is showing
+	if building_info_panel and building_info_panel.visible:
 		building_tooltip.visible = false
 		return
 
@@ -1269,6 +1611,30 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 	alien_count_label.text = "Aliens: %d" % ac
 	alien_count_label.visible = ac > 0
 
+	# HQ health display
+	var hq_nodes = get_tree().get_nodes_in_group("hq")
+	if hq_nodes.size() > 0 and is_instance_valid(hq_nodes[0]):
+		var hq = hq_nodes[0]
+		hq_panel.visible = true
+		hq_health_label.text = "HQ: %d / %d" % [hq.hp, hq.max_hp]
+		var hp_ratio = float(hq.hp) / float(hq.max_hp)
+		hq_bar_fill.size.x = 170.0 * hp_ratio
+		if hp_ratio < 0.25:
+			# Critical - fast flash red
+			var flash = 0.5 + sin(Time.get_ticks_msec() * 0.01) * 0.5
+			hq_bar_fill.color = Color(1.0, 0.1, 0.1)
+			hq_health_label.add_theme_color_override("font_color", Color(1.0, 0.2 + flash * 0.3, 0.2))
+		elif hp_ratio < 0.5:
+			# Warning - slow flash orange
+			var flash = 0.5 + sin(Time.get_ticks_msec() * 0.005) * 0.5
+			hq_bar_fill.color = Color(1.0, 0.5, 0.1)
+			hq_health_label.add_theme_color_override("font_color", Color(1.0, 0.6 + flash * 0.2, 0.2))
+		else:
+			hq_bar_fill.color = Color(0.3, 0.8, 1.0)
+			hq_health_label.add_theme_color_override("font_color", Color(0.5, 0.8, 1.0))
+	else:
+		hq_panel.visible = false
+
 	# Energy display
 	power_label.text = "Energy: %d / %d" % [int(power_bank), int(max_power_bank)]
 	if power_gen >= power_cons:
@@ -1295,6 +1661,44 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 
 	# Prestige earned this run
 	prestige_hud_label.text = "Prestige: %d" % prestige_earned
+
+	# Partner health in MP (up to 3 other players)
+	if NetworkManager.is_multiplayer_active():
+		var partners: Array = []
+		for p in get_tree().get_nodes_in_group("player"):
+			if is_instance_valid(p) and p != player:
+				partners.append(p)
+		for i in range(partner_panels.size()):
+			if i < partners.size():
+				var partner = partners[i]
+				var pi = partner_panels[i]
+				pi["panel"].visible = true
+				var display_name = partner.player_name if partner.player_name != "" else ("Host" if partner.peer_id == 1 else "P%d" % partner.peer_id)
+				if partner.is_dead:
+					pi["label"].text = "%s: DEAD" % display_name
+					pi["label"].add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+				else:
+					pi["label"].text = "%s HP: %d/%d" % [display_name, partner.health, partner.max_health]
+					pi["label"].add_theme_color_override("font_color", partner.player_color)
+			else:
+				partner_panels[i]["panel"].visible = false
+	else:
+		for pi in partner_panels:
+			pi["panel"].visible = false
+
+	# Respawn countdown
+	if player.is_dead and respawn_countdown > 0 and NetworkManager.is_multiplayer_active():
+		respawn_label.text = "Respawning in %d..." % ceili(respawn_countdown)
+		respawn_label.visible = true
+	else:
+		respawn_label.visible = false
+
+	# Room code display in MP
+	if NetworkManager.is_multiplayer_active() and NetworkManager.room_id != "":
+		room_code_label.text = "Room: %s" % NetworkManager.room_id
+		room_code_label.visible = true
+	else:
+		room_code_label.visible = false
 
 	# Update building costs dynamically
 	_update_build_costs(player)
@@ -1418,7 +1822,262 @@ func _desc(key: String, lv: int) -> String:
 func _on_card_click(event: InputEvent, idx: int):
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var key = card_info[idx]["key"]
-		if key != "":
+		if key == "":
+			return
+		if NetworkManager.is_multiplayer_active():
+			if _vote_locked:
+				return
+			_vote_locked = true
+			_local_vote_key = key
+			# Highlight the selected card
+			for i in range(card_info.size()):
+				var ci = card_info[i]
+				if not ci["panel"].visible:
+					continue
+				var data = UPGRADE_DATA.get(ci["key"], {})
+				var base_color = data.get("color", Color(0.4, 0.4, 0.5))
+				if ci["key"] == key:
+					ci["panel"].add_theme_stylebox_override("panel", _make_card_style(Color(1.0, 0.9, 0.3)))
+				else:
+					ci["panel"].add_theme_stylebox_override("panel", _make_card_style(base_color.lerp(Color.WHITE, 0.2)))
+			upgrade_chosen.emit(key)
+		else:
 			upgrade_panel.visible = false
 			_upgrade_showing = false
 			upgrade_chosen.emit(key)
+
+
+# --- Co-op Lobby ---
+
+func start_mp_game():
+	_disconnect_network_signals()
+	lobby_panel.visible = false
+	_game_started = true
+
+
+func _on_host_coop_pressed():
+	start_menu.visible = false
+	lobby_panel.visible = true
+	lobby_host_section.visible = true
+	lobby_client_section.visible = false
+	lobby_start_btn.visible = true
+	lobby_start_btn.disabled = true
+	lobby_code_label.text = "..."
+	lobby_status_label.text = "Creating room..."
+	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	_connect_network_signals()
+	var code = await NetworkManager.create_room()
+	if code == "":
+		lobby_status_label.text = "Failed to create room - check console (F12)"
+		lobby_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+	else:
+		lobby_code_label.text = code
+		lobby_status_label.text = "Waiting for players..."
+
+
+func _on_join_coop_pressed():
+	start_menu.visible = false
+	lobby_panel.visible = true
+	lobby_host_section.visible = false
+	lobby_client_section.visible = true
+	lobby_start_btn.visible = false
+	lobby_code_input.text = ""
+	lobby_status_label.text = "Enter the room code and click Connect"
+	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	_connect_network_signals()
+
+
+func _on_lobby_connect_pressed():
+	var code = lobby_code_input.text.strip_edges().to_upper()
+	if code.length() < 4:
+		lobby_status_label.text = "Code too short"
+		lobby_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+		return
+	lobby_connect_btn.disabled = true
+	lobby_status_label.text = "Connecting..."
+	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	NetworkManager.join_room(code)
+
+
+func _on_lobby_start_pressed():
+	local_player_name = lobby_name_input.text.strip_edges()
+	if local_player_name == "":
+		local_player_name = "Host"
+	_disconnect_network_signals()
+	lobby_panel.visible = false
+	_game_started = true
+	get_tree().paused = false
+	game_started.emit(1)  # MP games start at wave 1
+
+
+func _on_lobby_back_pressed():
+	NetworkManager.disconnect_peer()
+	_disconnect_network_signals()
+	lobby_panel.visible = false
+	lobby_connect_btn.disabled = false
+	start_menu.visible = true
+	_update_start_menu()
+
+
+func _connect_network_signals():
+	if not NetworkManager.connection_established.is_connected(_on_network_connected):
+		NetworkManager.connection_established.connect(_on_network_connected)
+	if not NetworkManager.connection_failed.is_connected(_on_network_failed):
+		NetworkManager.connection_failed.connect(_on_network_failed)
+	if not NetworkManager.peer_connected.is_connected(_on_network_peer_connected):
+		NetworkManager.peer_connected.connect(_on_network_peer_connected)
+	if not NetworkManager.peer_disconnected.is_connected(_on_network_peer_disconnected):
+		NetworkManager.peer_disconnected.connect(_on_network_peer_disconnected)
+
+
+func _disconnect_network_signals():
+	if NetworkManager.connection_established.is_connected(_on_network_connected):
+		NetworkManager.connection_established.disconnect(_on_network_connected)
+	if NetworkManager.connection_failed.is_connected(_on_network_failed):
+		NetworkManager.connection_failed.disconnect(_on_network_failed)
+	if NetworkManager.peer_connected.is_connected(_on_network_peer_connected):
+		NetworkManager.peer_connected.disconnect(_on_network_peer_connected)
+	if NetworkManager.peer_disconnected.is_connected(_on_network_peer_disconnected):
+		NetworkManager.peer_disconnected.disconnect(_on_network_peer_disconnected)
+
+
+func _on_network_connected():
+	lobby_status_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
+	var count = NetworkManager.get_player_count()
+	if NetworkManager.role == NetworkManager.NetRole.HOST:
+		lobby_status_label.text = "%d player(s) connected" % count
+		lobby_start_btn.disabled = false
+	else:
+		lobby_status_label.text = "Connected! (%d players) Waiting for host..." % count
+	# Send name to host
+	var pname = lobby_name_input.text.strip_edges()
+	if pname == "":
+		pname = "Player"
+	local_player_name = pname
+	get_tree().current_scene.send_player_name(pname)
+
+
+func _on_network_peer_connected(_id: int):
+	if lobby_panel.visible:
+		var count = NetworkManager.get_player_count()
+		if NetworkManager.role == NetworkManager.NetRole.HOST:
+			lobby_status_label.text = "%d player(s) connected" % count
+			lobby_status_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
+		else:
+			lobby_status_label.text = "Connected! (%d players) Waiting for host..." % count
+
+
+func _on_network_failed(reason: String):
+	lobby_status_label.text = "Failed: " + reason
+	lobby_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+	lobby_connect_btn.disabled = false
+
+
+func _on_network_peer_disconnected(_id: int):
+	if lobby_panel.visible:
+		var count = NetworkManager.get_player_count()
+		if count <= 1:
+			lobby_status_label.text = "All players disconnected"
+			lobby_start_btn.disabled = true
+		else:
+			lobby_status_label.text = "%d player(s) connected" % count
+		lobby_status_label.add_theme_color_override("font_color", Color(1.0, 0.7, 0.3))
+
+
+func update_lobby_player_list(names: Dictionary):
+	var lines: Array = []
+	for pid in names:
+		lines.append(names[pid])
+	if lines.size() > 0:
+		lobby_players_label.text = "Players: " + ", ".join(lines)
+	else:
+		lobby_players_label.text = ""
+
+
+# --- Upgrade Voting ---
+
+func show_vote_selection(keys: Array, current_upgrades: Dictionary, votes: Dictionary, _all_players: Dictionary, _names: Dictionary):
+	_local_vote_key = ""
+	_vote_locked = false
+
+	for i in range(3):
+		if i < keys.size():
+			var key = keys[i]
+			var data = UPGRADE_DATA[key]
+			var cur = current_upgrades.get(key, 0)
+			var ci = card_info[i]
+			ci["key"] = key
+			ci["panel"].visible = true
+			ci["name_lbl"].text = data["name"]
+			ci["name_lbl"].add_theme_color_override("font_color", data["color"])
+			ci["lvl_lbl"].text = "Lv %d -> %d" % [cur, cur + 1]
+			ci["desc_lbl"].text = _desc(key, cur + 1)
+			ci["panel"].add_theme_stylebox_override("panel", _make_card_style(data["color"].lerp(Color.WHITE, 0.2)))
+		else:
+			card_info[i]["panel"].visible = false
+
+	update_vote_display(votes, _all_players, _names)
+
+	upgrade_panel.visible = true
+	_upgrade_showing = true
+	vote_status_label.text = "Vote for an upgrade (must be unanimous)"
+	vote_status_label.add_theme_color_override("font_color", Color(0.9, 0.8, 0.3))
+	vote_status_label.visible = true
+
+
+func update_vote_display(votes: Dictionary, _all_players: Dictionary, names: Dictionary):
+	if not _upgrade_showing:
+		return
+	var total_players = _all_players.size()
+	for i in range(3):
+		var ci = card_info[i]
+		if not ci["panel"].visible:
+			continue
+		var key = ci["key"]
+		var voter_names: Array = []
+		var vote_count = 0
+		for pid in votes:
+			if votes[pid] == key:
+				vote_count += 1
+				var pname = names.get(pid, "P%d" % pid)
+				voter_names.append(pname)
+
+		ci["vote_count_lbl"].visible = true
+		ci["vote_count_lbl"].text = "%d/%d votes" % [vote_count, total_players]
+		ci["voters_lbl"].visible = voter_names.size() > 0
+		ci["voters_lbl"].text = ", ".join(voter_names)
+
+
+func hide_vote_panel(_chosen_key: String):
+	upgrade_panel.visible = false
+	_upgrade_showing = false
+	_vote_locked = false
+	_local_vote_key = ""
+	vote_status_label.visible = false
+	for ci in card_info:
+		ci["vote_count_lbl"].visible = false
+		ci["voters_lbl"].visible = false
+
+
+func reset_vote_display(keys: Array, current_upgrades: Dictionary, votes: Dictionary, _all_players: Dictionary, names: Dictionary):
+	_vote_locked = false
+	_local_vote_key = ""
+	vote_status_label.text = "Not unanimous! Vote again..."
+	vote_status_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.3))
+	# Re-populate cards (same keys)
+	for i in range(3):
+		if i < keys.size():
+			var key = keys[i]
+			var data = UPGRADE_DATA[key]
+			var cur = current_upgrades.get(key, 0)
+			var ci = card_info[i]
+			ci["key"] = key
+			ci["panel"].visible = true
+			ci["name_lbl"].text = data["name"]
+			ci["name_lbl"].add_theme_color_override("font_color", data["color"])
+			ci["lvl_lbl"].text = "Lv %d -> %d" % [cur, cur + 1]
+			ci["desc_lbl"].text = _desc(key, cur + 1)
+			ci["panel"].add_theme_stylebox_override("panel", _make_card_style(data["color"].lerp(Color.WHITE, 0.2)))
+		else:
+			card_info[i]["panel"].visible = false
+	update_vote_display(votes, _all_players, names)

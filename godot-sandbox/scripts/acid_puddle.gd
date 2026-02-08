@@ -25,7 +25,8 @@ func _process(delta):
 				continue
 			if global_position.distance_to(alien.global_position) < radius:
 				alien.take_damage(CFG.acid_puddle_dps)
-				alien.acid_timer = 1.0
+				if "acid_timer" in alien:
+					alien.acid_timer = 1.0
 
 	queue_redraw()
 

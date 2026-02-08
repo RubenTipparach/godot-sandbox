@@ -121,10 +121,9 @@ func _draw():
 		# Blinking power warning
 		var blink = fmod(power_blink_timer * 3.0, 1.0) < 0.5
 		var warn_color = Color(1.0, 0.9, 0.0) if blink else Color(0.1, 0.1, 0.1)
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(1.5, -10), Vector2(-1.5, -4), Vector2(0.5, -4),
-			Vector2(-2, 2), Vector2(0.5, -1), Vector2(-0.5, -1), Vector2(2, -10)
-		]), warn_color)
+		draw_polyline(PackedVector2Array([
+			Vector2(1, -10), Vector2(-1.5, -5), Vector2(1.5, -4), Vector2(-1, 2)
+		]), warn_color, 2.0)
 
 	# Power range disc (only when powered)
 	if powered:

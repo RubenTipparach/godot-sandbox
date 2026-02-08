@@ -9,6 +9,7 @@ var target_angle: float = 0.0
 var damage_bonus: int = 0
 var fire_rate_bonus: float = 0.0
 var power_blink_timer: float = 0.0
+var manually_disabled: bool = false
 var bullet_count: int = 1
 var ice_rounds: bool = false
 var fire_rounds: bool = false
@@ -25,6 +26,8 @@ func get_building_name() -> String:
 
 
 func is_powered() -> bool:
+	if manually_disabled:
+		return false
 	var main = get_tree().current_scene
 	if main and "power_on" in main and not main.power_on:
 		return false
@@ -90,6 +93,7 @@ func _shoot_at(target: Node2D):
 		if fire_rounds:
 			bullet.burn_dps = 6.0
 		get_tree().current_scene.add_child(bullet)
+		get_tree().current_scene.spawn_synced_bullet(bullet.global_position, bullet.direction, true, bullet.burn_dps, bullet.slow_amount)
 
 
 func take_damage(amount: int):
@@ -140,7 +144,6 @@ func _draw():
 		var blink = fmod(power_blink_timer * 3.0, 1.0) < 0.5
 		var warn_color = Color(1.0, 0.9, 0.0) if blink else Color(0.1, 0.1, 0.1)
 		# Lightning bolt icon
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(2, -14), Vector2(-2, -6), Vector2(1, -6),
-			Vector2(-3, 2), Vector2(1, -3), Vector2(-1, -3), Vector2(3, -14)
-		]), warn_color)
+		draw_polyline(PackedVector2Array([
+			Vector2(1, -14), Vector2(-2, -7), Vector2(2, -6), Vector2(-1, 2)
+		]), warn_color, 2.5)

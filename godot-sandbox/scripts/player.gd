@@ -66,14 +66,21 @@ var research_damage: int = 0
 var research_mining_speed: float = 0.0
 var research_xp_gain: float = 0.0
 
+# Multiplayer
+var peer_id: int = 1
+var is_local: bool = true
+var player_color: Color = Color(0.2, 0.9, 0.3)
+var player_name: String = ""
+
 
 func _ready():
 	add_to_group("player")
-	var cam = Camera2D.new()
-	cam.zoom = Vector2(1.5, 1.5)
-	cam.position_smoothing_enabled = true
-	cam.position_smoothing_speed = 8.0
-	add_child(cam)
+	if is_local:
+		var cam = Camera2D.new()
+		cam.zoom = Vector2(1.5, 1.5)
+		cam.position_smoothing_enabled = true
+		cam.position_smoothing_speed = 8.0
+		add_child(cam)
 
 
 func enter_build_mode(building_type: String):
@@ -119,6 +126,10 @@ func _process(delta):
 
 	if is_dead:
 		_process_death(delta)
+		queue_redraw()
+		return
+
+	if not is_local:
 		queue_redraw()
 		return
 
@@ -278,6 +289,7 @@ func _shoot():
 		b.burn_dps = upgrades["burning"] * CFG.burn_dps_per_level
 		b.slow_amount = upgrades["ice"] * CFG.slow_per_level
 		get_tree().current_scene.add_child(b)
+		get_tree().current_scene.spawn_synced_bullet(b.global_position, b.direction, false, b.burn_dps, b.slow_amount)
 
 
 func _mine_nearby(qty: int):
@@ -472,6 +484,11 @@ func confirm_build() -> bool:
 
 
 func _try_build_at(type: String, bp: Vector2) -> bool:
+	# MP client: route build request to host
+	if NetworkManager.is_multiplayer_active() and not NetworkManager.is_host():
+		get_tree().current_scene._request_build.rpc_id(1, type, bp.x, bp.y)
+		return true
+
 	# Check research locks
 	if type == "lightning" and GameData.get_research_bonus("unlock_lightning") < 1.0:
 		return false
@@ -536,6 +553,9 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 			var bonus_hp = int(building.max_hp * health_bonus)
 			building.hp += bonus_hp
 			building.max_hp += bonus_hp
+		# Sync to client in MP
+		if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
+			get_tree().current_scene._sync_building_placed.rpc(type, bp.x, bp.y)
 		return true
 	return false
 
@@ -639,7 +659,11 @@ func take_damage(amount: int):
 
 func _die():
 	is_dead = true
-	# Create explosion particles
+	_spawn_death_particles()
+	get_tree().current_scene.on_player_died(self)
+
+
+func _spawn_death_particles():
 	for i in range(20):
 		var angle = randf() * TAU
 		var speed = randf_range(80, 200)
@@ -650,7 +674,6 @@ func _die():
 			"color": [Color(0.2, 0.9, 0.3), Color(1.0, 0.8, 0.2), Color(1.0, 0.4, 0.1)][randi() % 3],
 			"size": randf_range(3, 8)
 		})
-	get_tree().current_scene.on_player_died()
 
 
 func _draw():
@@ -723,12 +746,12 @@ func _draw():
 		# Blink red when hit
 		c = Color(1.0, 0.2, 0.2)
 	elif invuln_timer > 0:
-		c = Color(0.6, 0.95, 0.65)
+		c = player_color.lightened(0.3)
 	else:
-		c = Color(0.2, 0.9, 0.3)
+		c = player_color
 
 	draw_colored_polygon(pts, c)
-	draw_polyline(pts + PackedVector2Array([pts[0]]), Color(0.4, 1.0, 0.5), 1.5)
+	draw_polyline(pts + PackedVector2Array([pts[0]]), player_color.lightened(0.3), 1.5)
 
 	var bw = 30.0
 	draw_rect(Rect2(-bw / 2, -24, bw, 4), Color(0.3, 0, 0))
