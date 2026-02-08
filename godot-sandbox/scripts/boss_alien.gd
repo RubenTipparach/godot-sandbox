@@ -148,8 +148,9 @@ func _die():
 		gem.xp_value = maxi(xp_value / 5, 1)
 		gem.gem_size = 2
 		get_tree().current_scene.add_child(gem)
-	# Drop 5 prestige orbs spread around death position
-	for i in range(5):
+	# Drop prestige orbs scaled for player count (so split is fair)
+	var orb_count = 5 * NetworkManager.get_player_count()
+	for i in range(orb_count):
 		var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
 		orb.global_position = global_position + Vector2(randf_range(-25, 25), randf_range(-25, 25))
 		get_tree().current_scene.add_child(orb)

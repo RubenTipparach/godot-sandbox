@@ -329,6 +329,7 @@ func _mine_nearby(qty: int):
 			if randi() % 5 == 0:
 				var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
 				orb.global_position = res_pos
+				orb.prestige_value = NetworkManager.get_player_count()
 				get_tree().current_scene.add_child(orb)
 
 
@@ -368,7 +369,7 @@ func _collect_prestige_orbs():
 	for orb in get_tree().get_nodes_in_group("prestige_orbs"):
 		if not is_instance_valid(orb): continue
 		if global_position.distance_to(orb.global_position) < collect_range:
-			GameData.add_prestige(orb.prestige_value)
+			get_tree().current_scene.add_run_prestige(orb.prestige_value)
 			orb.collect()
 
 

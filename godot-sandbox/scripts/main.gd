@@ -19,6 +19,8 @@ const STATE_SYNC_INTERVAL: float = 0.05  # 20Hz
 var next_net_id: int = 1
 var alien_net_ids: Dictionary = {}  # net_id -> Node2D
 var player_names: Dictionary = {}  # peer_id -> String
+var run_prestige: int = 0  # Prestige collected this run (host-authoritative)
+var _client_own_research: Dictionary = {}  # Client's own research, saved before host override
 
 # Upgrade voting (multiplayer)
 var vote_active: bool = false
@@ -267,7 +269,7 @@ func _process(delta):
 		# Update respawn countdown for host's local player
 		if is_authority and is_instance_valid(player_node):
 			hud_node.respawn_countdown = respawn_timers.get(player_node.peer_id, 0.0)
-		hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank, GameData.prestige_points)
+		hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank, run_prestige)
 
 	queue_redraw()
 
@@ -375,12 +377,13 @@ func _get_player_centroid() -> Vector2:
 
 
 func _get_offscreen_spawn_pos(base_angle: float, rng: RandomNumberGenerator) -> Vector2:
-	# Spawn far enough to be offscreen (at least 600 units from player centroid)
+	# Spawn outside map bounds so enemies walk in and don't land on buildings
 	var spread = rng.randf_range(-0.4, 0.4)  # ~45 degree spread
 	var angle = base_angle + spread
-	var dist = rng.randf_range(650, 850)
+	var dist = rng.randf_range(850, 1100)
 	var spawn_pos = _get_player_centroid() + Vector2.from_angle(angle) * dist
-	return spawn_pos.clamp(Vector2(-CFG.map_half_size, -CFG.map_half_size), Vector2(CFG.map_half_size, CFG.map_half_size))
+	var margin = CFG.map_half_size + 200.0
+	return spawn_pos.clamp(Vector2(-margin, -margin), Vector2(margin, margin))
 
 
 func _spawn_aliens(type: String, count: int, rng: RandomNumberGenerator, wave_dir: float):
@@ -463,6 +466,7 @@ func _on_upgrade_chosen(upgrade_key: String):
 
 func _on_game_started(start_wave: int):
 	starting_wave = start_wave
+	run_prestige = 0
 	# Apply research bonuses
 	if is_instance_valid(player_node):
 		player_node.iron += int(GameData.get_research_bonus("starting_iron"))
@@ -514,7 +518,7 @@ func _on_game_started(start_wave: int):
 				_spawn_remote_player(pid, PLAYER_COLORS[color_idx])
 				players[pid].player_name = player_names.get(pid, "Player")
 				peer_info.append([pid, color_idx, player_names.get(pid, "Player")])
-			_rpc_start_game.rpc(starting_wave, peer_info)
+			_rpc_start_game.rpc(starting_wave, peer_info, GameData.research.duplicate())
 		else:
 			var my_color_idx = _get_color_index_for_peer(my_id)
 			player_node.player_color = PLAYER_COLORS[my_color_idx]
@@ -540,14 +544,26 @@ func on_player_died(dead_player: Node2D = null):
 			if dead_player and NetworkManager.is_host():
 				respawn_timers[dead_player.peer_id] = 10.0
 			return
+	_end_run()
+
+
+func _end_run():
 	game_over = true
 	respawn_timers.clear()
+	# Divide run prestige evenly among all players
+	var player_count = maxi(players.size(), 1)
+	var prestige_share = run_prestige / player_count
+	# Restore client's own research before saving
+	if _client_own_research.size() > 0:
+		GameData.research = _client_own_research
+		_client_own_research = {}
+	GameData.add_prestige(prestige_share)
 	GameData.record_run(wave_number, bosses_killed)
 	if is_instance_valid(hud_node):
-		hud_node.show_death_screen(wave_number, bosses_killed, GameData.prestige_points)
-	# Notify client of game over in MP
+		hud_node.show_death_screen(wave_number, bosses_killed, prestige_share, GameData.prestige_points)
+	# Notify clients of game over in MP
 	if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
-		_rpc_game_over.rpc(wave_number, bosses_killed)
+		_rpc_game_over.rpc(wave_number, bosses_killed, prestige_share)
 
 
 func _on_hq_destroyed():
@@ -611,8 +627,13 @@ func _spawn_remote_player(pid: int, color: Color):
 
 
 @rpc("authority", "call_remote", "reliable")
-func _rpc_start_game(wave: int, all_peers: Array = []):
+func _rpc_start_game(wave: int, all_peers: Array = [], host_research: Dictionary = {}):
 	# Client receives this from host to start the game
+	# Apply host's tech tree for this session (host-authoritative)
+	if host_research.size() > 0:
+		_client_own_research = GameData.research.duplicate()
+		for key in GameData.research:
+			GameData.research[key] = host_research.get(key, 0)
 	if is_instance_valid(hud_node):
 		hud_node.start_mp_game()
 	get_tree().paused = false
@@ -675,7 +696,8 @@ func _broadcast_state():
 		total_power_gen, total_power_consumption,
 		bosses_killed,
 		enemy_data,
-		hq_hp, hq_max_hp
+		hq_hp, hq_max_hp,
+		run_prestige
 	])
 
 
@@ -700,6 +722,8 @@ func _receive_state(state: Array):
 	if state.size() > 14 and is_instance_valid(hq_node):
 		hq_node.hp = state[13]
 		hq_node.max_hp = state[14]
+	if state.size() > 15:
+		run_prestige = state[15]
 
 	# Sync shared resources to local player
 	if is_instance_valid(player_node):
@@ -759,12 +783,17 @@ func _receive_client_state(pos_x: float, pos_y: float, angle: float):
 
 
 @rpc("authority", "call_remote", "reliable")
-func _rpc_game_over(wave: int, bosses: int):
+func _rpc_game_over(wave: int, bosses: int, prestige_share: int = 0):
 	# Client receives game over from host
 	game_over = true
+	# Restore client's own research before saving
+	if _client_own_research.size() > 0:
+		GameData.research = _client_own_research
+		_client_own_research = {}
+	GameData.add_prestige(prestige_share)
 	GameData.record_run(wave, bosses)
 	if is_instance_valid(hud_node):
-		hud_node.show_death_screen(wave, bosses, GameData.prestige_points)
+		hud_node.show_death_screen(wave, bosses, prestige_share, GameData.prestige_points)
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -1235,3 +1264,17 @@ func _rpc_spawn_enemy_bullet(px: float, py: float, dx: float, dy: float):
 	b.direction = Vector2(dx, dy)
 	b.visual_only = true
 	add_child(b)
+
+
+# --- Prestige sync ---
+
+func add_run_prestige(amount: int):
+	if NetworkManager.is_multiplayer_active() and not NetworkManager.is_host():
+		_rpc_add_prestige.rpc_id(1, amount)
+		return
+	run_prestige += amount
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_add_prestige(amount: int):
+	run_prestige += amount
