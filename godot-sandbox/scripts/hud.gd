@@ -1764,6 +1764,9 @@ func is_upgrade_showing() -> bool:
 
 
 func show_upgrade_selection(current_upgrades: Dictionary):
+	var p = _get_player()
+	if p:
+		p.cancel_build_mode()
 	var available: Array = []
 	for key in UPGRADE_DATA:
 		if current_upgrades.get(key, 0) < UPGRADE_DATA[key]["max"]:
@@ -2007,6 +2010,9 @@ func update_lobby_player_list(names: Dictionary):
 # --- Upgrade Voting ---
 
 func show_vote_selection(keys: Array, current_upgrades: Dictionary, votes: Dictionary, _all_players: Dictionary, _names: Dictionary):
+	var p = _get_player()
+	if p:
+		p.cancel_build_mode()
 	_local_vote_key = ""
 	_vote_locked = false
 

@@ -15,6 +15,7 @@ signal pressed
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	custom_minimum_size = Vector2(40, 40)
+	tooltip_text = " "
 
 
 func _make_custom_tooltip(_for_text: String) -> Control:
@@ -39,12 +40,22 @@ func _make_custom_tooltip(_for_text: String) -> Control:
 	name_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	hbox.add_child(name_label)
 
+	# Get player resources for affordability coloring
+	var player_iron := 999999
+	var player_crystal := 999999
+	for p in get_tree().get_nodes_in_group("player"):
+		if is_instance_valid(p) and p.is_local:
+			player_iron = p.iron
+			player_crystal = p.crystal
+			break
+
 	# Iron cost
 	if iron_cost > 0:
 		var iron_label = Label.new()
 		iron_label.text = "%dI" % iron_cost
 		iron_label.add_theme_font_size_override("font_size", 14)
-		iron_label.add_theme_color_override("font_color", Color(0.9, 0.75, 0.4))
+		var iron_color = Color(0.9, 0.75, 0.4) if player_iron >= iron_cost else Color(1.0, 0.3, 0.3)
+		iron_label.add_theme_color_override("font_color", iron_color)
 		hbox.add_child(iron_label)
 
 	# Crystal cost
@@ -52,7 +63,8 @@ func _make_custom_tooltip(_for_text: String) -> Control:
 		var crystal_label = Label.new()
 		crystal_label.text = "%dC" % crystal_cost
 		crystal_label.add_theme_font_size_override("font_size", 14)
-		crystal_label.add_theme_color_override("font_color", Color(0.4, 0.7, 1.0))
+		var crystal_color = Color(0.4, 0.7, 1.0) if player_crystal >= crystal_cost else Color(1.0, 0.3, 0.3)
+		crystal_label.add_theme_color_override("font_color", crystal_color)
 		hbox.add_child(crystal_label)
 
 	return panel
