@@ -21,10 +21,12 @@ var mp_peer: WebRTCMultiplayerPeer
 
 
 func _ready():
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	if OS.has_feature("web"):
 		signaling_base_url = str(JavaScriptBridge.eval("window.location.origin")) + "/api"
 	else:
 		signaling_base_url = "http://localhost:3000/api"
+	print("[Net] Signaling URL: ", signaling_base_url)
 	set_process(false)
 
 
@@ -43,22 +45,28 @@ func get_player_count() -> int:
 
 
 func create_room() -> String:
+	print("[Net] Creating room...")
 	var http = HTTPRequest.new()
 	add_child(http)
 	var err = http.request(signaling_base_url + "/create-room",
 		["Content-Type: application/json"],
 		HTTPClient.METHOD_POST, "{}")
 	if err != OK:
+		print("[Net] HTTP request error: ", err)
 		http.queue_free()
 		connection_failed.emit("HTTP request failed")
 		return ""
 	var result = await http.request_completed
 	http.queue_free()
+	var status = result[1]
 	var body = result[3] as PackedByteArray
-	var json = JSON.parse_string(body.get_string_from_utf8())
+	var body_str = body.get_string_from_utf8()
+	print("[Net] Create room response (status %d): %s" % [status, body_str])
+	var json = JSON.parse_string(body_str)
 	if json and json.has("room_id"):
 		room_id = json["room_id"]
 		role = NetRole.HOST
+		print("[Net] Room created: ", room_id)
 		_setup_webrtc_host()
 		return room_id
 	connection_failed.emit("Invalid server response")
@@ -68,6 +76,7 @@ func create_room() -> String:
 func join_room(code: String):
 	room_id = code.to_upper()
 	role = NetRole.CLIENT
+	print("[Net] Joining room: ", room_id)
 	var http = HTTPRequest.new()
 	add_child(http)
 	var err = http.request(signaling_base_url + "/join-room",
@@ -75,21 +84,28 @@ func join_room(code: String):
 		HTTPClient.METHOD_POST,
 		JSON.stringify({"room_id": room_id}))
 	if err != OK:
+		print("[Net] HTTP request error: ", err)
 		http.queue_free()
 		connection_failed.emit("HTTP request failed")
 		return
 	var result = await http.request_completed
 	http.queue_free()
+	var status = result[1]
 	var body = result[3] as PackedByteArray
-	var json = JSON.parse_string(body.get_string_from_utf8())
+	var body_str = body.get_string_from_utf8()
+	print("[Net] Join room response (status %d): %s" % [status, body_str])
+	var json = JSON.parse_string(body_str)
 	if not json or not json.get("success", false):
+		print("[Net] Join failed - room not found")
 		connection_failed.emit("Room not found")
 		role = NetRole.NONE
 		return
+	print("[Net] Joined room, setting up WebRTC client...")
 	_setup_webrtc_client()
 
 
 func disconnect_peer():
+	print("[Net] Disconnecting...")
 	is_connected = false
 	role = NetRole.NONE
 	room_id = ""
@@ -104,6 +120,7 @@ func disconnect_peer():
 
 
 func _setup_webrtc_host():
+	print("[Net] Setting up WebRTC host...")
 	rtc_peer = WebRTCPeerConnection.new()
 	rtc_peer.initialize({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
 	rtc_peer.ice_candidate_created.connect(_on_ice_candidate)
@@ -115,10 +132,12 @@ func _setup_webrtc_host():
 	multiplayer.multiplayer_peer = mp_peer
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
+	print("[Net] Host ready, polling for signals...")
 	set_process(true)
 
 
 func _setup_webrtc_client():
+	print("[Net] Setting up WebRTC client...")
 	rtc_peer = WebRTCPeerConnection.new()
 	rtc_peer.initialize({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
 	rtc_peer.ice_candidate_created.connect(_on_ice_candidate)
@@ -132,16 +151,19 @@ func _setup_webrtc_client():
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 
 	# Client creates offer
+	print("[Net] Creating WebRTC offer...")
 	rtc_peer.create_offer()
 	set_process(true)
 
 
 func _on_session_description(type: String, sdp: String):
+	print("[Net] Session description created: ", type)
 	rtc_peer.set_local_description(type, sdp)
 	_send_signal(type, {"sdp": sdp})
 
 
 func _on_ice_candidate(media: String, index: int, name: String):
+	print("[Net] ICE candidate: ", media, " ", name)
 	_send_signal("ice", {"media": media, "index": index, "name": name})
 
 
@@ -163,15 +185,23 @@ func _poll_signals():
 	add_child(http)
 	var err = http.request(signaling_base_url + "/poll?room_id=" + room_id + "&as=" + role_str)
 	if err != OK:
+		print("[Net] Poll request error: ", err)
 		http.queue_free()
 		return
 	var result = await http.request_completed
 	http.queue_free()
+	var status = result[1]
 	var body = result[3] as PackedByteArray
-	var json = JSON.parse_string(body.get_string_from_utf8())
+	var body_str = body.get_string_from_utf8()
+	var json = JSON.parse_string(body_str)
 	if json and json.has("messages"):
-		for msg in json["messages"]:
+		var msgs = json["messages"]
+		if msgs.size() > 0:
+			print("[Net] Received %d signal(s)" % msgs.size())
+		for msg in msgs:
 			_handle_signal(msg)
+	elif status != 200:
+		print("[Net] Poll error (status %d): %s" % [status, body_str])
 
 
 func _send_signal(type: String, data: Dictionary):
@@ -187,13 +217,19 @@ func _send_signal(type: String, data: Dictionary):
 			"type": type,
 			"data": data
 		}))
-	await http.request_completed
+	var result = await http.request_completed
 	http.queue_free()
+	var status = result[1]
+	if status != 200:
+		var body = result[3] as PackedByteArray
+		print("[Net] Signal send error (status %d): %s" % [status, body.get_string_from_utf8()])
 
 
 func _handle_signal(msg: Dictionary):
+	var type = msg.get("type", "")
 	var data = msg.get("data", {})
-	match msg.get("type", ""):
+	print("[Net] Handling signal: ", type)
+	match type:
 		"offer":
 			rtc_peer.set_remote_description("offer", data.get("sdp", ""))
 			# Host creates answer after receiving offer
@@ -209,12 +245,14 @@ func _handle_signal(msg: Dictionary):
 
 
 func _on_peer_connected(id: int):
+	print("[Net] Peer connected: ", id)
 	is_connected = true
 	peer_connected.emit(id)
 	connection_established.emit()
 
 
 func _on_peer_disconnected(id: int):
+	print("[Net] Peer disconnected: ", id)
 	peer_disconnected.emit(id)
 	if multiplayer.get_peers().size() == 0:
 		is_connected = false
