@@ -8,66 +8,18 @@ var display_name: String = ""
 var iron_cost: int = 0
 var crystal_cost: int = 0
 var locked: bool = false
+var is_hovered: bool = false
 
 signal pressed
+signal hovered(icon)
+signal unhovered
 
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	custom_minimum_size = Vector2(40, 40)
-	tooltip_text = " "
-
-
-func _make_custom_tooltip(_for_text: String) -> Control:
-	var panel = PanelContainer.new()
-	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
-	style.set_corner_radius_all(4)
-	style.content_margin_left = 8
-	style.content_margin_right = 8
-	style.content_margin_top = 4
-	style.content_margin_bottom = 4
-	panel.add_theme_stylebox_override("panel", style)
-
-	var hbox = HBoxContainer.new()
-	hbox.add_theme_constant_override("separation", 6)
-	panel.add_child(hbox)
-
-	# Building name
-	var name_label = Label.new()
-	name_label.text = display_name
-	name_label.add_theme_font_size_override("font_size", 14)
-	name_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
-	hbox.add_child(name_label)
-
-	# Get player resources for affordability coloring
-	var player_iron := 999999
-	var player_crystal := 999999
-	for p in get_tree().get_nodes_in_group("player"):
-		if is_instance_valid(p) and p.is_local:
-			player_iron = p.iron
-			player_crystal = p.crystal
-			break
-
-	# Iron cost
-	if iron_cost > 0:
-		var iron_label = Label.new()
-		iron_label.text = "%dI" % iron_cost
-		iron_label.add_theme_font_size_override("font_size", 14)
-		var iron_color = Color(0.9, 0.75, 0.4) if player_iron >= iron_cost else Color(1.0, 0.3, 0.3)
-		iron_label.add_theme_color_override("font_color", iron_color)
-		hbox.add_child(iron_label)
-
-	# Crystal cost
-	if crystal_cost > 0:
-		var crystal_label = Label.new()
-		crystal_label.text = "%dC" % crystal_cost
-		crystal_label.add_theme_font_size_override("font_size", 14)
-		var crystal_color = Color(0.4, 0.7, 1.0) if player_crystal >= crystal_cost else Color(1.0, 0.3, 0.3)
-		crystal_label.add_theme_color_override("font_color", crystal_color)
-		hbox.add_child(crystal_label)
-
-	return panel
+	mouse_entered.connect(func(): is_hovered = true; hovered.emit(self))
+	mouse_exited.connect(func(): is_hovered = false; unhovered.emit())
 
 
 func _gui_input(event):
@@ -98,8 +50,11 @@ func _draw():
 		bg_color = Color(0.1, 0.1, 0.13, 0.9)
 		border_color = Color(0.2, 0.2, 0.25)
 		icon_alpha = 0.35
+	if is_hovered and not locked:
+		bg_color = bg_color.lightened(0.15)
+		border_color = Color(0.7, 0.85, 1.0)
 	draw_rect(Rect2(0, 0, 40, 40), bg_color)
-	draw_rect(Rect2(0, 0, 40, 40), border_color, false, 1.0)
+	draw_rect(Rect2(0, 0, 40, 40), border_color, false, 2.0 if is_hovered else 1.0)
 
 	var center = Vector2(20, 20)
 

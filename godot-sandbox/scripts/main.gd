@@ -328,6 +328,13 @@ func _draw():
 		draw_line(Vector2(s.x, y), Vector2(e.x, y), gc)
 		y += gs
 
+	# Selection highlight around selected building
+	if is_instance_valid(hud_node) and hud_node.selected_building != null and is_instance_valid(hud_node.selected_building):
+		var bpos = hud_node.selected_building.global_position
+		var pulse = 0.5 + sin(Time.get_ticks_msec() * 0.005) * 0.3
+		draw_arc(bpos, 22, 0, TAU, 32, Color(0.3, 0.8, 1.0, pulse), 1.5)
+		draw_arc(bpos, 24, 0, TAU, 32, Color(0.3, 0.8, 1.0, pulse * 0.4), 1.0)
+
 
 func _spawn_wave():
 	var rng = RandomNumberGenerator.new()

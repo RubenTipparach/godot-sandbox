@@ -47,6 +47,12 @@ var minimap_node: Control
 var build_cost_labels: Array = []
 var building_tooltip: PanelContainer
 var building_tooltip_label: Label
+var build_bar_tooltip: PanelContainer
+var build_bar_tooltip_name: Label
+var build_bar_tooltip_iron: Label
+var build_bar_tooltip_crystal: Label
+var build_bar_tooltip_power: Label
+var _hovered_build_icon = null
 var is_mobile: bool = false
 var joystick: Control = null
 var look_joystick: Control = null
@@ -231,6 +237,36 @@ func _ready():
 	build_cost_labels.append(_build_icon(build_hbox, "flame_turret", "9", "Flame Turret"))
 	build_cost_labels.append(_build_icon(build_hbox, "acid_turret", "0", "Acid Turret"))
 	build_cost_labels.append(_build_icon(build_hbox, "repair_drone", "Q", "Repair Drone"))
+
+	# Instant build bar tooltip (bypasses Godot's tooltip delay)
+	build_bar_tooltip = PanelContainer.new()
+	var tt_style = StyleBoxFlat.new()
+	tt_style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
+	tt_style.set_corner_radius_all(4)
+	tt_style.content_margin_left = 8
+	tt_style.content_margin_right = 8
+	tt_style.content_margin_top = 4
+	tt_style.content_margin_bottom = 4
+	build_bar_tooltip.add_theme_stylebox_override("panel", tt_style)
+	build_bar_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	build_bar_tooltip.visible = false
+	var tt_hbox = HBoxContainer.new()
+	tt_hbox.add_theme_constant_override("separation", 6)
+	build_bar_tooltip.add_child(tt_hbox)
+	build_bar_tooltip_name = Label.new()
+	build_bar_tooltip_name.add_theme_font_size_override("font_size", 14)
+	build_bar_tooltip_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	tt_hbox.add_child(build_bar_tooltip_name)
+	build_bar_tooltip_iron = Label.new()
+	build_bar_tooltip_iron.add_theme_font_size_override("font_size", 14)
+	tt_hbox.add_child(build_bar_tooltip_iron)
+	build_bar_tooltip_crystal = Label.new()
+	build_bar_tooltip_crystal.add_theme_font_size_override("font_size", 14)
+	tt_hbox.add_child(build_bar_tooltip_crystal)
+	build_bar_tooltip_power = Label.new()
+	build_bar_tooltip_power.add_theme_font_size_override("font_size", 14)
+	tt_hbox.add_child(build_bar_tooltip_power)
+	root.add_child(build_bar_tooltip)
 
 	alert_label = Label.new()
 	alert_label.add_theme_font_size_override("font_size", 36)
@@ -1296,6 +1332,10 @@ func _update_building_info_panel():
 			info += "\nPower: On"
 		else:
 			info += "\nPower: Off"
+	# Power consumption/generation
+	var power_info = _get_building_power_info(bname)
+	if power_info != "":
+		info += "\nEnergy: " + power_info
 	building_info_label.text = info
 
 	# Toggle power button: only for buildings with manually_disabled
@@ -1311,9 +1351,10 @@ func _update_building_info_panel():
 		var value = player.get_recycle_value(selected_building)
 		recycle_btn.text = "Recycle (+%dI +%dC)" % [value["iron"], value["crystal"]]
 
+	building_info_panel.reset_size()
 	building_info_panel.visible = true
-	var panel_size = building_info_panel.size
-	building_info_panel.position = Vector2(screen_pos.x - panel_size.x / 2.0, screen_pos.y - panel_size.y - 30)
+	var panel_size = building_info_panel.get_combined_minimum_size()
+	building_info_panel.position = Vector2(screen_pos.x - panel_size.x / 2.0, screen_pos.y - panel_size.y - 40)
 	building_info_panel.position.x = clampf(building_info_panel.position.x, 5, vp_size.x - panel_size.x - 5)
 	building_info_panel.position.y = clampf(building_info_panel.position.y, 5, vp_size.y - panel_size.y - 5)
 
@@ -1539,9 +1580,95 @@ func _build_icon(parent: Node, build_type: String, hotkey: String, display_name:
 	icon.hotkey = hotkey
 	icon.display_name = display_name
 	icon.pressed.connect(_on_build_btn_pressed.bind(build_type))
+	icon.hovered.connect(_on_build_icon_hovered)
+	icon.unhovered.connect(_on_build_icon_unhovered)
 	parent.add_child(icon)
 
 	return {"icon": icon, "type": build_type, "name": display_name}
+
+
+func _get_power_info(build_type: String) -> String:
+	match build_type:
+		"power_plant": return "+%.0f" % CFG.power_plant_gen
+		"turret": return "-%.0f" % CFG.power_turret
+		"factory": return "-%.0f" % CFG.power_factory
+		"lightning": return "-%.0f" % CFG.power_lightning
+		"slow": return "-%.0f" % CFG.power_slow
+		"pylon": return "-%.0f" % CFG.power_pylon
+		"flame_turret": return "-%.0f" % CFG.power_flame_turret
+		"acid_turret": return "-%.0f" % CFG.power_acid_turret
+		"repair_drone": return "-%.0f" % CFG.power_repair_drone
+	return ""
+
+
+func _get_building_power_info(bname: String) -> String:
+	match bname:
+		"Power Plant": return "+%.0f" % CFG.power_plant_gen
+		"HQ": return "+%.0f" % CFG.hq_power_gen
+		"Turret": return "-%.0f" % CFG.power_turret
+		"Factory": return "-%.0f" % CFG.power_factory
+		"Lightning Tower": return "-%.0f" % CFG.power_lightning
+		"Slow Tower": return "-%.0f" % CFG.power_slow
+		"Pylon": return "-%.0f" % CFG.power_pylon
+		"Flame Turret": return "-%.0f" % CFG.power_flame_turret
+		"Acid Turret": return "-%.0f" % CFG.power_acid_turret
+		"Repair Drone": return "-%.0f" % CFG.power_repair_drone
+	return ""
+
+
+func _on_build_icon_hovered(icon) -> void:
+	_hovered_build_icon = icon
+	if not is_instance_valid(build_bar_tooltip):
+		return
+	build_bar_tooltip_name.text = icon.display_name
+
+	# Get player resources for affordability coloring
+	var player_iron := 999999
+	var player_crystal := 999999
+	for p in get_tree().get_nodes_in_group("player"):
+		if is_instance_valid(p) and p.is_local:
+			player_iron = p.iron
+			player_crystal = p.crystal
+			break
+
+	if icon.iron_cost > 0:
+		build_bar_tooltip_iron.text = "%dI" % icon.iron_cost
+		build_bar_tooltip_iron.add_theme_color_override("font_color",
+			Color(0.9, 0.75, 0.4) if player_iron >= icon.iron_cost else Color(1.0, 0.3, 0.3))
+		build_bar_tooltip_iron.visible = true
+	else:
+		build_bar_tooltip_iron.visible = false
+
+	if icon.crystal_cost > 0:
+		build_bar_tooltip_crystal.text = "%dC" % icon.crystal_cost
+		build_bar_tooltip_crystal.add_theme_color_override("font_color",
+			Color(0.4, 0.7, 1.0) if player_crystal >= icon.crystal_cost else Color(1.0, 0.3, 0.3))
+		build_bar_tooltip_crystal.visible = true
+	else:
+		build_bar_tooltip_crystal.visible = false
+
+	var power_text = _get_power_info(icon.build_type)
+	if power_text != "":
+		build_bar_tooltip_power.text = power_text + "E"
+		build_bar_tooltip_power.add_theme_color_override("font_color", Color(0.3, 0.9, 0.4))
+		build_bar_tooltip_power.visible = true
+	else:
+		build_bar_tooltip_power.visible = false
+
+	# Position above the icon
+	var icon_rect = icon.get_global_rect()
+	build_bar_tooltip.reset_size()
+	build_bar_tooltip.visible = true
+	var tt_size = build_bar_tooltip.get_combined_minimum_size()
+	build_bar_tooltip.global_position = Vector2(
+		icon_rect.position.x + icon_rect.size.x / 2.0 - tt_size.x / 2.0,
+		icon_rect.position.y - tt_size.y - 4)
+
+
+func _on_build_icon_unhovered() -> void:
+	_hovered_build_icon = null
+	if is_instance_valid(build_bar_tooltip):
+		build_bar_tooltip.visible = false
 
 
 func _on_build_btn_pressed(build_type: String):
