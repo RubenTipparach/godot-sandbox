@@ -20,10 +20,18 @@ var rtc_peer: WebRTCPeerConnection
 var mp_peer: WebRTCMultiplayerPeer
 
 
+const SIGNALING_HOST: String = "https://mining-mike.vercel.app"
+
+
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	if OS.has_feature("web"):
-		signaling_base_url = str(JavaScriptBridge.eval("window.location.origin")) + "/api"
+		var origin = str(JavaScriptBridge.eval("window.location.origin"))
+		# Use same-origin if on Vercel, otherwise use hardcoded Vercel URL
+		if origin.contains("vercel.app") or origin.contains("localhost"):
+			signaling_base_url = origin + "/api"
+		else:
+			signaling_base_url = SIGNALING_HOST + "/api"
 	else:
 		signaling_base_url = "http://localhost:3000/api"
 	print("[Net] Signaling URL: ", signaling_base_url)

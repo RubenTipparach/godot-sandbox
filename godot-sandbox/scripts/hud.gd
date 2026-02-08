@@ -1501,7 +1501,7 @@ func _on_host_coop_pressed():
 	_connect_network_signals()
 	var code = await NetworkManager.create_room()
 	if code == "":
-		lobby_status_label.text = "Failed to create room"
+		lobby_status_label.text = "Failed to create room - check console (F12)"
 		lobby_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
 	else:
 		lobby_code_label.text = code
