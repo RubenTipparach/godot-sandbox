@@ -50,6 +50,17 @@ var build_confirm_panel: HBoxContainer = null
 var confirm_btn: Button = null
 var cancel_build_btn: Button = null
 
+var lobby_panel: Control
+var lobby_code_label: Label
+var lobby_code_input: LineEdit
+var lobby_status_label: Label
+var lobby_start_btn: Button
+var lobby_connect_btn: Button
+var lobby_host_section: VBoxContainer
+var lobby_client_section: VBoxContainer
+var partner_health_label: Label
+var partner_panel: PanelContainer
+
 const UPGRADE_DATA = {
 	"chain_lightning": {"name": "Chain Lightning", "color": Color(0.3, 0.7, 1.0), "max": 5},
 	"shotgun": {"name": "Shotgun Blast", "color": Color(1.0, 0.6, 0.2), "max": 5},
@@ -197,11 +208,27 @@ func _ready():
 	minimap_node.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(minimap_node)
 
+	# Partner health (MP only, top-right below minimap)
+	partner_panel = PanelContainer.new()
+	partner_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	partner_panel.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
+	partner_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	partner_panel.offset_left = -170
+	partner_panel.offset_top = 175
+	partner_panel.offset_right = -10
+	partner_panel.visible = false
+	root.add_child(partner_panel)
+	partner_health_label = Label.new()
+	partner_health_label.add_theme_font_size_override("font_size", 14)
+	partner_health_label.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
+	partner_panel.add_child(partner_health_label)
+
 	_build_upgrade_panel(root)
 	_build_death_panel(root)
 	_build_start_menu(root)
 	_build_research_panel(root)
 	_build_pause_menu(root)
+	_build_lobby_panel(root)
 	_build_building_tooltip(root)
 
 	# Detect mobile and add virtual controls
@@ -423,6 +450,31 @@ func _build_start_menu(root: Control):
 	research_btn.pressed.connect(_on_research_btn_pressed)
 	start_menu.add_child(research_btn)
 
+	var coop_container = HBoxContainer.new()
+	coop_container.set_anchors_preset(Control.PRESET_CENTER)
+	coop_container.offset_top = 100
+	coop_container.offset_left = -160
+	coop_container.offset_right = 160
+	coop_container.alignment = BoxContainer.ALIGNMENT_CENTER
+	coop_container.add_theme_constant_override("separation", 20)
+	start_menu.add_child(coop_container)
+
+	var host_btn = Button.new()
+	host_btn.text = "Host Co-op"
+	host_btn.custom_minimum_size = Vector2(150, 45)
+	host_btn.add_theme_font_size_override("font_size", 18)
+	host_btn.add_theme_color_override("font_color", Color(0.3, 0.9, 0.5))
+	host_btn.pressed.connect(_on_host_coop_pressed)
+	coop_container.add_child(host_btn)
+
+	var join_btn = Button.new()
+	join_btn.text = "Join Co-op"
+	join_btn.custom_minimum_size = Vector2(150, 45)
+	join_btn.add_theme_font_size_override("font_size", 18)
+	join_btn.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
+	join_btn.pressed.connect(_on_join_coop_pressed)
+	coop_container.add_child(join_btn)
+
 	var debug_toggle_btn = Button.new()
 	debug_toggle_btn.text = "Debug"
 	debug_toggle_btn.custom_minimum_size = Vector2(80, 30)
@@ -586,6 +638,137 @@ func _build_pause_menu(root: Control):
 	prestige_btn.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
 	prestige_btn.pressed.connect(_on_pause_prestige)
 	vbox.add_child(prestige_btn)
+
+
+func _build_lobby_panel(root: Control):
+	lobby_panel = Control.new()
+	lobby_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lobby_panel.visible = false
+	lobby_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	root.add_child(lobby_panel)
+
+	var bg = ColorRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0.02, 0.02, 0.08, 0.95)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	lobby_panel.add_child(bg)
+
+	var title = Label.new()
+	title.text = "CO-OP LOBBY"
+	title.add_theme_font_size_override("font_size", 36)
+	title.add_theme_color_override("font_color", Color(0.3, 0.9, 0.5))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	title.offset_top = 80
+	title.offset_left = -200
+	title.offset_right = 200
+	lobby_panel.add_child(title)
+
+	# Host section - shows room code
+	lobby_host_section = VBoxContainer.new()
+	lobby_host_section.set_anchors_preset(Control.PRESET_CENTER)
+	lobby_host_section.offset_top = -80
+	lobby_host_section.offset_left = -200
+	lobby_host_section.offset_right = 200
+	lobby_host_section.offset_bottom = 60
+	lobby_host_section.alignment = BoxContainer.ALIGNMENT_CENTER
+	lobby_host_section.add_theme_constant_override("separation", 12)
+	lobby_host_section.visible = false
+	lobby_panel.add_child(lobby_host_section)
+
+	var code_title = Label.new()
+	code_title.text = "Room Code:"
+	code_title.add_theme_font_size_override("font_size", 18)
+	code_title.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	code_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_host_section.add_child(code_title)
+
+	lobby_code_label = Label.new()
+	lobby_code_label.text = "------"
+	lobby_code_label.add_theme_font_size_override("font_size", 48)
+	lobby_code_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	lobby_code_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_host_section.add_child(lobby_code_label)
+
+	var share_hint = Label.new()
+	share_hint.text = "Share this code with your friend"
+	share_hint.add_theme_font_size_override("font_size", 14)
+	share_hint.add_theme_color_override("font_color", Color(0.5, 0.5, 0.6))
+	share_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_host_section.add_child(share_hint)
+
+	# Client section - code input
+	lobby_client_section = VBoxContainer.new()
+	lobby_client_section.set_anchors_preset(Control.PRESET_CENTER)
+	lobby_client_section.offset_top = -80
+	lobby_client_section.offset_left = -200
+	lobby_client_section.offset_right = 200
+	lobby_client_section.offset_bottom = 60
+	lobby_client_section.alignment = BoxContainer.ALIGNMENT_CENTER
+	lobby_client_section.add_theme_constant_override("separation", 12)
+	lobby_client_section.visible = false
+	lobby_panel.add_child(lobby_client_section)
+
+	var input_title = Label.new()
+	input_title.text = "Enter Room Code:"
+	input_title.add_theme_font_size_override("font_size", 18)
+	input_title.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	input_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_client_section.add_child(input_title)
+
+	lobby_code_input = LineEdit.new()
+	lobby_code_input.max_length = 6
+	lobby_code_input.alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_code_input.placeholder_text = "ABC123"
+	lobby_code_input.custom_minimum_size = Vector2(200, 50)
+	lobby_code_input.add_theme_font_size_override("font_size", 32)
+	lobby_client_section.add_child(lobby_code_input)
+
+	lobby_connect_btn = Button.new()
+	lobby_connect_btn.text = "Connect"
+	lobby_connect_btn.custom_minimum_size = Vector2(200, 45)
+	lobby_connect_btn.add_theme_font_size_override("font_size", 18)
+	lobby_connect_btn.pressed.connect(_on_lobby_connect_pressed)
+	lobby_client_section.add_child(lobby_connect_btn)
+
+	# Shared status label
+	lobby_status_label = Label.new()
+	lobby_status_label.text = ""
+	lobby_status_label.add_theme_font_size_override("font_size", 20)
+	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	lobby_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_status_label.set_anchors_preset(Control.PRESET_CENTER)
+	lobby_status_label.offset_top = 80
+	lobby_status_label.offset_left = -250
+	lobby_status_label.offset_right = 250
+	lobby_panel.add_child(lobby_status_label)
+
+	# Start button (host only)
+	lobby_start_btn = Button.new()
+	lobby_start_btn.text = "Start Game"
+	lobby_start_btn.custom_minimum_size = Vector2(200, 50)
+	lobby_start_btn.add_theme_font_size_override("font_size", 22)
+	lobby_start_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
+	lobby_start_btn.disabled = true
+	lobby_start_btn.set_anchors_preset(Control.PRESET_CENTER)
+	lobby_start_btn.offset_top = 120
+	lobby_start_btn.offset_left = -100
+	lobby_start_btn.offset_right = 100
+	lobby_start_btn.offset_bottom = 170
+	lobby_start_btn.pressed.connect(_on_lobby_start_pressed)
+	lobby_panel.add_child(lobby_start_btn)
+
+	var back_btn = Button.new()
+	back_btn.text = "Back"
+	back_btn.custom_minimum_size = Vector2(150, 45)
+	back_btn.add_theme_font_size_override("font_size", 18)
+	back_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	back_btn.offset_top = -60
+	back_btn.offset_left = -75
+	back_btn.offset_right = 75
+	back_btn.offset_bottom = -15
+	back_btn.pressed.connect(_on_lobby_back_pressed)
+	lobby_panel.add_child(back_btn)
 
 
 func _build_building_tooltip(root: Control):
@@ -1149,6 +1332,27 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 	# Prestige earned this run
 	prestige_hud_label.text = "Prestige: +%d" % prestige_earned
 
+	# Partner health in MP
+	if NetworkManager.is_multiplayer_active():
+		partner_panel.visible = true
+		var partner: Node2D = null
+		for p in get_tree().get_nodes_in_group("player"):
+			if is_instance_valid(p) and p != player:
+				partner = p
+				break
+		if partner and "health" in partner and "max_health" in partner:
+			var color_name = "Host" if partner.peer_id == 1 else "Partner"
+			if partner.is_dead:
+				partner_health_label.text = "%s: DEAD" % color_name
+				partner_health_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+			else:
+				partner_health_label.text = "%s HP: %d/%d" % [color_name, partner.health, partner.max_health]
+				partner_health_label.add_theme_color_override("font_color", partner.player_color)
+		else:
+			partner_health_label.text = "Partner: --"
+	else:
+		partner_panel.visible = false
+
 	# Update building costs dynamically
 	_update_build_costs(player)
 
@@ -1274,3 +1478,112 @@ func _on_card_click(event: InputEvent, idx: int):
 			upgrade_panel.visible = false
 			_upgrade_showing = false
 			upgrade_chosen.emit(key)
+
+
+# --- Co-op Lobby ---
+
+func start_mp_game():
+	_disconnect_network_signals()
+	lobby_panel.visible = false
+	_game_started = true
+
+
+func _on_host_coop_pressed():
+	start_menu.visible = false
+	lobby_panel.visible = true
+	lobby_host_section.visible = true
+	lobby_client_section.visible = false
+	lobby_start_btn.visible = true
+	lobby_start_btn.disabled = true
+	lobby_code_label.text = "..."
+	lobby_status_label.text = "Creating room..."
+	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	_connect_network_signals()
+	var code = await NetworkManager.create_room()
+	if code == "":
+		lobby_status_label.text = "Failed to create room"
+		lobby_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+	else:
+		lobby_code_label.text = code
+		lobby_status_label.text = "Waiting for partner..."
+
+
+func _on_join_coop_pressed():
+	start_menu.visible = false
+	lobby_panel.visible = true
+	lobby_host_section.visible = false
+	lobby_client_section.visible = true
+	lobby_start_btn.visible = false
+	lobby_code_input.text = ""
+	lobby_status_label.text = "Enter the room code and click Connect"
+	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	_connect_network_signals()
+
+
+func _on_lobby_connect_pressed():
+	var code = lobby_code_input.text.strip_edges().to_upper()
+	if code.length() < 4:
+		lobby_status_label.text = "Code too short"
+		lobby_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+		return
+	lobby_connect_btn.disabled = true
+	lobby_status_label.text = "Connecting..."
+	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	NetworkManager.join_room(code)
+
+
+func _on_lobby_start_pressed():
+	_disconnect_network_signals()
+	lobby_panel.visible = false
+	_game_started = true
+	get_tree().paused = false
+	game_started.emit(1)  # MP games start at wave 1
+
+
+func _on_lobby_back_pressed():
+	NetworkManager.disconnect_peer()
+	_disconnect_network_signals()
+	lobby_panel.visible = false
+	lobby_connect_btn.disabled = false
+	start_menu.visible = true
+	_update_start_menu()
+
+
+func _connect_network_signals():
+	if not NetworkManager.connection_established.is_connected(_on_network_connected):
+		NetworkManager.connection_established.connect(_on_network_connected)
+	if not NetworkManager.connection_failed.is_connected(_on_network_failed):
+		NetworkManager.connection_failed.connect(_on_network_failed)
+	if not NetworkManager.peer_disconnected.is_connected(_on_network_peer_disconnected):
+		NetworkManager.peer_disconnected.connect(_on_network_peer_disconnected)
+
+
+func _disconnect_network_signals():
+	if NetworkManager.connection_established.is_connected(_on_network_connected):
+		NetworkManager.connection_established.disconnect(_on_network_connected)
+	if NetworkManager.connection_failed.is_connected(_on_network_failed):
+		NetworkManager.connection_failed.disconnect(_on_network_failed)
+	if NetworkManager.peer_disconnected.is_connected(_on_network_peer_disconnected):
+		NetworkManager.peer_disconnected.disconnect(_on_network_peer_disconnected)
+
+
+func _on_network_connected():
+	lobby_status_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
+	if NetworkManager.role == NetworkManager.NetRole.HOST:
+		lobby_status_label.text = "Partner connected!"
+		lobby_start_btn.disabled = false
+	else:
+		lobby_status_label.text = "Connected! Waiting for host to start..."
+
+
+func _on_network_failed(reason: String):
+	lobby_status_label.text = "Failed: " + reason
+	lobby_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+	lobby_connect_btn.disabled = false
+
+
+func _on_network_peer_disconnected(_id: int):
+	if lobby_panel.visible:
+		lobby_status_label.text = "Partner disconnected"
+		lobby_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+		lobby_start_btn.disabled = true
