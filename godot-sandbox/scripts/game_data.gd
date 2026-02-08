@@ -51,6 +51,7 @@ var research: Dictionary = {
 	"unlock_repair_drone": 0,
 	"repair_drone_range": 0,
 	"repair_drone_speed": 0,
+	"pickup_range": 0,
 }
 
 const RESEARCH_DATA = {
@@ -85,6 +86,7 @@ const RESEARCH_DATA = {
 	"unlock_repair_drone": {"name": "Repair Drone", "desc": "Unlock Repair Drone", "max": 1, "cost": [25]},
 	"repair_drone_range": {"name": "Drone Range", "desc": "+20 drone repair range", "max": 5, "cost": [10, 20, 35, 55, 80]},
 	"repair_drone_speed": {"name": "Drone Efficiency", "desc": "+1 HP/tick repair", "max": 5, "cost": [10, 20, 35, 55, 80]},
+	"pickup_range": {"name": "Magnetism", "desc": "+10 pickup range", "max": 5, "cost": [8, 15, 25, 40, 60]},
 }
 
 
@@ -124,11 +126,7 @@ func record_run(wave_reached: int, bosses_killed: int):
 		highest_wave = wave_reached
 	total_bosses_killed += bosses_killed
 	total_runs += 1
-	# Award prestige based on wave reached
-	var earned = wave_reached / 2
-	if bosses_killed > 0:
-		earned += bosses_killed * 3
-	prestige_points += earned
+	# Prestige is now earned by collecting physical orb drops during gameplay
 	# Auto-unlock starting waves based on progress
 	_auto_unlock_waves(wave_reached)
 	save_data()
@@ -203,6 +201,7 @@ func get_research_bonus(key: String) -> float:
 		"unlock_repair_drone": return level * 1.0
 		"repair_drone_range": return level * 20.0
 		"repair_drone_speed": return level * 1.0
+		"pickup_range": return level * 10.0
 	return 0.0
 
 

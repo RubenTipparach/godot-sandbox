@@ -69,6 +69,9 @@ const NODE_LAYOUT = {
 	"unlock_repair_drone": Vector2(360, 100),
 	"repair_drone_range": Vector2(440, 200),
 	"repair_drone_speed": Vector2(360, 200),
+
+	# Pickup Range
+	"pickup_range": Vector2(0, -400),
 }
 
 # Connections between nodes: [prerequisite, child]
@@ -99,6 +102,7 @@ const NODE_CONNECTIONS = [
 	["starting_iron", "cost_efficiency"],
 	["mining_speed", "mining_yield"],
 	["mining_speed", "mining_range"],
+	["xp_gain", "pickup_range"],
 	["unlock_wall", "building_health"],
 	["factory_speed", "unlock_battery"],
 	["unlock_repair", "unlock_repair_drone"],
@@ -139,6 +143,7 @@ const NODE_ICONS = {
 	"unlock_repair_drone": "repair_drone",
 	"repair_drone_range": "drone_range",
 	"repair_drone_speed": "drone_speed",
+	"pickup_range": "magnet",
 }
 
 var hovered_node: String = ""
@@ -497,6 +502,14 @@ func _draw_icon(pos: Vector2, icon_type: String, is_owned: bool):
 			draw_line(pos + Vector2(-s*0.6, 0), pos + Vector2(-s*0.3, 0), Color(0.3, 0.8, 0.4), 2.0)
 			draw_line(pos + Vector2(s*0.4, s*0.2), pos + Vector2(s*0.8, s*0.2), Color(1.0, 0.9, 0.3), 2.0)
 			draw_line(pos + Vector2(s*0.3, s*0.5), pos + Vector2(s*0.7, s*0.5), Color(1.0, 0.9, 0.3), 2.0)
+		"magnet":
+			# U-shaped magnet
+			var mc2 = Color(1.0, 0.85, 0.3)
+			draw_arc(pos + Vector2(0, s*0.1), s*0.5, PI, TAU, 12, mc2, 3.0)
+			draw_line(pos + Vector2(-s*0.5, s*0.1), pos + Vector2(-s*0.5, -s*0.6), Color(1.0, 0.3, 0.3), 3.0)
+			draw_line(pos + Vector2(s*0.5, s*0.1), pos + Vector2(s*0.5, -s*0.6), Color(0.3, 0.5, 1.0), 3.0)
+			# Field lines
+			draw_arc(pos + Vector2(0, s*0.1), s*0.8, PI + 0.3, TAU - 0.3, 8, Color(1.0, 0.9, 0.3, 0.3), 1.5)
 
 
 func _draw_tooltip(key: String):

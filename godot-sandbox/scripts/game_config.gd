@@ -247,6 +247,7 @@ extends Resource
 @export var aura_damage_per_level: int = 4
 @export var burn_dps_per_level: float = 4.0
 @export var slow_per_level: float = 0.15
+@export var pickup_range_per_level: float = 15.0
 
 
 func get_base_cost(type: String) -> Dictionary:
