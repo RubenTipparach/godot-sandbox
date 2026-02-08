@@ -13,6 +13,7 @@
 - [Node.js](https://nodejs.org/) (v18+)
 - [Vercel CLI](https://vercel.com/docs/cli): `npm i -g vercel`
 - Godot 4.4+ with Web export templates installed
+- [Upstash Redis](https://upstash.com/) account (free tier works fine)
 
 ## Local Testing
 
@@ -35,7 +36,25 @@ Or use the helper script:
 ./deploy-vercel.sh --local
 ```
 
-### 3. Start local dev server
+### 3. Set up Upstash Redis
+
+1. Go to [console.upstash.com](https://console.upstash.com/) and create a free Redis database
+2. Copy the **REST URL** and **REST Token** from the database details page
+3. Create a `.env` file in `vercel-signaling/`:
+
+```bash
+UPSTASH_REDIS_REST_URL=https://your-db.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your-token-here
+```
+
+### 4. Install dependencies
+
+```bash
+cd vercel-signaling
+npm install
+```
+
+### 5. Start local dev server
 
 ```bash
 cd vercel-signaling
@@ -44,7 +63,7 @@ vercel dev
 
 This starts everything on `http://localhost:3000` — both the signaling API and game files.
 
-### 4. Test multiplayer
+### 6. Test multiplayer
 
 1. Open **two browser tabs** to `http://localhost:3000`
 2. **Tab 1:** Click **Host Co-op** → you'll see a 6-character room code
@@ -102,8 +121,18 @@ Every push to `main` automatically exports the game and deploys to Vercel.
    | `VERCEL_TOKEN` | The token from step 2 |
    | `VERCEL_ORG_ID` | From `vercel-signaling/.vercel/project.json` → `orgId` |
    | `VERCEL_PROJECT_ID` | From `vercel-signaling/.vercel/project.json` → `projectId` |
+   | `UPSTASH_REDIS_REST_URL` | From Upstash console → your database → REST URL |
+   | `UPSTASH_REDIS_REST_TOKEN` | From Upstash console → your database → REST Token |
 
-4. Push to `main` — the workflow will export the game, bundle it with the signaling API, and deploy to Vercel automatically.
+4. **Add Upstash env vars to your Vercel project** (also needed for production):
+   ```bash
+   cd vercel-signaling
+   vercel env add UPSTASH_REDIS_REST_URL production
+   vercel env add UPSTASH_REDIS_REST_TOKEN production
+   ```
+   Or add them in the Vercel dashboard: Project Settings > Environment Variables.
+
+5. Push to `main` — the workflow will export the game, bundle it with the signaling API, and deploy to Vercel automatically.
 
 The workflow is at `.github/workflows/deploy-vercel.yml`. It also supports manual dispatch from the Actions tab.
 
@@ -140,7 +169,7 @@ Player A (Host)                    Player B (Client)
 
 ## Notes
 
-- **Signaling is ephemeral.** The Vercel functions use in-memory storage (`globalThis.__rooms`) with a 5-minute TTL. This is fine since signaling only needs to last ~5 seconds during the WebRTC handshake. Rooms don't survive Vercel cold starts, but that doesn't matter.
+- **Signaling uses Upstash Redis.** Room codes and signaling messages are stored in Upstash Redis with a 5-minute TTL. This works reliably across Vercel serverless invocations (unlike in-memory storage which doesn't survive between function instances).
 - **Solo mode is unaffected.** All multiplayer code checks `NetworkManager.is_multiplayer_active()` before running. Single-player works exactly as before.
 - **Prestige/research stays local.** Each browser saves independently to `user://`. Co-op shares resources and buildings during the game, but meta-progression is per-player.
 - **`vercel-signaling/game/` is gitignored.** Don't commit the WASM build — re-export from Godot each time.

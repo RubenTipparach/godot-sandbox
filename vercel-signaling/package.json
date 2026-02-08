@@ -1,5 +1,8 @@
 {
   "name": "mining-defense-signaling",
   "version": "1.0.0",
-  "private": true
+  "private": true,
+  "dependencies": {
+    "@upstash/redis": "^1.34.3"
+  }
 }
