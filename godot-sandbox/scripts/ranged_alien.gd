@@ -20,6 +20,11 @@ var orbital_cooldown: float = 0.0
 var hit_flash_timer: float = 0.0
 var acid_timer: float = 0.0
 
+# Multiplayer puppet
+var net_id: int = 0
+var is_puppet: bool = false
+var target_pos: Vector2 = Vector2.ZERO
+
 
 func _ready():
 	add_to_group("aliens")
@@ -43,6 +48,12 @@ func _process(delta):
 	orbital_cooldown = maxf(0.0, orbital_cooldown - delta)
 	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
 	acid_timer = maxf(0.0, acid_timer - delta)
+
+	if is_puppet:
+		if target_pos != Vector2.ZERO:
+			global_position = global_position.lerp(target_pos, 10.0 * delta)
+		queue_redraw()
+		return
 
 	if burn_timer > 0:
 		burn_timer -= delta

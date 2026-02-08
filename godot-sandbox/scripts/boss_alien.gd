@@ -21,6 +21,11 @@ var attack_angle: float = 0.0
 var burst_timer: float = 0.0
 const PATTERNS = ["spiral", "ring", "aimed_burst", "rotating_streams"]
 
+# Multiplayer puppet
+var net_id: int = 0
+var is_puppet: bool = false
+var target_pos: Vector2 = Vector2.ZERO
+
 
 func _ready():
 	add_to_group("aliens")
@@ -44,6 +49,12 @@ func apply_slow(amount: float, duration: float = 2.0):
 func _process(delta):
 	orbital_cooldown = maxf(0.0, orbital_cooldown - delta)
 	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
+
+	if is_puppet:
+		if target_pos != Vector2.ZERO:
+			global_position = global_position.lerp(target_pos, 10.0 * delta)
+		queue_redraw()
+		return
 
 	if burn_timer > 0:
 		burn_timer -= delta

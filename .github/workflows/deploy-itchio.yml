@@ -1,4 +1,4 @@
-name: Deploy to itch.io
+name: Deploy Game
 
 on:
   push:
@@ -53,3 +53,24 @@ jobs:
           BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
         run: |
           butler push godot-sandbox/build/web ${{ env.ITCH_GAME }}:web
+
+      - name: Bundle Vercel project
+        run: cp -r godot-sandbox/build/web vercel-signaling/game
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install signaling dependencies
+        run: npm install
+        working-directory: vercel-signaling
+
+      - name: Deploy to Vercel
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          npm i -g vercel
+          vercel deploy --prod --token ${{ secrets.VERCEL_TOKEN }} -e UPSTASH_REDIS_REST_URL=${{ secrets.UPSTASH_REDIS_REST_URL }} -e UPSTASH_REDIS_REST_TOKEN=${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+        working-directory: vercel-signaling
