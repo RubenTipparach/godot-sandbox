@@ -56,7 +56,7 @@ func create_room() -> String:
 	print("[Net] Creating room...")
 	var http = HTTPRequest.new()
 	add_child(http)
-	var err = http.request(signaling_base_url + "/create-room",
+	var err = http.request(signaling_base_url + "/rooms?action=create",
 		["Content-Type: application/json"],
 		HTTPClient.METHOD_POST, "{}")
 	if err != OK:
@@ -87,7 +87,7 @@ func join_room(code: String):
 	print("[Net] Joining room: ", room_id)
 	var http = HTTPRequest.new()
 	add_child(http)
-	var err = http.request(signaling_base_url + "/join-room",
+	var err = http.request(signaling_base_url + "/rooms?action=join",
 		["Content-Type: application/json"],
 		HTTPClient.METHOD_POST,
 		JSON.stringify({"room_id": room_id}))
@@ -191,7 +191,7 @@ func _poll_signals():
 	var role_str = "host" if role == NetRole.HOST else "client"
 	var http = HTTPRequest.new()
 	add_child(http)
-	var err = http.request(signaling_base_url + "/poll?room_id=" + room_id + "&as=" + role_str)
+	var err = http.request(signaling_base_url + "/rooms?action=poll&room_id=" + room_id + "&as=" + role_str)
 	if err != OK:
 		print("[Net] Poll request error: ", err)
 		http.queue_free()
@@ -216,7 +216,7 @@ func _send_signal(type: String, data: Dictionary):
 	var role_str = "host" if role == NetRole.HOST else "client"
 	var http = HTTPRequest.new()
 	add_child(http)
-	http.request(signaling_base_url + "/signal",
+	http.request(signaling_base_url + "/rooms?action=signal",
 		["Content-Type: application/json"],
 		HTTPClient.METHOD_POST,
 		JSON.stringify({
