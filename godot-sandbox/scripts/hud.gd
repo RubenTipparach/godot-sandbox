@@ -1151,10 +1151,8 @@ func _on_pause_prestige():
 	pause_menu.visible = false
 	# Record the run and show death screen for prestige access
 	var main = get_tree().current_scene
-	if main.has_method("on_player_died"):
-		main.game_over = true
-		GameData.record_run(main.wave_number, main.bosses_killed)
-		show_death_screen(main.wave_number, main.bosses_killed, GameData.prestige_points)
+	if main.has_method("_end_run"):
+		main._end_run()
 
 
 func toggle_pause():
@@ -1179,9 +1177,12 @@ func _on_death_return_to_menu():
 	get_tree().reload_current_scene()
 
 
-func show_death_screen(wave: int, bosses: int, prestige: int):
+func show_death_screen(wave: int, bosses: int, prestige_earned: int = 0, prestige_total: int = 0):
 	death_stats_label.text = "Survived %d waves | Bosses killed: %d" % [wave, bosses]
-	prestige_label.text = "Prestige Points: %d" % prestige
+	if prestige_earned > 0:
+		prestige_label.text = "Prestige Earned: +%d  (Total: %d)" % [prestige_earned, prestige_total]
+	else:
+		prestige_label.text = "Prestige Points: %d" % prestige_total
 	death_panel.visible = true
 
 

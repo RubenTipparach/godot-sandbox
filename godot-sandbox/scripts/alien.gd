@@ -141,10 +141,11 @@ func _die():
 	gem.global_position = global_position
 	gem.xp_value = xp_value
 	get_tree().current_scene.add_child(gem)
-	# 1 in 10 chance to drop a prestige orb
+	# 1 in 10 chance to drop a prestige orb (scaled for player count)
 	if randi() % 10 == 0:
 		var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
 		orb.global_position = global_position
+		orb.prestige_value = NetworkManager.get_player_count()
 		get_tree().current_scene.add_child(orb)
 	# Health-based heal drop - lower health = higher chance
 	_try_drop_heal()
