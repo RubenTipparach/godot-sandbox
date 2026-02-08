@@ -54,6 +54,9 @@ var selected_building: Node2D = null
 var build_confirm_panel: HBoxContainer = null
 var confirm_btn: Button = null
 var cancel_build_btn: Button = null
+var recycle_panel: PanelContainer = null
+var recycle_btn: Button = null
+var recycle_info_label: Label = null
 
 var lobby_panel: Control
 var lobby_code_label: Label
@@ -99,6 +102,7 @@ const UPGRADE_DATA = {
 	"dodge": {"name": "Evasion", "color": Color(0.6, 0.8, 1.0), "max": 5},
 	"armor": {"name": "Plating", "color": Color(0.5, 0.5, 0.6), "max": 5},
 	"crit_chance": {"name": "Critical Hit", "color": Color(1.0, 0.4, 0.2), "max": 5},
+	"pickup_range": {"name": "Magnetic Field", "color": Color(1.0, 0.9, 0.3), "max": 5},
 }
 
 
@@ -923,107 +927,34 @@ func _build_recycle_panel(root: Control):
 	recycle_panel = PanelContainer.new()
 	recycle_panel.visible = false
 	recycle_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	recycle_panel.process_mode = Node.PROCESS_MODE_ALWAYS
 	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
+	style.bg_color = Color(0.15, 0.1, 0.1, 0.95)
 	style.set_corner_radius_all(6)
-	style.content_margin_left = 12
-	style.content_margin_right = 12
-	style.content_margin_top = 8
-	style.content_margin_bottom = 8
+	style.border_color = Color(0.8, 0.4, 0.2)
+	style.set_border_width_all(1)
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	style.content_margin_top = 6
+	style.content_margin_bottom = 6
 	recycle_panel.add_theme_stylebox_override("panel", style)
-	recycle_panel.set_anchors_preset(Control.PRESET_CENTER)
-	recycle_panel.offset_top = -60
-	recycle_panel.offset_left = -120
-	recycle_panel.offset_right = 120
-	recycle_panel.offset_bottom = 60
 	root.add_child(recycle_panel)
 
 	var vbox = VBoxContainer.new()
-	vbox.add_theme_constant_override("separation", 6)
+	vbox.add_theme_constant_override("separation", 4)
 	recycle_panel.add_child(vbox)
 
 	recycle_info_label = Label.new()
-	recycle_info_label.add_theme_font_size_override("font_size", 15)
+	recycle_info_label.add_theme_font_size_override("font_size", 13)
 	recycle_info_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
-	recycle_info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vbox.add_child(recycle_info_label)
 
-	var btn_row = HBoxContainer.new()
-	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	btn_row.add_theme_constant_override("separation", 12)
-	vbox.add_child(btn_row)
-
-	var recycle_btn = Button.new()
+	recycle_btn = Button.new()
 	recycle_btn.text = "Recycle"
-	recycle_btn.custom_minimum_size = Vector2(90, 36)
+	recycle_btn.custom_minimum_size = Vector2(100, 36)
 	recycle_btn.add_theme_font_size_override("font_size", 16)
-	recycle_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
+	recycle_btn.add_theme_color_override("font_color", Color(1.0, 0.6, 0.2))
 	recycle_btn.pressed.connect(_on_recycle_pressed)
-	btn_row.add_child(recycle_btn)
-
-	var cancel_btn = Button.new()
-	cancel_btn.text = "Cancel"
-	cancel_btn.custom_minimum_size = Vector2(90, 36)
-	cancel_btn.add_theme_font_size_override("font_size", 16)
-	cancel_btn.add_theme_color_override("font_color", Color(1.0, 0.5, 0.4))
-	cancel_btn.pressed.connect(_on_recycle_cancel_pressed)
-	btn_row.add_child(cancel_btn)
-
-
-func _get_building_type(building: Node2D) -> String:
-	if not building.has_method("get_building_name"):
-		return ""
-	match building.get_building_name():
-		"Turret": return "turret"
-		"Factory": return "factory"
-		"Wall": return "wall"
-		"Lightning Tower": return "lightning"
-		"Slow Tower": return "slow"
-		"Pylon": return "pylon"
-		"Power Plant": return "power_plant"
-		"Battery": return "battery"
-		"Flame Turret": return "flame_turret"
-		"Acid Turret": return "acid_turret"
-		"Repair Drone": return "repair_drone"
-	return ""
-
-
-func _show_recycle_panel(building: Node2D):
-	if not is_instance_valid(building) or not building.has_method("get_building_name"):
-		return
-	var bname = building.get_building_name()
-	if bname == "HQ":
-		return
-	var btype = _get_building_type(building)
-	if btype == "":
-		return
-	var base = CFG.get_base_cost(btype)
-	var hp_ratio = 1.0
-	if "hp" in building and "max_hp" in building and building.max_hp > 0:
-		hp_ratio = float(building.hp) / float(building.max_hp)
-	var refund_iron = int(base["iron"] * hp_ratio)
-	var refund_crystal = int(base["crystal"] * hp_ratio)
-	var hp_text = ""
-	if "hp" in building and "max_hp" in building:
-		hp_text = "\nHP: %d/%d" % [building.hp, building.max_hp]
-	recycle_info_label.text = "Recycle %s?%s\nRefund: %dI + %dC" % [bname, hp_text, refund_iron, refund_crystal]
-	recycle_panel.visible = true
-
-
-func _on_recycle_pressed():
-	if not is_instance_valid(selected_building):
-		recycle_panel.visible = false
-		selected_building = null
-		return
-	get_tree().current_scene.recycle_building(selected_building)
-	recycle_panel.visible = false
-	selected_building = null
-
-
-func _on_recycle_cancel_pressed():
-	recycle_panel.visible = false
-	selected_building = null
+	vbox.add_child(recycle_btn)
 
 
 func _detect_mobile() -> bool:
@@ -1060,13 +991,8 @@ func _build_mobile_controls(root: Control):
 	look_joystick.offset_bottom = -20
 	root.add_child(look_joystick)
 
-	# Build confirm/cancel buttons (shown only in build mode)
+	# Build confirm/cancel buttons (shown only in build mode, positioned relative to ghost)
 	build_confirm_panel = HBoxContainer.new()
-	build_confirm_panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	build_confirm_panel.offset_top = -110
-	build_confirm_panel.offset_bottom = -62
-	build_confirm_panel.offset_left = -130
-	build_confirm_panel.offset_right = 130
 	build_confirm_panel.alignment = BoxContainer.ALIGNMENT_CENTER
 	build_confirm_panel.add_theme_constant_override("separation", 20)
 	build_confirm_panel.visible = false
@@ -1084,7 +1010,19 @@ func _build_mobile_controls(root: Control):
 	confirm_btn.text = "Place"
 	confirm_btn.custom_minimum_size = Vector2(110, 44)
 	confirm_btn.add_theme_font_size_override("font_size", 18)
-	confirm_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
+	confirm_btn.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	var green_style = StyleBoxFlat.new()
+	green_style.bg_color = Color(0.15, 0.55, 0.2)
+	green_style.set_corner_radius_all(6)
+	confirm_btn.add_theme_stylebox_override("normal", green_style)
+	var green_hover = StyleBoxFlat.new()
+	green_hover.bg_color = Color(0.2, 0.65, 0.25)
+	green_hover.set_corner_radius_all(6)
+	confirm_btn.add_theme_stylebox_override("hover", green_hover)
+	var green_pressed = StyleBoxFlat.new()
+	green_pressed.bg_color = Color(0.1, 0.45, 0.15)
+	green_pressed.set_corner_radius_all(6)
+	confirm_btn.add_theme_stylebox_override("pressed", green_pressed)
 	confirm_btn.pressed.connect(_on_confirm_build_pressed)
 	build_confirm_panel.add_child(confirm_btn)
 
@@ -1203,32 +1141,30 @@ func show_death_screen(wave: int, bosses: int, prestige: int):
 func _unhandled_input(event: InputEvent):
 	if not _game_started or get_tree().paused:
 		return
-	if is_mobile:
-		if event is InputEventScreenTouch and event.pressed:
-			var player = _get_player()
-			if not player:
-				return
-			if player.is_in_build_mode():
-				var world_pos = _screen_to_world(event.position)
-				if world_pos != null:
-					player.pending_build_world_pos = world_pos.snapped(Vector2(40, 40))
-			else:
-				_handle_mobile_building_tap(event.position)
-				if selected_building and is_instance_valid(selected_building):
-					_show_recycle_panel(selected_building)
-				else:
-					recycle_panel.visible = false
-	else:
-		# Desktop: right-click to select building for recycling
-		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
-			var player = _get_player()
+
+	# Mobile touch input
+	if is_mobile and event is InputEventScreenTouch and event.pressed:
+		var player = _get_player()
+		if not player:
+			return
+		if player.is_in_build_mode():
+			# Tap sets the pending build position on mobile
+			var world_pos = _screen_to_world(event.position)
+			if world_pos != null:
+				player.pending_build_world_pos = world_pos.snapped(Vector2(40, 40))
+		else:
+			# Check for building selection (recycle / tooltip)
+			_handle_building_tap(event.position)
+
+	# Desktop mouse click for building selection when not in build mode
+	if not is_mobile and event is InputEventMouseButton and event.pressed:
+		var player = _get_player()
+		if event.button_index == MOUSE_BUTTON_LEFT:
 			if player and not player.is_in_build_mode():
-				var world_pos = _screen_to_world(event.position)
-				if world_pos != null:
-					_handle_desktop_building_select(world_pos)
-				else:
-					selected_building = null
-					recycle_panel.visible = false
+				_handle_building_tap(event.position)
+		elif event.button_index == MOUSE_BUTTON_RIGHT:
+			if selected_building != null and (not player or not player.is_in_build_mode()):
+				selected_building = null
 
 
 func _screen_to_world(screen_pos: Vector2):
@@ -1239,24 +1175,7 @@ func _screen_to_world(screen_pos: Vector2):
 	return cam.global_position + (screen_pos - vp_size / 2.0) / cam.zoom
 
 
-func _handle_desktop_building_select(world_pos: Vector2):
-	var closest_building: Node2D = null
-	var closest_dist = 40.0
-	for b in get_tree().get_nodes_in_group("buildings"):
-		if not is_instance_valid(b):
-			continue
-		var dist = world_pos.distance_to(b.global_position)
-		if dist < closest_dist:
-			closest_dist = dist
-			closest_building = b
-	selected_building = closest_building
-	if selected_building and is_instance_valid(selected_building):
-		_show_recycle_panel(selected_building)
-	else:
-		recycle_panel.visible = false
-
-
-func _handle_mobile_building_tap(screen_pos: Vector2):
+func _handle_building_tap(screen_pos: Vector2):
 	var world_pos = _screen_to_world(screen_pos)
 	if world_pos == null:
 		selected_building = null
@@ -1295,6 +1214,79 @@ func _on_cancel_build_pressed():
 		player.cancel_build_mode()
 
 
+func _on_recycle_pressed():
+	var player = _get_player()
+	if player and selected_building and is_instance_valid(selected_building):
+		var pos = selected_building.global_position
+		var value = player.get_recycle_value(selected_building)
+		get_tree().current_scene.recycle_building(selected_building)
+		_spawn_recycle_popup(pos, value)
+		selected_building = null
+		recycle_panel.visible = false
+
+
+func _spawn_recycle_popup(pos: Vector2, value: Dictionary):
+	var popup = preload("res://scenes/popup_text.tscn").instantiate()
+	popup.global_position = pos + Vector2(0, -30)
+	popup.text = "+%dI +%dC" % [value["iron"], value["crystal"]]
+	popup.color = Color(1.0, 0.6, 0.2)
+	get_tree().current_scene.add_child(popup)
+
+
+func _update_recycle_panel():
+	if not _game_started or get_tree().paused:
+		if recycle_panel:
+			recycle_panel.visible = false
+		return
+
+	var player = _get_player()
+	if not player:
+		if recycle_panel:
+			recycle_panel.visible = false
+		return
+
+	# Don't show recycle panel while in build mode
+	if player.is_in_build_mode():
+		if recycle_panel:
+			recycle_panel.visible = false
+		return
+
+	if selected_building == null or not is_instance_valid(selected_building):
+		selected_building = null
+		if recycle_panel:
+			recycle_panel.visible = false
+		return
+
+	# Don't allow recycling HQ
+	if selected_building.is_in_group("hq"):
+		if recycle_panel:
+			recycle_panel.visible = false
+		return
+
+	var cam = get_viewport().get_camera_2d()
+	if not cam:
+		if recycle_panel:
+			recycle_panel.visible = false
+		return
+
+	var vp_size = get_viewport().get_visible_rect().size
+	var screen_pos = (selected_building.global_position - cam.global_position) * cam.zoom + vp_size / 2.0
+
+	# Calculate recycle value
+	var value = player.get_recycle_value(selected_building)
+	var name_text = selected_building.get_building_name() if selected_building.has_method("get_building_name") else "Building"
+	var hp_text = ""
+	if "hp" in selected_building and "max_hp" in selected_building:
+		hp_text = "HP: %d/%d\n" % [selected_building.hp, selected_building.max_hp]
+	recycle_info_label.text = "%s\n%sRefund: %dI + %dC" % [name_text, hp_text, value["iron"], value["crystal"]]
+
+	recycle_panel.visible = true
+	var panel_size = recycle_panel.size
+	recycle_panel.position = Vector2(screen_pos.x - panel_size.x / 2.0, screen_pos.y - panel_size.y - 30)
+	recycle_panel.position.x = clampf(recycle_panel.position.x, 5, vp_size.x - panel_size.x - 5)
+	recycle_panel.position.y = clampf(recycle_panel.position.y, 5, vp_size.y - panel_size.y - 5)
+
+
 func _process(delta):
 	if alert_timer > 0:
 		alert_timer -= delta
@@ -1302,7 +1294,7 @@ func _process(delta):
 		if alert_timer <= 0:
 			alert_label.visible = false
 
-	# Toggle mobile build confirm buttons
+	# Toggle mobile build confirm buttons and position relative to ghost preview
 	if is_mobile and build_confirm_panel:
 		var player = _get_player()
 		var in_build = player != null and player.is_in_build_mode()
@@ -1310,6 +1302,18 @@ func _process(delta):
 		if in_build and player:
 			var valid = player.can_place_at(player.pending_build_world_pos) and player.can_afford(player.build_mode)
 			confirm_btn.disabled = not valid
+			var cam = get_viewport().get_camera_2d()
+			if cam and player.pending_build_world_pos != Vector2.ZERO:
+				var vp_size = get_viewport().get_visible_rect().size
+				var screen_pos = (player.pending_build_world_pos - cam.global_position) * cam.zoom + vp_size / 2.0
+				var panel_w = build_confirm_panel.size.x
+				var panel_h = build_confirm_panel.size.y
+				build_confirm_panel.position = Vector2(screen_pos.x - panel_w / 2.0, screen_pos.y + 40)
+				build_confirm_panel.position.x = clampf(build_confirm_panel.position.x, 5, vp_size.x - panel_w - 5)
+				build_confirm_panel.position.y = clampf(build_confirm_panel.position.y, 5, vp_size.y - panel_h - 5)
+
+	# Update recycle panel
+	_update_recycle_panel()
 
 	# Update building tooltip
 	_update_building_tooltip()
@@ -1317,6 +1321,11 @@ func _process(delta):
 
 func _update_building_tooltip():
 	if not _game_started or get_tree().paused:
+		building_tooltip.visible = false
+		return
+
+	# Hide tooltip when recycle panel is showing
+	if recycle_panel and recycle_panel.visible:
 		building_tooltip.visible = false
 		return
 
@@ -1620,7 +1629,7 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 		power_rate_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.4))
 
 	# Prestige earned this run
-	prestige_hud_label.text = "Prestige: +%d" % prestige_earned
+	prestige_hud_label.text = "Prestige: %d" % prestige_earned
 
 	# Partner health in MP (up to 3 other players)
 	if NetworkManager.is_multiplayer_active():
@@ -1775,6 +1784,7 @@ func _desc(key: String, lv: int) -> String:
 		"dodge": return "%d%% chance to dodge attacks" % (lv * 8)
 		"armor": return "Reduce damage by %d" % (lv * 2)
 		"crit_chance": return "%d%% chance for 2x damage" % (lv * 10)
+		"pickup_range": return "+15 pickup range (+%dpx total)" % (lv * 15)
 	return ""
 
 

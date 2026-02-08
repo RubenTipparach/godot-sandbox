@@ -264,11 +264,10 @@ func _process(delta):
 
 	if is_instance_valid(hud_node):
 		var rates = get_factory_rates()
-		var projected_prestige = wave_number / 2 + bosses_killed * 3
 		# Update respawn countdown for host's local player
 		if is_authority and is_instance_valid(player_node):
 			hud_node.respawn_countdown = respawn_timers.get(player_node.peer_id, 0.0)
-		hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank, projected_prestige)
+		hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank, GameData.prestige_points)
 
 	queue_redraw()
 

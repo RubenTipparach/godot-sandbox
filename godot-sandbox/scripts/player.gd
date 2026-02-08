@@ -53,6 +53,7 @@ var upgrades = {
 	"dodge": 0,
 	"armor": 0,
 	"crit_chance": 0,
+	"pickup_range": 0,
 }
 
 var aura_timer: float = 0.0
@@ -117,7 +118,7 @@ func get_rock_regen_multiplier() -> float:
 func get_gem_range() -> float:
 	if magnet_timer > 0:
 		return CFG.magnet_range
-	return CFG.gem_collect_range
+	return CFG.gem_collect_range + upgrades["pickup_range"] * CFG.pickup_range_per_level + GameData.get_research_bonus("pickup_range")
 
 
 func _process(delta):
@@ -237,6 +238,7 @@ func _process(delta):
 				cancel_build_mode()
 
 	_collect_gems()
+	_collect_prestige_orbs()
 	_collect_powerups()
 	if upgrades["damage_aura"] > 0:
 		_process_aura(delta)
@@ -318,6 +320,11 @@ func _mine_nearby(qty: int):
 			gem.global_position = res_pos
 			gem.xp_value = maxi(1, result["amount"])
 			get_tree().current_scene.add_child(gem)
+			# 1 in 5 chance to drop a prestige orb from depleted rock
+			if randi() % 5 == 0:
+				var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
+				orb.global_position = res_pos
+				get_tree().current_scene.add_child(orb)
 
 
 func _repair_nearby():
@@ -349,6 +356,15 @@ func _collect_gems():
 		if global_position.distance_to(gem.global_position) < collect_range:
 			add_xp(gem.xp_value)
 			gem.collect()
+
+
+func _collect_prestige_orbs():
+	var collect_range = get_gem_range()
+	for orb in get_tree().get_nodes_in_group("prestige_orbs"):
+		if not is_instance_valid(orb): continue
+		if global_position.distance_to(orb.global_position) < collect_range:
+			GameData.add_prestige(orb.prestige_value)
+			orb.collect()
 
 
 func _collect_powerups():
@@ -556,6 +572,46 @@ func can_place_at(pos: Vector2) -> bool:
 func can_afford(type: String) -> bool:
 	var cost = get_building_cost(type)
 	return iron >= cost["iron"] and crystal >= cost["crystal"]
+
+
+func get_building_type_string(building: Node2D) -> String:
+	if not building.has_method("get_building_name"):
+		return ""
+	match building.get_building_name():
+		"Turret": return "turret"
+		"Factory": return "factory"
+		"Wall": return "wall"
+		"Lightning Tower": return "lightning"
+		"Slow Tower": return "slow"
+		"Pylon": return "pylon"
+		"Power Plant": return "power_plant"
+		"Battery": return "battery"
+		"Flame Turret": return "flame_turret"
+		"Acid Turret": return "acid_turret"
+		"Repair Drone": return "repair_drone"
+	return ""
+
+
+func get_recycle_value(building: Node2D) -> Dictionary:
+	var type_str = get_building_type_string(building)
+	if type_str == "":
+		return {"iron": 0, "crystal": 0}
+	var base = CFG.get_base_cost(type_str)
+	var hp_ratio = 1.0
+	if "hp" in building and "max_hp" in building and building.max_hp > 0:
+		hp_ratio = float(building.hp) / float(building.max_hp)
+	return {
+		"iron": int(base["iron"] * hp_ratio),
+		"crystal": int(base["crystal"] * hp_ratio)
+	}
+
+
+func recycle_building(building: Node2D) -> Dictionary:
+	var value = get_recycle_value(building)
+	iron += value["iron"]
+	crystal += value["crystal"]
+	building.queue_free()
+	return value
 
 
 func _process_aura(delta):
