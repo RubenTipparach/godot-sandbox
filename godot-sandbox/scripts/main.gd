@@ -375,12 +375,13 @@ func _get_player_centroid() -> Vector2:
 
 
 func _get_offscreen_spawn_pos(base_angle: float, rng: RandomNumberGenerator) -> Vector2:
-	# Spawn far enough to be offscreen (at least 600 units from player centroid)
+	# Spawn outside map bounds so enemies walk in and don't land on buildings
 	var spread = rng.randf_range(-0.4, 0.4)  # ~45 degree spread
 	var angle = base_angle + spread
-	var dist = rng.randf_range(650, 850)
+	var dist = rng.randf_range(850, 1100)
 	var spawn_pos = _get_player_centroid() + Vector2.from_angle(angle) * dist
-	return spawn_pos.clamp(Vector2(-CFG.map_half_size, -CFG.map_half_size), Vector2(CFG.map_half_size, CFG.map_half_size))
+	var margin = CFG.map_half_size + 200.0
+	return spawn_pos.clamp(Vector2(-margin, -margin), Vector2(margin, margin))
 
 
 func _spawn_aliens(type: String, count: int, rng: RandomNumberGenerator, wave_dir: float):
