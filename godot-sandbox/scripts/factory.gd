@@ -7,6 +7,7 @@ var max_hp: int = CFG.hp_factory
 var generate_timer: float = 0.0
 var speed_bonus: float = 0.0
 var power_blink_timer: float = 0.0
+var manually_disabled: bool = false
 
 
 func _ready():
@@ -19,6 +20,8 @@ func get_building_name() -> String:
 
 
 func is_powered() -> bool:
+	if manually_disabled:
+		return false
 	var main = get_tree().current_scene
 	if main and "power_on" in main and not main.power_on:
 		return false

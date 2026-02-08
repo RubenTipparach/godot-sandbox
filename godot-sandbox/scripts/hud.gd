@@ -54,9 +54,6 @@ var selected_building: Node2D = null
 var build_confirm_panel: HBoxContainer = null
 var confirm_btn: Button = null
 var cancel_build_btn: Button = null
-var recycle_panel: PanelContainer = null
-var recycle_btn: Button = null
-var recycle_info_label: Label = null
 
 var lobby_panel: Control
 var lobby_code_label: Label
@@ -74,8 +71,10 @@ var lobby_players_label: Label
 var respawn_label: Label
 var respawn_countdown: float = 0.0
 var room_code_label: Label
-var recycle_panel: PanelContainer
-var recycle_info_label: Label
+var building_info_panel: PanelContainer = null
+var building_info_label: Label = null
+var recycle_btn: Button = null
+var toggle_power_btn: Button = null
 var hq_health_label: Label
 var hq_bar_bg: ColorRect
 var hq_bar_fill: ColorRect
@@ -300,7 +299,7 @@ func _ready():
 	_build_pause_menu(root)
 	_build_lobby_panel(root)
 	_build_building_tooltip(root)
-	_build_recycle_panel(root)
+	_build_building_info_panel(root)
 
 	# Detect mobile and add virtual controls
 	is_mobile = _detect_mobile()
@@ -923,38 +922,50 @@ func _build_building_tooltip(root: Control):
 	building_tooltip.add_child(building_tooltip_label)
 
 
-func _build_recycle_panel(root: Control):
-	recycle_panel = PanelContainer.new()
-	recycle_panel.visible = false
-	recycle_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+func _build_building_info_panel(root: Control):
+	building_info_panel = PanelContainer.new()
+	building_info_panel.visible = false
+	building_info_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	var style = StyleBoxFlat.new()
-	style.bg_color = Color(0.15, 0.1, 0.1, 0.95)
+	style.bg_color = Color(0.12, 0.12, 0.15, 0.95)
 	style.set_corner_radius_all(6)
-	style.border_color = Color(0.8, 0.4, 0.2)
+	style.border_color = Color(0.4, 0.5, 0.7)
 	style.set_border_width_all(1)
 	style.content_margin_left = 10
 	style.content_margin_right = 10
 	style.content_margin_top = 6
 	style.content_margin_bottom = 6
-	recycle_panel.add_theme_stylebox_override("panel", style)
-	root.add_child(recycle_panel)
+	building_info_panel.add_theme_stylebox_override("panel", style)
+	root.add_child(building_info_panel)
 
 	var vbox = VBoxContainer.new()
 	vbox.add_theme_constant_override("separation", 4)
-	recycle_panel.add_child(vbox)
+	building_info_panel.add_child(vbox)
 
-	recycle_info_label = Label.new()
-	recycle_info_label.add_theme_font_size_override("font_size", 13)
-	recycle_info_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
-	vbox.add_child(recycle_info_label)
+	building_info_label = Label.new()
+	building_info_label.add_theme_font_size_override("font_size", 13)
+	building_info_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
+	vbox.add_child(building_info_label)
+
+	var btn_row = HBoxContainer.new()
+	btn_row.add_theme_constant_override("separation", 6)
+	vbox.add_child(btn_row)
+
+	toggle_power_btn = Button.new()
+	toggle_power_btn.text = "Disable"
+	toggle_power_btn.custom_minimum_size = Vector2(80, 32)
+	toggle_power_btn.add_theme_font_size_override("font_size", 14)
+	toggle_power_btn.add_theme_color_override("font_color", Color(0.9, 0.8, 0.3))
+	toggle_power_btn.pressed.connect(_on_toggle_power_pressed)
+	btn_row.add_child(toggle_power_btn)
 
 	recycle_btn = Button.new()
 	recycle_btn.text = "Recycle"
-	recycle_btn.custom_minimum_size = Vector2(100, 36)
-	recycle_btn.add_theme_font_size_override("font_size", 16)
+	recycle_btn.custom_minimum_size = Vector2(100, 32)
+	recycle_btn.add_theme_font_size_override("font_size", 14)
 	recycle_btn.add_theme_color_override("font_color", Color(1.0, 0.6, 0.2))
 	recycle_btn.pressed.connect(_on_recycle_pressed)
-	vbox.add_child(recycle_btn)
+	btn_row.add_child(recycle_btn)
 
 
 func _detect_mobile() -> bool:
@@ -1162,9 +1173,6 @@ func _unhandled_input(event: InputEvent):
 		if event.button_index == MOUSE_BUTTON_LEFT:
 			if player and not player.is_in_build_mode():
 				_handle_building_tap(event.position)
-		elif event.button_index == MOUSE_BUTTON_RIGHT:
-			if selected_building != null and (not player or not player.is_in_build_mode()):
-				selected_building = null
 
 
 func _screen_to_world(screen_pos: Vector2):
@@ -1222,7 +1230,17 @@ func _on_recycle_pressed():
 		get_tree().current_scene.recycle_building(selected_building)
 		_spawn_recycle_popup(pos, value)
 		selected_building = null
-		recycle_panel.visible = false
+		building_info_panel.visible = false
+
+
+func _on_toggle_power_pressed():
+	if not selected_building or not is_instance_valid(selected_building):
+		return
+	if "manually_disabled" not in selected_building:
+		return
+	selected_building.manually_disabled = not selected_building.manually_disabled
+	if NetworkManager.is_multiplayer_active():
+		get_tree().current_scene.sync_building_toggle(selected_building)
 
 
 func _spawn_recycle_popup(pos: Vector2, value: Dictionary):
@@ -1233,58 +1251,71 @@ func _spawn_recycle_popup(pos: Vector2, value: Dictionary):
 	get_tree().current_scene.add_child(popup)
 
 
-func _update_recycle_panel():
+func _update_building_info_panel():
 	if not _game_started or get_tree().paused:
-		if recycle_panel:
-			recycle_panel.visible = false
+		if building_info_panel:
+			building_info_panel.visible = false
 		return
 
 	var player = _get_player()
 	if not player:
-		if recycle_panel:
-			recycle_panel.visible = false
+		if building_info_panel:
+			building_info_panel.visible = false
 		return
 
-	# Don't show recycle panel while in build mode
 	if player.is_in_build_mode():
-		if recycle_panel:
-			recycle_panel.visible = false
+		if building_info_panel:
+			building_info_panel.visible = false
 		return
 
 	if selected_building == null or not is_instance_valid(selected_building):
 		selected_building = null
-		if recycle_panel:
-			recycle_panel.visible = false
-		return
-
-	# Don't allow recycling HQ
-	if selected_building.is_in_group("hq"):
-		if recycle_panel:
-			recycle_panel.visible = false
+		if building_info_panel:
+			building_info_panel.visible = false
 		return
 
 	var cam = get_viewport().get_camera_2d()
 	if not cam:
-		if recycle_panel:
-			recycle_panel.visible = false
+		if building_info_panel:
+			building_info_panel.visible = false
 		return
 
 	var vp_size = get_viewport().get_visible_rect().size
 	var screen_pos = (selected_building.global_position - cam.global_position) * cam.zoom + vp_size / 2.0
 
-	# Calculate recycle value
-	var value = player.get_recycle_value(selected_building)
-	var name_text = selected_building.get_building_name() if selected_building.has_method("get_building_name") else "Building"
-	var hp_text = ""
+	# Build info text
+	var bname = selected_building.get_building_name() if selected_building.has_method("get_building_name") else "Building"
+	var info = bname
 	if "hp" in selected_building and "max_hp" in selected_building:
-		hp_text = "HP: %d/%d\n" % [selected_building.hp, selected_building.max_hp]
-	recycle_info_label.text = "%s\n%sRefund: %dI + %dC" % [name_text, hp_text, value["iron"], value["crystal"]]
+		info += "\nHP: %d/%d" % [selected_building.hp, selected_building.max_hp]
+	# Power status
+	if selected_building.has_method("is_powered"):
+		if "manually_disabled" in selected_building and selected_building.manually_disabled:
+			info += "\nPower: Disabled"
+		elif selected_building.is_powered():
+			info += "\nPower: On"
+		else:
+			info += "\nPower: Off"
+	building_info_label.text = info
 
-	recycle_panel.visible = true
-	var panel_size = recycle_panel.size
-	recycle_panel.position = Vector2(screen_pos.x - panel_size.x / 2.0, screen_pos.y - panel_size.y - 30)
-	recycle_panel.position.x = clampf(recycle_panel.position.x, 5, vp_size.x - panel_size.x - 5)
-	recycle_panel.position.y = clampf(recycle_panel.position.y, 5, vp_size.y - panel_size.y - 5)
+	# Toggle power button: only for buildings with manually_disabled
+	var has_toggle = "manually_disabled" in selected_building
+	toggle_power_btn.visible = has_toggle
+	if has_toggle:
+		toggle_power_btn.text = "Enable" if selected_building.manually_disabled else "Disable"
+
+	# Recycle button: hide for HQ, show refund for others
+	var is_hq = selected_building.is_in_group("hq")
+	recycle_btn.visible = not is_hq
+	if not is_hq:
+		var value = player.get_recycle_value(selected_building)
+		recycle_btn.text = "Recycle (+%dI +%dC)" % [value["iron"], value["crystal"]]
+
+	building_info_panel.visible = true
+	var panel_size = building_info_panel.size
+	building_info_panel.position = Vector2(screen_pos.x - panel_size.x / 2.0, screen_pos.y - panel_size.y - 30)
+	building_info_panel.position.x = clampf(building_info_panel.position.x, 5, vp_size.x - panel_size.x - 5)
+	building_info_panel.position.y = clampf(building_info_panel.position.y, 5, vp_size.y - panel_size.y - 5)
 
 
 func _process(delta):
@@ -1312,8 +1343,8 @@ func _process(delta):
 				build_confirm_panel.position.x = clampf(build_confirm_panel.position.x, 5, vp_size.x - panel_w - 5)
 				build_confirm_panel.position.y = clampf(build_confirm_panel.position.y, 5, vp_size.y - panel_h - 5)
 
-	# Update recycle panel
-	_update_recycle_panel()
+	# Update building info panel
+	_update_building_info_panel()
 
 	# Update building tooltip
 	_update_building_tooltip()
@@ -1324,8 +1355,8 @@ func _update_building_tooltip():
 		building_tooltip.visible = false
 		return
 
-	# Hide tooltip when recycle panel is showing
-	if recycle_panel and recycle_panel.visible:
+	# Hide tooltip when building info panel is showing
+	if building_info_panel and building_info_panel.visible:
 		building_tooltip.visible = false
 		return
 

@@ -1069,6 +1069,36 @@ func _find_building_at(pos: Vector2) -> Node2D:
 	return null
 
 
+# --- Building power toggle ---
+
+func sync_building_toggle(building: Node2D):
+	if not is_instance_valid(building) or "manually_disabled" not in building:
+		return
+	var pos = building.global_position
+	var disabled = building.manually_disabled
+	if not NetworkManager.is_multiplayer_active():
+		return
+	if NetworkManager.is_host():
+		_rpc_building_toggled.rpc(pos.x, pos.y, disabled)
+	else:
+		_request_building_toggle.rpc_id(1, pos.x, pos.y, disabled)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _request_building_toggle(pos_x: float, pos_y: float, disabled: bool):
+	var b = _find_building_at(Vector2(pos_x, pos_y))
+	if b and "manually_disabled" in b:
+		b.manually_disabled = disabled
+		_rpc_building_toggled.rpc(pos_x, pos_y, disabled)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_building_toggled(pos_x: float, pos_y: float, disabled: bool):
+	var b = _find_building_at(Vector2(pos_x, pos_y))
+	if b and "manually_disabled" in b:
+		b.manually_disabled = disabled
+
+
 @rpc("any_peer", "call_remote", "reliable")
 func _request_build(type: String, pos_x: float, pos_y: float):
 	# Host handles client build request

@@ -6,6 +6,7 @@ var hp: int = CFG.hp_repair_drone
 var max_hp: int = CFG.hp_repair_drone
 var repair_timer: float = 0.0
 var power_blink_timer: float = 0.0
+var manually_disabled: bool = false
 var repair_targets: Array = []
 var drone_angle: float = 0.0
 
@@ -20,6 +21,8 @@ func get_building_name() -> String:
 
 
 func is_powered() -> bool:
+	if manually_disabled:
+		return false
 	var main = get_tree().current_scene
 	if main and "power_on" in main and not main.power_on:
 		return false

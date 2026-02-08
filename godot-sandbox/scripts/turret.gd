@@ -9,6 +9,7 @@ var target_angle: float = 0.0
 var damage_bonus: int = 0
 var fire_rate_bonus: float = 0.0
 var power_blink_timer: float = 0.0
+var manually_disabled: bool = false
 var bullet_count: int = 1
 var ice_rounds: bool = false
 var fire_rounds: bool = false
@@ -25,6 +26,8 @@ func get_building_name() -> String:
 
 
 func is_powered() -> bool:
+	if manually_disabled:
+		return false
 	var main = get_tree().current_scene
 	if main and "power_on" in main and not main.power_on:
 		return false
