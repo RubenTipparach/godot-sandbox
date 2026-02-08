@@ -720,10 +720,10 @@ func _receive_state(state: Array):
 				if ps.size() > 7 and is_instance_valid(hud_node):
 					hud_node.respawn_countdown = ps[7]
 		else:
-			# Remote player: update position and state
+			# Remote player: update position and state (interpolated)
 			if players.has(pid) and is_instance_valid(players[pid]):
 				var rp = players[pid]
-				rp.global_position = Vector2(ps[1], ps[2])
+				rp._remote_target_pos = Vector2(ps[1], ps[2])
 				rp.facing_angle = ps[3]
 				rp.health = ps[4]
 				rp.max_health = ps[5]
@@ -747,7 +747,7 @@ func _receive_client_state(pos_x: float, pos_y: float, angle: float):
 	# Host receives client position
 	var sender_id = multiplayer.get_remote_sender_id()
 	if players.has(sender_id) and is_instance_valid(players[sender_id]):
-		players[sender_id].global_position = Vector2(pos_x, pos_y)
+		players[sender_id]._remote_target_pos = Vector2(pos_x, pos_y)
 		players[sender_id].facing_angle = angle
 
 

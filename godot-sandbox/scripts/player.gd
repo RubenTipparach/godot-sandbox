@@ -71,6 +71,7 @@ var peer_id: int = 1
 var is_local: bool = true
 var player_color: Color = Color(0.2, 0.9, 0.3)
 var player_name: String = ""
+var _remote_target_pos: Vector2 = Vector2.ZERO
 
 
 func _ready():
@@ -130,6 +131,10 @@ func _process(delta):
 		return
 
 	if not is_local:
+		# Interpolate remote player position
+		if _remote_target_pos != Vector2.ZERO:
+			global_position = global_position.lerp(_remote_target_pos, minf(delta * 15.0, 1.0))
+		invuln_timer = maxf(0.0, invuln_timer - delta)
 		queue_redraw()
 		return
 
@@ -757,6 +762,12 @@ func _draw():
 	draw_rect(Rect2(-bw / 2, -24, bw, 4), Color(0.3, 0, 0))
 	draw_rect(Rect2(-bw / 2, -24, bw * float(health) / float(max_health), 4), Color(0, 0.9, 0))
 	draw_arc(Vector2.ZERO, get_mine_range(), 0, TAU, 32, Color(1, 1, 1, 0.08), 1.0)
+
+	# Player name above health bar
+	if player_name != "":
+		var name_color = player_color.lightened(0.3)
+		name_color.a = 0.9
+		draw_string(ThemeDB.fallback_font, Vector2(-player_name.length() * 3.5, -32), player_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, name_color)
 
 	# Build mode ghost preview
 	if build_mode != "":

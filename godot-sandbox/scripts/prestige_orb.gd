@@ -4,6 +4,7 @@ var prestige_value: int = 1
 var bob_offset: float = 0.0
 var pulse_timer: float = 0.0
 var trail: Array = []
+var lifetime: float = 20.0
 const MAX_TRAIL = 6
 
 
@@ -13,11 +14,17 @@ func _ready():
 
 
 func _process(delta):
+	lifetime -= delta
+	if lifetime <= 0:
+		queue_free()
+		return
+
 	pulse_timer += delta
 	var old_pos = global_position
 
 	for p in get_tree().get_nodes_in_group("player"):
 		if not is_instance_valid(p): continue
+		if not p.is_local: continue
 		var dist = global_position.distance_to(p.global_position)
 
 		# Magnet pull when close

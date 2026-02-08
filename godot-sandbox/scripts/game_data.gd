@@ -6,6 +6,7 @@ var prestige_points: int = 0
 var highest_wave: int = 0
 var total_bosses_killed: int = 0
 var total_runs: int = 0
+var player_name: String = ""
 
 # Prestige unlocks: starting wave levels
 var unlocked_start_waves: Array = [1]  # Always can start at wave 1
@@ -215,6 +216,7 @@ func save_data():
 			"total_runs": total_runs,
 			"unlocked_waves": unlocked_start_waves,
 			"research": research,
+			"player_name": player_name,
 		}
 		file.store_var(data)
 		file.close()
@@ -234,6 +236,7 @@ func load_data():
 				unlocked_start_waves = data.get("unlocked_waves", [1])
 				if not 1 in unlocked_start_waves:
 					unlocked_start_waves.insert(0, 1)
+				player_name = data.get("player_name", "")
 				var saved_research = data.get("research", {})
 				for key in research.keys():
 					research[key] = saved_research.get(key, 0)

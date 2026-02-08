@@ -4,6 +4,7 @@ var xp_value: int = 1
 var gem_size: int = 1
 var bob_offset: float = 0.0
 var trail: Array = []
+var lifetime: float = 15.0
 const MAX_TRAIL = 6
 
 
@@ -13,10 +14,16 @@ func _ready():
 
 
 func _process(delta):
+	lifetime -= delta
+	if lifetime <= 0:
+		queue_free()
+		return
+
 	var old_pos = global_position
 
 	for p in get_tree().get_nodes_in_group("player"):
 		if not is_instance_valid(p): continue
+		if not p.is_local: continue
 		var dist = global_position.distance_to(p.global_position)
 
 		# Check if player has magnet active - pull from entire map
@@ -64,6 +71,7 @@ func _draw():
 		Vector2(0, sz + bob),
 		Vector2(-sz * 0.6, bob),
 	])
-	draw_colored_polygon(pts, color)
-	draw_polyline(pts + PackedVector2Array([pts[0]]), color.lightened(0.4), 1.0)
-	draw_circle(Vector2(0, bob), sz * 0.4, Color(color.r, color.g, color.b, 0.3))
+	var fade = clampf(lifetime / 3.0, 0.0, 1.0)
+	draw_colored_polygon(pts, Color(color.r, color.g, color.b, fade))
+	draw_polyline(pts + PackedVector2Array([pts[0]]), Color(color.lightened(0.4).r, color.lightened(0.4).g, color.lightened(0.4).b, fade), 1.0)
+	draw_circle(Vector2(0, bob), sz * 0.4, Color(color.r, color.g, color.b, 0.3 * fade))

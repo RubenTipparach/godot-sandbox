@@ -779,9 +779,11 @@ func _build_lobby_panel(root: Control):
 
 	lobby_name_input = LineEdit.new()
 	lobby_name_input.max_length = 12
-	lobby_name_input.placeholder_text = "Player"
-	lobby_name_input.custom_minimum_size = Vector2(140, 36)
+	lobby_name_input.placeholder_text = "Enter your name..."
+	lobby_name_input.custom_minimum_size = Vector2(160, 36)
 	lobby_name_input.add_theme_font_size_override("font_size", 18)
+	if GameData.player_name != "":
+		lobby_name_input.text = GameData.player_name
 	name_row.add_child(lobby_name_input)
 
 	# Host section - shows room code
@@ -820,12 +822,12 @@ func _build_lobby_panel(root: Control):
 	# Client section - code input
 	lobby_client_section = VBoxContainer.new()
 	lobby_client_section.set_anchors_preset(Control.PRESET_CENTER)
-	lobby_client_section.offset_top = -50
+	lobby_client_section.offset_top = -60
 	lobby_client_section.offset_left = -200
 	lobby_client_section.offset_right = 200
 	lobby_client_section.offset_bottom = 60
 	lobby_client_section.alignment = BoxContainer.ALIGNMENT_CENTER
-	lobby_client_section.add_theme_constant_override("separation", 12)
+	lobby_client_section.add_theme_constant_override("separation", 14)
 	lobby_client_section.visible = false
 	lobby_panel.add_child(lobby_client_section)
 
@@ -840,7 +842,7 @@ func _build_lobby_panel(root: Control):
 	lobby_code_input.max_length = 6
 	lobby_code_input.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lobby_code_input.placeholder_text = "ABC123"
-	lobby_code_input.custom_minimum_size = Vector2(200, 50)
+	lobby_code_input.custom_minimum_size = Vector2(240, 50)
 	lobby_code_input.add_theme_font_size_override("font_size", 32)
 	lobby_client_section.add_child(lobby_code_input)
 
@@ -851,28 +853,29 @@ func _build_lobby_panel(root: Control):
 	lobby_connect_btn.pressed.connect(_on_lobby_connect_pressed)
 	lobby_client_section.add_child(lobby_connect_btn)
 
-	# Shared status label
+	# Shared status + players container (below both host/client sections)
+	var status_vbox = VBoxContainer.new()
+	status_vbox.set_anchors_preset(Control.PRESET_CENTER)
+	status_vbox.offset_top = 80
+	status_vbox.offset_left = -250
+	status_vbox.offset_right = 250
+	status_vbox.offset_bottom = 230
+	status_vbox.add_theme_constant_override("separation", 10)
+	status_vbox.alignment = BoxContainer.ALIGNMENT_BEGIN
+	lobby_panel.add_child(status_vbox)
+
 	lobby_status_label = Label.new()
 	lobby_status_label.text = ""
-	lobby_status_label.add_theme_font_size_override("font_size", 20)
+	lobby_status_label.add_theme_font_size_override("font_size", 18)
 	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
 	lobby_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lobby_status_label.set_anchors_preset(Control.PRESET_CENTER)
-	lobby_status_label.offset_top = 80
-	lobby_status_label.offset_left = -250
-	lobby_status_label.offset_right = 250
-	lobby_panel.add_child(lobby_status_label)
+	status_vbox.add_child(lobby_status_label)
 
-	# Connected players list
 	lobby_players_label = Label.new()
 	lobby_players_label.add_theme_font_size_override("font_size", 15)
 	lobby_players_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.9))
 	lobby_players_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lobby_players_label.set_anchors_preset(Control.PRESET_CENTER)
-	lobby_players_label.offset_top = 100
-	lobby_players_label.offset_left = -250
-	lobby_players_label.offset_right = 250
-	lobby_panel.add_child(lobby_players_label)
+	status_vbox.add_child(lobby_players_label)
 
 	# Start button (host only)
 	lobby_start_btn = Button.new()
@@ -881,13 +884,8 @@ func _build_lobby_panel(root: Control):
 	lobby_start_btn.add_theme_font_size_override("font_size", 22)
 	lobby_start_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
 	lobby_start_btn.disabled = true
-	lobby_start_btn.set_anchors_preset(Control.PRESET_CENTER)
-	lobby_start_btn.offset_top = 135
-	lobby_start_btn.offset_left = -100
-	lobby_start_btn.offset_right = 100
-	lobby_start_btn.offset_bottom = 185
 	lobby_start_btn.pressed.connect(_on_lobby_start_pressed)
-	lobby_panel.add_child(lobby_start_btn)
+	status_vbox.add_child(lobby_start_btn)
 
 	var back_btn = Button.new()
 	back_btn.text = "Back"
@@ -1077,9 +1075,11 @@ func _on_reset_progress():
 	GameData.total_bosses_killed = 0
 	GameData.total_runs = 0
 	GameData.unlocked_start_waves = [1]
+	GameData.player_name = ""
 	for key in GameData.research.keys():
 		GameData.research[key] = 0
 	GameData.save_data()
+	lobby_name_input.text = ""
 	_update_start_menu()
 
 
@@ -1862,6 +1862,8 @@ func _on_host_coop_pressed():
 	lobby_client_section.visible = false
 	lobby_start_btn.visible = true
 	lobby_start_btn.disabled = true
+	if lobby_name_input.text.strip_edges() == "":
+		lobby_name_input.grab_focus()
 	lobby_code_label.text = "..."
 	lobby_status_label.text = "Creating room..."
 	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
@@ -1885,6 +1887,10 @@ func _on_join_coop_pressed():
 	lobby_status_label.text = "Enter the room code and click Connect"
 	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
 	_connect_network_signals()
+	if lobby_name_input.text.strip_edges() == "":
+		lobby_name_input.grab_focus()
+	else:
+		lobby_code_input.grab_focus()
 
 
 func _on_lobby_connect_pressed():
@@ -1903,6 +1909,8 @@ func _on_lobby_start_pressed():
 	local_player_name = lobby_name_input.text.strip_edges()
 	if local_player_name == "":
 		local_player_name = "Host"
+	GameData.player_name = local_player_name
+	GameData.save_data()
 	_disconnect_network_signals()
 	lobby_panel.visible = false
 	_game_started = true
@@ -1949,11 +1957,13 @@ func _on_network_connected():
 		lobby_start_btn.disabled = false
 	else:
 		lobby_status_label.text = "Connected! (%d players) Waiting for host..." % count
-	# Send name to host
+	# Send name to host and persist
 	var pname = lobby_name_input.text.strip_edges()
 	if pname == "":
 		pname = "Player"
 	local_player_name = pname
+	GameData.player_name = pname
+	GameData.save_data()
 	get_tree().current_scene.send_player_name(pname)
 
 
