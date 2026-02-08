@@ -121,6 +121,7 @@ func _shoot_at(target: Node2D):
 	b.direction = dir
 	b.damage = damage
 	get_tree().current_scene.add_child(b)
+	get_tree().current_scene.spawn_synced_enemy_bullet(b.global_position, b.direction)
 
 
 func take_damage(amount: int):

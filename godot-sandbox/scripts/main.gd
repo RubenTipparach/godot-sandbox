@@ -18,6 +18,25 @@ var state_sync_timer: float = 0.0
 const STATE_SYNC_INTERVAL: float = 0.05  # 20Hz
 var next_net_id: int = 1
 var alien_net_ids: Dictionary = {}  # net_id -> Node2D
+var player_names: Dictionary = {}  # peer_id -> String
+
+# Upgrade voting (multiplayer)
+var vote_active: bool = false
+var vote_upgrade_keys: Array = []
+var vote_choices: Dictionary = {}  # peer_id -> chosen_key (or "")
+var vote_round: int = 0
+var respawn_timers: Dictionary = {}  # peer_id -> float (seconds remaining)
+
+const PLAYER_COLORS: Array = [
+	Color(0.2, 0.9, 0.3),   # Green (host)
+	Color(0.4, 0.6, 1.0),   # Blue
+	Color(1.0, 0.5, 0.2),   # Orange
+	Color(0.9, 0.3, 0.8),   # Purple
+	Color(1.0, 0.9, 0.2),   # Yellow
+	Color(0.2, 0.9, 0.9),   # Cyan
+	Color(1.0, 0.4, 0.4),   # Red
+	Color(0.6, 0.8, 0.3),   # Lime
+]
 
 # Global power system
 var total_power_gen: float = 0.0
@@ -191,7 +210,17 @@ func _process(delta):
 
 	var is_authority = not NetworkManager.is_multiplayer_active() or NetworkManager.is_host()
 
+	# Tick respawn timers (host only)
 	if is_authority:
+		var to_respawn: Array = []
+		for pid in respawn_timers:
+			respawn_timers[pid] -= delta
+			if respawn_timers[pid] <= 0:
+				to_respawn.append(pid)
+		for pid in to_respawn:
+			_respawn_player(pid)
+
+	if is_authority and not vote_active:
 		_update_power_system(delta)
 
 		var alien_count = get_tree().get_nodes_in_group("aliens").size()
@@ -236,6 +265,9 @@ func _process(delta):
 	if is_instance_valid(hud_node):
 		var rates = get_factory_rates()
 		var projected_prestige = wave_number / 2 + bosses_killed * 3
+		# Update respawn countdown for host's local player
+		if is_authority and is_instance_valid(player_node):
+			hud_node.respawn_countdown = respawn_timers.get(player_node.peer_id, 0.0)
 		hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank, projected_prestige)
 
 	queue_redraw()
@@ -400,17 +432,26 @@ func _on_player_level_up():
 
 func _try_show_upgrade():
 	if is_instance_valid(hud_node) and not hud_node.is_upgrade_showing():
-		hud_node.show_upgrade_selection(player_node.upgrades)
-		if not NetworkManager.is_multiplayer_active():
+		if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
+			_start_vote_round()
+		elif not NetworkManager.is_multiplayer_active():
+			hud_node.show_upgrade_selection(player_node.upgrades)
 			get_tree().paused = true
 
 
 func _on_upgrade_chosen(upgrade_key: String):
+	if NetworkManager.is_multiplayer_active() and vote_active:
+		# Submit vote instead of applying immediately
+		if NetworkManager.is_host():
+			_receive_vote(multiplayer.get_unique_id(), upgrade_key)
+		else:
+			_rpc_submit_vote.rpc_id(1, upgrade_key, vote_round)
+		return
+	# Single player path
 	if is_instance_valid(player_node):
 		player_node.apply_upgrade(upgrade_key)
 	pending_upgrades -= 1
-	if not NetworkManager.is_multiplayer_active():
-		get_tree().paused = false
+	get_tree().paused = false
 	upgrade_cooldown = 0.4
 
 
@@ -448,18 +489,30 @@ func _on_game_started(start_wave: int):
 
 	# Multiplayer setup
 	if NetworkManager.is_multiplayer_active():
+		NetworkManager.peer_disconnected.connect(_on_game_peer_disconnected)
 		var my_id = multiplayer.get_unique_id()
 		player_node.peer_id = my_id
 		players.erase(1)
 		players[my_id] = player_node
+		# Set local player name
+		var local_name = hud_node.local_player_name if is_instance_valid(hud_node) and hud_node.local_player_name != "" else "Player"
+		player_node.player_name = local_name
+		player_names[my_id] = local_name
 		if NetworkManager.is_host():
-			player_node.player_color = Color(0.2, 0.9, 0.3)  # Host green
-			for pid in multiplayer.get_peers():
-				_spawn_remote_player(pid, Color(0.4, 0.6, 1.0))  # Client blue
-			_rpc_start_game.rpc(starting_wave)
+			player_node.player_color = PLAYER_COLORS[0]
+			var peers = multiplayer.get_peers()
+			var peer_info: Array = []
+			for i in range(peers.size()):
+				var pid = peers[i]
+				var color_idx = (i + 1) % PLAYER_COLORS.size()
+				_spawn_remote_player(pid, PLAYER_COLORS[color_idx])
+				players[pid].player_name = player_names.get(pid, "Player")
+				peer_info.append([pid, color_idx, player_names.get(pid, "Player")])
+			_rpc_start_game.rpc(starting_wave, peer_info)
 		else:
-			player_node.player_color = Color(0.4, 0.6, 1.0)  # Client blue
-			_spawn_remote_player(1, Color(0.2, 0.9, 0.3))  # Host green
+			var my_color_idx = _get_color_index_for_peer(my_id)
+			player_node.player_color = PLAYER_COLORS[my_color_idx]
+			_spawn_remote_player(1, PLAYER_COLORS[0])
 
 
 func _input(event):
@@ -468,8 +521,8 @@ func _input(event):
 			hud_node.toggle_pause()
 
 
-func on_player_died():
-	# In MP, game continues unless all players are dead
+func on_player_died(dead_player: Node2D = null):
+	# In MP, respawn after 10s unless ALL players are dead
 	if NetworkManager.is_multiplayer_active():
 		var all_dead = true
 		for p in players.values():
@@ -477,8 +530,12 @@ func on_player_died():
 				all_dead = false
 				break
 		if not all_dead:
+			# Start respawn timer for the dead player (host only)
+			if dead_player and NetworkManager.is_host():
+				respawn_timers[dead_player.peer_id] = 10.0
 			return
 	game_over = true
+	respawn_timers.clear()
 	GameData.record_run(wave_number, bosses_killed)
 	if is_instance_valid(hud_node):
 		hud_node.show_death_screen(wave_number, bosses_killed, GameData.prestige_points)
@@ -488,22 +545,15 @@ func on_player_died():
 
 
 func _on_hq_destroyed():
+	# Notify clients to destroy their HQ too
+	if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
+		_rpc_hq_destroyed.rpc()
 	# HQ destruction also kills the player
 	if is_instance_valid(player_node) and not player_node.is_dead:
 		player_node.health = 0
 		player_node.is_dead = true
-		# Create death particles on the player
-		for i in range(20):
-			var angle = randf() * TAU
-			var speed = randf_range(80, 200)
-			player_node.death_particles.append({
-				"pos": Vector2.ZERO,
-				"vel": Vector2.from_angle(angle) * speed,
-				"life": randf_range(0.8, 1.5),
-				"color": [Color(0.2, 0.9, 0.3), Color(1.0, 0.8, 0.2), Color(1.0, 0.4, 0.1)][randi() % 3],
-				"size": randf_range(3, 8)
-			})
-	on_player_died()
+		player_node._spawn_death_particles()
+	on_player_died(player_node)
 
 
 func on_boss_killed():
@@ -531,6 +581,13 @@ func _add_mouse_action(action_name: String, button: MouseButton):
 	InputMap.action_add_event(action_name, ev)
 
 
+func _get_color_index_for_peer(peer_id: int) -> int:
+	# Host (1) = index 0, client 2 = index 1, client 3 = index 2, etc.
+	if peer_id == 1:
+		return 0
+	return clampi(peer_id - 1, 1, PLAYER_COLORS.size() - 1)
+
+
 func _spawn_remote_player(pid: int, color: Color):
 	var player_scene = preload("res://scenes/player.tscn")
 	var remote = player_scene.instantiate()
@@ -538,19 +595,35 @@ func _spawn_remote_player(pid: int, color: Color):
 	remote.peer_id = pid
 	remote.is_local = false
 	remote.player_color = color
-	# Offset spawn so players don't overlap
-	remote.position = Vector2(60, 0) if pid != 1 else Vector2(-60, 0)
+	# Distribute spawn positions in a circle
+	var player_index = players.size()
+	var total = maxi(players.size() + 1, 2)
+	var angle = TAU * player_index / total
+	remote.position = Vector2.from_angle(angle) * 60.0
 	add_child(remote)
 	players[pid] = remote
 
 
 @rpc("authority", "call_remote", "reliable")
-func _rpc_start_game(wave: int):
+func _rpc_start_game(wave: int, all_peers: Array = []):
 	# Client receives this from host to start the game
 	if is_instance_valid(hud_node):
 		hud_node.start_mp_game()
 	get_tree().paused = false
 	_on_game_started(wave)
+	# Spawn other remote players that this client doesn't know about yet
+	var my_id = multiplayer.get_unique_id()
+	for info in all_peers:
+		var pid: int = info[0]
+		var color_idx: int = info[1]
+		var pname: String = info[2] if info.size() > 2 else "Player"
+		player_names[pid] = pname
+		if pid != my_id and not players.has(pid):
+			_spawn_remote_player(pid, PLAYER_COLORS[color_idx])
+			players[pid].player_name = pname
+	# Also set host name from peer info
+	if player_names.has(1) and players.has(1) and is_instance_valid(players[1]):
+		players[1].player_name = player_names[1]
 
 
 func _broadcast_state():
@@ -559,7 +632,7 @@ func _broadcast_state():
 	for pid in players:
 		var p = players[pid]
 		if is_instance_valid(p):
-			player_states.append([pid, p.global_position.x, p.global_position.y, p.facing_angle, p.health, p.max_health, p.is_dead])
+			player_states.append([pid, p.global_position.x, p.global_position.y, p.facing_angle, p.health, p.max_health, p.is_dead, respawn_timers.get(pid, 0.0)])
 
 	# Clean dead aliens from tracking
 	var dead_ids = []
@@ -582,6 +655,12 @@ func _broadcast_state():
 			type_id = 1
 		enemy_data.append([nid, type_id, a.global_position.x, a.global_position.y, a.hp, a.max_hp])
 
+	var hq_hp = 0
+	var hq_max_hp = 0
+	if is_instance_valid(hq_node):
+		hq_hp = hq_node.hp
+		hq_max_hp = hq_node.max_hp
+
 	_receive_state.rpc([
 		player_states,
 		player_node.iron, player_node.crystal,
@@ -589,7 +668,8 @@ func _broadcast_state():
 		power_bank, max_power_bank, power_on,
 		total_power_gen, total_power_consumption,
 		bosses_killed,
-		enemy_data
+		enemy_data,
+		hq_hp, hq_max_hp
 	])
 
 
@@ -610,6 +690,11 @@ func _receive_state(state: Array):
 	bosses_killed = state[11]
 	var enemy_data: Array = state[12] if state.size() > 12 else []
 
+	# Sync HQ health from host
+	if state.size() > 14 and is_instance_valid(hq_node):
+		hq_node.hp = state[13]
+		hq_node.max_hp = state[14]
+
 	# Sync shared resources to local player
 	if is_instance_valid(player_node):
 		player_node.iron = shared_iron
@@ -620,10 +705,21 @@ func _receive_state(state: Array):
 	for ps in player_states:
 		var pid: int = ps[0]
 		if pid == my_id:
-			# Own player: sync HP from host, keep local position
+			# Own player: sync HP and death state from host, keep local position
 			if is_instance_valid(player_node):
 				player_node.health = ps[4]
 				player_node.max_health = ps[5]
+				if ps[6] and not player_node.is_dead:
+					player_node.is_dead = true
+					player_node._spawn_death_particles()
+				elif not ps[6] and player_node.is_dead:
+					player_node.is_dead = false
+					player_node.health = player_node.max_health
+					player_node.death_particles.clear()
+					player_node.invuln_timer = 2.0
+				# Store respawn countdown for HUD
+				if ps.size() > 7 and is_instance_valid(hud_node):
+					hud_node.respawn_countdown = ps[7]
 		else:
 			# Remote player: update position and state
 			if players.has(pid) and is_instance_valid(players[pid]):
@@ -663,6 +759,315 @@ func _rpc_game_over(wave: int, bosses: int):
 	GameData.record_run(wave, bosses)
 	if is_instance_valid(hud_node):
 		hud_node.show_death_screen(wave, bosses, GameData.prestige_points)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_hq_destroyed():
+	# Client: destroy local HQ and kill local player
+	if is_instance_valid(hq_node):
+		hq_node.queue_free()
+	_on_hq_destroyed()
+
+
+# --- Name sync ---
+
+func send_player_name(pname: String):
+	var my_id = multiplayer.get_unique_id()
+	player_names[my_id] = pname
+	if NetworkManager.is_host():
+		_broadcast_names()
+	else:
+		_rpc_send_name.rpc_id(1, pname)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_send_name(pname: String):
+	var sender_id = multiplayer.get_remote_sender_id()
+	player_names[sender_id] = pname
+	if players.has(sender_id) and is_instance_valid(players[sender_id]):
+		players[sender_id].player_name = pname
+	_broadcast_names()
+
+
+func _broadcast_names():
+	var names_array: Array = []
+	for pid in player_names:
+		names_array.append([pid, player_names[pid]])
+	_rpc_receive_names.rpc(names_array)
+	# Also update local HUD
+	if is_instance_valid(hud_node):
+		hud_node.update_lobby_player_list(player_names)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_receive_names(names_array: Array):
+	for entry in names_array:
+		var pid: int = entry[0]
+		var pname: String = entry[1]
+		player_names[pid] = pname
+		if players.has(pid) and is_instance_valid(players[pid]):
+			players[pid].player_name = pname
+	if is_instance_valid(hud_node):
+		hud_node.update_lobby_player_list(player_names)
+
+
+# --- Upgrade voting (multiplayer) ---
+
+func _start_vote_round():
+	# Host picks 3 random upgrades and broadcasts
+	var available: Array = []
+	for key in hud_node.UPGRADE_DATA:
+		if player_node.upgrades.get(key, 0) < hud_node.UPGRADE_DATA[key]["max"]:
+			available.append(key)
+	if available.size() == 0:
+		pending_upgrades -= 1
+		return
+	available.shuffle()
+	vote_upgrade_keys = available.slice(0, mini(3, available.size()))
+
+	vote_choices.clear()
+	for pid in players:
+		vote_choices[pid] = ""
+	vote_round += 1
+	vote_active = true
+
+	# Show locally on host
+	hud_node.show_vote_selection(vote_upgrade_keys, player_node.upgrades, vote_choices, players, player_names)
+	# Send to all clients
+	_rpc_start_vote.rpc(vote_upgrade_keys, vote_round)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_start_vote(keys: Array, round_num: int):
+	vote_upgrade_keys = keys
+	vote_round = round_num
+	vote_active = true
+	vote_choices.clear()
+	for pid in players:
+		vote_choices[pid] = ""
+	if is_instance_valid(hud_node):
+		hud_node.show_vote_selection(keys, player_node.upgrades if is_instance_valid(player_node) else {}, vote_choices, players, player_names)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_submit_vote(key: String, round_num: int):
+	if round_num != vote_round:
+		return
+	var sender_id = multiplayer.get_remote_sender_id()
+	_receive_vote(sender_id, key)
+
+
+func _receive_vote(pid: int, key: String):
+	if not vote_active:
+		return
+	vote_choices[pid] = key
+
+	# Broadcast updated vote state to all
+	_rpc_vote_state.rpc(vote_choices, vote_round)
+	# Also update locally on host
+	if is_instance_valid(hud_node):
+		hud_node.update_vote_display(vote_choices, players, player_names)
+
+	# Check if all players have voted
+	var all_voted = true
+	for vpid in vote_choices:
+		if vote_choices[vpid] == "":
+			all_voted = false
+			break
+
+	if all_voted:
+		_evaluate_votes()
+
+
+func _evaluate_votes():
+	var chosen_key = ""
+	var unanimous = true
+	for pid in vote_choices:
+		var v = vote_choices[pid]
+		if chosen_key == "":
+			chosen_key = v
+		elif v != chosen_key:
+			unanimous = false
+			break
+
+	if unanimous and chosen_key != "":
+		# Apply upgrade for all players
+		vote_active = false
+		for pid in players:
+			if is_instance_valid(players[pid]):
+				players[pid].apply_upgrade(chosen_key)
+		pending_upgrades -= 1
+		upgrade_cooldown = 0.4
+		_rpc_vote_resolved.rpc(chosen_key)
+		if is_instance_valid(hud_node):
+			hud_node.hide_vote_panel(chosen_key)
+	else:
+		# Not unanimous - show results briefly, then reset
+		await get_tree().create_timer(2.0).timeout
+		if not vote_active:
+			return  # Vote was cancelled (e.g. disconnect)
+		vote_choices.clear()
+		for pid in players:
+			vote_choices[pid] = ""
+		vote_round += 1
+		_rpc_vote_reset.rpc(vote_upgrade_keys, vote_round)
+		if is_instance_valid(hud_node):
+			hud_node.reset_vote_display(vote_upgrade_keys, player_node.upgrades if is_instance_valid(player_node) else {}, vote_choices, players, player_names)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_vote_state(votes: Dictionary, round_num: int):
+	if round_num != vote_round:
+		return
+	vote_choices = votes
+	if is_instance_valid(hud_node):
+		hud_node.update_vote_display(vote_choices, players, player_names)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_vote_resolved(key: String):
+	vote_active = false
+	if is_instance_valid(player_node):
+		player_node.apply_upgrade(key)
+	if is_instance_valid(hud_node):
+		hud_node.hide_vote_panel(key)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_vote_reset(keys: Array, round_num: int):
+	vote_round = round_num
+	vote_choices.clear()
+	for pid in players:
+		vote_choices[pid] = ""
+	if is_instance_valid(hud_node):
+		hud_node.reset_vote_display(keys, player_node.upgrades if is_instance_valid(player_node) else {}, vote_choices, players, player_names)
+
+
+func _respawn_player(pid: int):
+	respawn_timers.erase(pid)
+	if not players.has(pid) or not is_instance_valid(players[pid]):
+		return
+	var p = players[pid]
+	p.is_dead = false
+	p.health = p.max_health
+	p.death_particles.clear()
+	p.invuln_timer = 2.0
+	# Respawn near HQ or center
+	if is_instance_valid(hq_node):
+		p.global_position = hq_node.global_position + Vector2(randf_range(-40, 40), randf_range(-40, 40))
+	else:
+		p.global_position = Vector2(randf_range(-40, 40), randf_range(-40, 40))
+	if NetworkManager.is_multiplayer_active():
+		_rpc_player_respawned.rpc(pid)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_player_respawned(pid: int):
+	if players.has(pid) and is_instance_valid(players[pid]):
+		var p = players[pid]
+		p.is_dead = false
+		p.health = p.max_health
+		p.death_particles.clear()
+		p.invuln_timer = 2.0
+
+
+func _on_game_peer_disconnected(pid: int):
+	respawn_timers.erase(pid)
+	# Remove disconnected player from vote if active
+	if vote_active and vote_choices.has(pid):
+		vote_choices.erase(pid)
+		# Broadcast updated state
+		_rpc_vote_state.rpc(vote_choices, vote_round)
+		if is_instance_valid(hud_node):
+			hud_node.update_vote_display(vote_choices, players, player_names)
+		# Check if remaining players are now unanimous
+		var all_voted = true
+		for vpid in vote_choices:
+			if vote_choices[vpid] == "":
+				all_voted = false
+				break
+		if all_voted and vote_choices.size() > 0:
+			_evaluate_votes()
+	# Clean up player entry
+	if players.has(pid):
+		if is_instance_valid(players[pid]):
+			players[pid].queue_free()
+		players.erase(pid)
+	player_names.erase(pid)
+
+
+# --- Building recycling ---
+
+const BUILDING_NAME_TO_TYPE = {
+	"Turret": "turret",
+	"Factory": "factory",
+	"Wall": "wall",
+	"Lightning Tower": "lightning",
+	"Slow Tower": "slow",
+	"Pylon": "pylon",
+	"Power Plant": "power_plant",
+	"Battery": "battery",
+	"Flame Turret": "flame_turret",
+	"Acid Turret": "acid_turret",
+	"Repair Drone": "repair_drone",
+}
+
+
+func recycle_building(building: Node2D):
+	if not is_instance_valid(building):
+		return
+	if not building.has_method("get_building_name"):
+		return
+	if building.get_building_name() == "HQ":
+		return
+	# MP client: request recycle from host
+	if NetworkManager.is_multiplayer_active() and not NetworkManager.is_host():
+		_request_recycle.rpc_id(1, building.global_position.x, building.global_position.y)
+		return
+	# Host / single-player: perform recycle
+	_do_recycle(building)
+
+
+func _do_recycle(building: Node2D):
+	var bname = building.get_building_name()
+	var btype = BUILDING_NAME_TO_TYPE.get(bname, "")
+	if btype == "":
+		return
+	var base = CFG.get_base_cost(btype)
+	var hp_ratio = 1.0
+	if "hp" in building and "max_hp" in building and building.max_hp > 0:
+		hp_ratio = float(building.hp) / float(building.max_hp)
+	var refund_iron = int(base["iron"] * hp_ratio)
+	var refund_crystal = int(base["crystal"] * hp_ratio)
+	if is_instance_valid(player_node):
+		player_node.iron += refund_iron
+		player_node.crystal += refund_crystal
+	var pos = building.global_position
+	building.queue_free()
+	# Sync to clients
+	if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
+		_sync_building_recycled.rpc(pos.x, pos.y)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _request_recycle(pos_x: float, pos_y: float):
+	var building = _find_building_at(Vector2(pos_x, pos_y))
+	if building and building.get_building_name() != "HQ":
+		_do_recycle(building)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _sync_building_recycled(pos_x: float, pos_y: float):
+	var building = _find_building_at(Vector2(pos_x, pos_y))
+	if building:
+		building.queue_free()
+
+
+func _find_building_at(pos: Vector2) -> Node2D:
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and b.global_position.distance_to(pos) < 5.0:
+			return b
+	return null
 
 
 @rpc("any_peer", "call_remote", "reliable")
@@ -761,3 +1166,36 @@ func _sync_enemies(enemy_data: Array):
 			to_remove.append(nid)
 	for nid in to_remove:
 		alien_net_ids.erase(nid)
+
+
+# --- Bullet sync RPCs ---
+
+func spawn_synced_bullet(pos: Vector2, dir: Vector2, from_turret: bool, burn_dps: float, slow_amount: float):
+	if NetworkManager.is_multiplayer_active():
+		_rpc_spawn_bullet.rpc(pos.x, pos.y, dir.x, dir.y, from_turret, burn_dps, slow_amount)
+
+
+@rpc("any_peer", "call_remote", "unreliable")
+func _rpc_spawn_bullet(px: float, py: float, dx: float, dy: float, from_turret: bool, burn: float, slow: float):
+	var b = preload("res://scenes/bullet.tscn").instantiate()
+	b.global_position = Vector2(px, py)
+	b.direction = Vector2(dx, dy)
+	b.from_turret = from_turret
+	b.burn_dps = burn
+	b.slow_amount = slow
+	b.visual_only = true
+	add_child(b)
+
+
+func spawn_synced_enemy_bullet(pos: Vector2, dir: Vector2):
+	if NetworkManager.is_multiplayer_active():
+		_rpc_spawn_enemy_bullet.rpc(pos.x, pos.y, dir.x, dir.y)
+
+
+@rpc("any_peer", "call_remote", "unreliable")
+func _rpc_spawn_enemy_bullet(px: float, py: float, dx: float, dy: float):
+	var b = preload("res://scenes/enemy_bullet.tscn").instantiate()
+	b.global_position = Vector2(px, py)
+	b.direction = Vector2(dx, dy)
+	b.visual_only = true
+	add_child(b)

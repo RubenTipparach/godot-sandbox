@@ -15,6 +15,7 @@ var slow_amount: float = 0.0
 var crit_chance: float = 0.0
 var chain_damage_bonus: int = 0
 var chain_retention: float = CFG.chain_base_retention
+var visual_only: bool = false  # Remote bullets: just move + draw, no hit detection
 
 
 func _process(delta):
@@ -24,12 +25,13 @@ func _process(delta):
 		queue_free()
 		return
 
-	for alien in get_tree().get_nodes_in_group("aliens"):
-		if not is_instance_valid(alien): continue
-		if global_position.distance_to(alien.global_position) < CFG.bullet_hit_radius:
-			_on_hit(alien)
-			queue_free()
-			return
+	if not visual_only:
+		for alien in get_tree().get_nodes_in_group("aliens"):
+			if not is_instance_valid(alien): continue
+			if global_position.distance_to(alien.global_position) < CFG.bullet_hit_radius:
+				_on_hit(alien)
+				queue_free()
+				return
 
 	queue_redraw()
 

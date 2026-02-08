@@ -69,6 +69,7 @@ var research_xp_gain: float = 0.0
 var peer_id: int = 1
 var is_local: bool = true
 var player_color: Color = Color(0.2, 0.9, 0.3)
+var player_name: String = ""
 
 
 func _ready():
@@ -286,6 +287,7 @@ func _shoot():
 		b.burn_dps = upgrades["burning"] * CFG.burn_dps_per_level
 		b.slow_amount = upgrades["ice"] * CFG.slow_per_level
 		get_tree().current_scene.add_child(b)
+		get_tree().current_scene.spawn_synced_bullet(b.global_position, b.direction, false, b.burn_dps, b.slow_amount)
 
 
 func _mine_nearby(qty: int):
@@ -601,7 +603,11 @@ func take_damage(amount: int):
 
 func _die():
 	is_dead = true
-	# Create explosion particles
+	_spawn_death_particles()
+	get_tree().current_scene.on_player_died(self)
+
+
+func _spawn_death_particles():
 	for i in range(20):
 		var angle = randf() * TAU
 		var speed = randf_range(80, 200)
@@ -612,7 +618,6 @@ func _die():
 			"color": [Color(0.2, 0.9, 0.3), Color(1.0, 0.8, 0.2), Color(1.0, 0.4, 0.1)][randi() % 3],
 			"size": randf_range(3, 8)
 		})
-	get_tree().current_scene.on_player_died()
 
 
 func _draw():

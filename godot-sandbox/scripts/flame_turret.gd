@@ -117,7 +117,6 @@ func _draw():
 	if not powered:
 		var blink = fmod(power_blink_timer * 3.0, 1.0) < 0.5
 		var warn_color = Color(1.0, 0.9, 0.0) if blink else Color(0.1, 0.1, 0.1)
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(2, -14), Vector2(-2, -6), Vector2(1, -6),
-			Vector2(-3, 2), Vector2(1, -3), Vector2(-1, -3), Vector2(3, -14)
-		]), warn_color)
+		draw_polyline(PackedVector2Array([
+			Vector2(1, -14), Vector2(-2, -7), Vector2(2, -6), Vector2(-1, 2)
+		]), warn_color, 2.5)

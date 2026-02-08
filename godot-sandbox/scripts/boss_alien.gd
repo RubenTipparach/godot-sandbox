@@ -124,6 +124,7 @@ func _fire(dir: Vector2, spd: float):
 	b.speed = spd
 	b.damage = maxi(int(damage * 0.3), 3)
 	get_tree().current_scene.add_child(b)
+	get_tree().current_scene.spawn_synced_enemy_bullet(b.global_position, b.direction)
 
 
 func _find_player() -> Node2D:

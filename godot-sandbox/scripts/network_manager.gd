@@ -1,6 +1,7 @@
 extends Node
 
 ## Network manager autoload - handles WebRTC P2P connection via signaling server
+## Supports N players: host (peer 1) + multiple clients (peer 2, 3, 4, ...)
 
 signal connection_established
 signal connection_failed(reason: String)
@@ -16,8 +17,9 @@ var is_connected: bool = false
 var poll_timer: float = 0.0
 const POLL_INTERVAL: float = 0.5
 
-var rtc_peer: WebRTCPeerConnection
+var rtc_peers: Dictionary = {}  # client_id -> WebRTCPeerConnection
 var mp_peer: WebRTCMultiplayerPeer
+var my_client_id: int = 0  # Only used by clients; 0 for host
 
 
 const SIGNALING_HOST: String = "https://mining-mike.vercel.app"
@@ -108,7 +110,8 @@ func join_room(code: String):
 		connection_failed.emit("Room not found")
 		role = NetRole.NONE
 		return
-	print("[Net] Joined room, setting up WebRTC client...")
+	my_client_id = json.get("client_id", 2)
+	print("[Net] Joined room as client_%d, setting up WebRTC..." % my_client_id)
 	_setup_webrtc_client()
 
 
@@ -117,26 +120,22 @@ func disconnect_peer():
 	is_connected = false
 	role = NetRole.NONE
 	room_id = ""
+	my_client_id = 0
 	set_process(false)
 	if mp_peer:
 		mp_peer.close()
 		mp_peer = null
-	if rtc_peer:
-		rtc_peer.close()
-		rtc_peer = null
+	for peer in rtc_peers.values():
+		if peer:
+			peer.close()
+	rtc_peers.clear()
 	multiplayer.multiplayer_peer = null
 
 
 func _setup_webrtc_host():
 	print("[Net] Setting up WebRTC host...")
-	rtc_peer = WebRTCPeerConnection.new()
-	rtc_peer.initialize({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
-	rtc_peer.ice_candidate_created.connect(_on_ice_candidate)
-	rtc_peer.session_description_created.connect(_on_session_description)
-
 	mp_peer = WebRTCMultiplayerPeer.new()
 	mp_peer.create_server()
-	mp_peer.add_peer(rtc_peer, 2)  # Client will be peer 2
 	multiplayer.multiplayer_peer = mp_peer
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
@@ -144,29 +143,57 @@ func _setup_webrtc_host():
 	set_process(true)
 
 
+func _create_rtc_peer_for_client(client_id: int) -> WebRTCPeerConnection:
+	if rtc_peers.has(client_id):
+		return rtc_peers[client_id]
+	var peer = WebRTCPeerConnection.new()
+	peer.initialize({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
+	peer.ice_candidate_created.connect(_on_ice_candidate_for.bind(client_id))
+	peer.session_description_created.connect(_on_session_description_for.bind(client_id))
+	rtc_peers[client_id] = peer
+	mp_peer.add_peer(peer, client_id)
+	print("[Net] Created RTC peer for client %d" % client_id)
+	return peer
+
+
 func _setup_webrtc_client():
-	print("[Net] Setting up WebRTC client...")
-	rtc_peer = WebRTCPeerConnection.new()
-	rtc_peer.initialize({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
-	rtc_peer.ice_candidate_created.connect(_on_ice_candidate)
-	rtc_peer.session_description_created.connect(_on_session_description)
+	print("[Net] Setting up WebRTC client as peer %d..." % my_client_id)
+	var peer = WebRTCPeerConnection.new()
+	peer.initialize({"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]})
+	peer.ice_candidate_created.connect(_on_ice_candidate)
+	peer.session_description_created.connect(_on_session_description)
+	rtc_peers[1] = peer
 
 	mp_peer = WebRTCMultiplayerPeer.new()
-	mp_peer.create_client(2)  # Client is peer 2
-	mp_peer.add_peer(rtc_peer, 1)
+	mp_peer.create_client(my_client_id)
+	mp_peer.add_peer(peer, 1)
 	multiplayer.multiplayer_peer = mp_peer
 	multiplayer.peer_connected.connect(_on_peer_connected)
 	multiplayer.peer_disconnected.connect(_on_peer_disconnected)
 
-	# Client creates offer
 	print("[Net] Creating WebRTC offer...")
-	rtc_peer.create_offer()
+	peer.create_offer()
 	set_process(true)
 
 
+# --- Host per-client signal callbacks ---
+
+func _on_session_description_for(type: String, sdp: String, client_id: int):
+	print("[Net] Session description for client_%d: %s" % [client_id, type])
+	rtc_peers[client_id].set_local_description(type, sdp)
+	_send_signal(type, {"sdp": sdp}, "client_%d" % client_id)
+
+
+func _on_ice_candidate_for(media: String, index: int, name: String, client_id: int):
+	print("[Net] ICE candidate for client_%d" % client_id)
+	_send_signal("ice", {"media": media, "index": index, "name": name}, "client_%d" % client_id)
+
+
+# --- Client signal callbacks ---
+
 func _on_session_description(type: String, sdp: String):
 	print("[Net] Session description created: ", type)
-	rtc_peer.set_local_description(type, sdp)
+	rtc_peers[1].set_local_description(type, sdp)
 	_send_signal(type, {"sdp": sdp})
 
 
@@ -180,7 +207,8 @@ func _process(delta):
 		return
 	if mp_peer:
 		mp_peer.poll()
-	if not is_connected:
+	# Keep polling for signals while not fully connected, or while host (to accept new clients)
+	if role == NetRole.HOST or not is_connected:
 		poll_timer += delta
 		if poll_timer >= POLL_INTERVAL:
 			poll_timer = 0.0
@@ -188,7 +216,11 @@ func _process(delta):
 
 
 func _poll_signals():
-	var role_str = "host" if role == NetRole.HOST else "client"
+	var role_str: String
+	if role == NetRole.HOST:
+		role_str = "host"
+	else:
+		role_str = "client_%d" % my_client_id
 	var http = HTTPRequest.new()
 	add_child(http)
 	var err = http.request(signaling_base_url + "/rooms?action=poll&room_id=" + room_id + "&as=" + role_str)
@@ -212,41 +244,66 @@ func _poll_signals():
 		print("[Net] Poll error (status %d): %s" % [status, body_str])
 
 
-func _send_signal(type: String, data: Dictionary):
-	var role_str = "host" if role == NetRole.HOST else "client"
+func _send_signal(type: String, data: Dictionary, target: String = ""):
+	var role_str: String
+	if role == NetRole.HOST:
+		role_str = "host"
+	else:
+		role_str = "client_%d" % my_client_id
+
+	var body = {
+		"room_id": room_id,
+		"from": role_str,
+		"type": type,
+		"data": data
+	}
+	if target != "":
+		body["to"] = target
+
 	var http = HTTPRequest.new()
 	add_child(http)
 	http.request(signaling_base_url + "/rooms?action=signal",
 		["Content-Type: application/json"],
 		HTTPClient.METHOD_POST,
-		JSON.stringify({
-			"room_id": room_id,
-			"from": role_str,
-			"type": type,
-			"data": data
-		}))
+		JSON.stringify(body))
 	var result = await http.request_completed
 	http.queue_free()
 	var status = result[1]
 	if status != 200:
-		var body = result[3] as PackedByteArray
-		print("[Net] Signal send error (status %d): %s" % [status, body.get_string_from_utf8()])
+		var resp_body = result[3] as PackedByteArray
+		print("[Net] Signal send error (status %d): %s" % [status, resp_body.get_string_from_utf8()])
 
 
 func _handle_signal(msg: Dictionary):
 	var type = msg.get("type", "")
 	var data = msg.get("data", {})
-	print("[Net] Handling signal: ", type)
+	var from = msg.get("from", "")
+	print("[Net] Handling signal: %s from %s" % [type, from])
+
+	# Determine which RTC peer to act on
+	var peer: WebRTCPeerConnection
+	if role == NetRole.HOST:
+		# Extract client_id from "from" field (e.g., "client_2" -> 2)
+		var client_id = 2
+		if from.begins_with("client_"):
+			client_id = int(from.substr(7))
+		peer = _create_rtc_peer_for_client(client_id)
+	else:
+		peer = rtc_peers.get(1)
+
+	if not peer:
+		print("[Net] No RTC peer for signal from: ", from)
+		return
+
 	match type:
 		"offer":
-			rtc_peer.set_remote_description("offer", data.get("sdp", ""))
-			# Host creates answer after receiving offer
+			peer.set_remote_description("offer", data.get("sdp", ""))
 			if role == NetRole.HOST:
-				rtc_peer.create_answer()
+				peer.create_answer()
 		"answer":
-			rtc_peer.set_remote_description("answer", data.get("sdp", ""))
+			peer.set_remote_description("answer", data.get("sdp", ""))
 		"ice":
-			rtc_peer.add_ice_candidate(
+			peer.add_ice_candidate(
 				data.get("media", ""),
 				data.get("index", 0),
 				data.get("name", ""))

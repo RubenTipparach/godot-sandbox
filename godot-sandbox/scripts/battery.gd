@@ -74,10 +74,9 @@ func _draw():
 	if charge > 0.1:
 		var bolt_alpha = 0.5 + sin(pulse_timer * 3.0) * 0.3
 		var bolt_color = Color(1.0, 0.9, 0.3, bolt_alpha)
-		draw_colored_polygon(PackedVector2Array([
-			Vector2(-3, -8), Vector2(3, -1), Vector2(0, -1),
-			Vector2(3, 8), Vector2(-3, 1), Vector2(0, 1),
-		]), bolt_color)
+		draw_polyline(PackedVector2Array([
+			Vector2(0, -8), Vector2(3, -1), Vector2(-3, 1), Vector2(0, 8)
+		]), bolt_color, 2.5)
 
 	# HP bar
 	draw_rect(Rect2(-14, -28, 28, 3), Color(0.3, 0, 0))

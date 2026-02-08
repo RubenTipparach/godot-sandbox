@@ -1,5 +1,7 @@
 extends CanvasLayer
 
+const CFG = preload("res://resources/game_config.tres")
+
 signal upgrade_chosen(upgrade_key: String)
 signal game_started(wave: int)
 
@@ -23,6 +25,9 @@ var alert_timer: float = 0.0
 var upgrade_panel: Control
 var card_info: Array = []
 var _upgrade_showing: bool = false
+var vote_status_label: Label
+var _local_vote_key: String = ""
+var _vote_locked: bool = false
 
 var death_panel: Control
 var death_stats_label: Label
@@ -58,8 +63,20 @@ var lobby_start_btn: Button
 var lobby_connect_btn: Button
 var lobby_host_section: VBoxContainer
 var lobby_client_section: VBoxContainer
-var partner_health_label: Label
-var partner_panel: PanelContainer
+var partner_panels: Array = []  # Array of {"panel": PanelContainer, "label": Label}
+
+var lobby_name_input: LineEdit
+var local_player_name: String = ""
+var lobby_players_label: Label
+var respawn_label: Label
+var respawn_countdown: float = 0.0
+var room_code_label: Label
+var recycle_panel: PanelContainer
+var recycle_info_label: Label
+var hq_health_label: Label
+var hq_bar_bg: ColorRect
+var hq_bar_fill: ColorRect
+var hq_panel: PanelContainer
 
 const UPGRADE_DATA = {
 	"chain_lightning": {"name": "Chain Lightning", "color": Color(0.3, 0.7, 1.0), "max": 5},
@@ -165,6 +182,27 @@ func _ready():
 	timer_label = _lbl(wave_vbox, 17, Color(1.0, 0.4, 0.4))
 	alien_count_label = _lbl(wave_vbox, 13, Color(1.0, 0.5, 0.4))
 
+	# --- HQ Health Panel ---
+	hq_panel = PanelContainer.new()
+	hq_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hq_panel.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
+	left_col.add_child(hq_panel)
+	var hq_vbox = VBoxContainer.new()
+	hq_vbox.add_theme_constant_override("separation", 2)
+	hq_panel.add_child(hq_vbox)
+
+	hq_health_label = _lbl(hq_vbox, 15, Color(0.5, 0.8, 1.0))
+
+	hq_bar_bg = ColorRect.new()
+	hq_bar_bg.custom_minimum_size = Vector2(170, 8)
+	hq_bar_bg.color = Color(0.15, 0.15, 0.25)
+	hq_vbox.add_child(hq_bar_bg)
+	hq_bar_fill = ColorRect.new()
+	hq_bar_fill.color = Color(0.3, 0.8, 1.0)
+	hq_bar_fill.position = Vector2.ZERO
+	hq_bar_fill.size = Vector2(170, 8)
+	hq_bar_bg.add_child(hq_bar_fill)
+
 	# Horizontal build bar at bottom center
 	var build_bar = PanelContainer.new()
 	build_bar.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -208,20 +246,48 @@ func _ready():
 	minimap_node.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(minimap_node)
 
-	# Partner health (MP only, top-right below minimap)
-	partner_panel = PanelContainer.new()
-	partner_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	partner_panel.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
-	partner_panel.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	partner_panel.offset_left = -170
-	partner_panel.offset_top = 175
-	partner_panel.offset_right = -10
-	partner_panel.visible = false
-	root.add_child(partner_panel)
-	partner_health_label = Label.new()
-	partner_health_label.add_theme_font_size_override("font_size", 14)
-	partner_health_label.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
-	partner_panel.add_child(partner_health_label)
+	# Partner health panels (MP only, top-right below minimap) - up to 3 partners
+	for i in range(3):
+		var pp = PanelContainer.new()
+		pp.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		pp.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
+		pp.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		pp.offset_left = -170
+		pp.offset_top = 175 + i * 32
+		pp.offset_right = -10
+		pp.visible = false
+		root.add_child(pp)
+		var plbl = Label.new()
+		plbl.add_theme_font_size_override("font_size", 14)
+		plbl.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
+		pp.add_child(plbl)
+		partner_panels.append({"panel": pp, "label": plbl})
+
+	# Respawn countdown overlay (centered, large, hidden by default)
+	respawn_label = Label.new()
+	respawn_label.add_theme_font_size_override("font_size", 32)
+	respawn_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
+	respawn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	respawn_label.set_anchors_preset(Control.PRESET_CENTER)
+	respawn_label.offset_top = -40
+	respawn_label.offset_left = -200
+	respawn_label.offset_right = 200
+	respawn_label.visible = false
+	respawn_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(respawn_label)
+
+	# Room code label (top-right, below minimap, above partner panels)
+	room_code_label = Label.new()
+	room_code_label.add_theme_font_size_override("font_size", 13)
+	room_code_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3, 0.7))
+	room_code_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	room_code_label.offset_left = -170
+	room_code_label.offset_top = 172
+	room_code_label.offset_right = -10
+	room_code_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	room_code_label.visible = false
+	room_code_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(room_code_label)
 
 	_build_upgrade_panel(root)
 	_build_death_panel(root)
@@ -230,6 +296,7 @@ func _ready():
 	_build_pause_menu(root)
 	_build_lobby_panel(root)
 	_build_building_tooltip(root)
+	_build_recycle_panel(root)
 
 	# Detect mobile and add virtual controls
 	is_mobile = _detect_mobile()
@@ -304,8 +371,35 @@ func _build_upgrade_panel(root: Control):
 		dl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		vb.add_child(dl)
 
+		var vote_lbl = Label.new()
+		vote_lbl.add_theme_font_size_override("font_size", 13)
+		vote_lbl.add_theme_color_override("font_color", Color(0.9, 0.9, 0.3))
+		vote_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vote_lbl.visible = false
+		vb.add_child(vote_lbl)
+
+		var voters_lbl = Label.new()
+		voters_lbl.add_theme_font_size_override("font_size", 11)
+		voters_lbl.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+		voters_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		voters_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		voters_lbl.visible = false
+		vb.add_child(voters_lbl)
+
 		card.gui_input.connect(_on_card_click.bind(i))
-		card_info.append({"panel": card, "name_lbl": nl, "lvl_lbl": ll, "desc_lbl": dl, "key": ""})
+		card_info.append({"panel": card, "name_lbl": nl, "lvl_lbl": ll, "desc_lbl": dl, "vote_count_lbl": vote_lbl, "voters_lbl": voters_lbl, "key": ""})
+
+	vote_status_label = Label.new()
+	vote_status_label.add_theme_font_size_override("font_size", 16)
+	vote_status_label.add_theme_color_override("font_color", Color(0.9, 0.8, 0.3))
+	vote_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vote_status_label.set_anchors_preset(Control.PRESET_CENTER)
+	vote_status_label.offset_top = 85
+	vote_status_label.offset_left = -250
+	vote_status_label.offset_right = 250
+	vote_status_label.visible = false
+	vote_status_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	upgrade_panel.add_child(vote_status_label)
 
 
 func _build_death_panel(root: Control):
@@ -664,10 +758,33 @@ func _build_lobby_panel(root: Control):
 	title.offset_right = 200
 	lobby_panel.add_child(title)
 
+	# Name input (shared by host and client)
+	var name_row = HBoxContainer.new()
+	name_row.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	name_row.offset_top = 135
+	name_row.offset_left = -150
+	name_row.offset_right = 150
+	name_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	name_row.add_theme_constant_override("separation", 8)
+	lobby_panel.add_child(name_row)
+
+	var name_title = Label.new()
+	name_title.text = "Your Name:"
+	name_title.add_theme_font_size_override("font_size", 16)
+	name_title.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	name_row.add_child(name_title)
+
+	lobby_name_input = LineEdit.new()
+	lobby_name_input.max_length = 12
+	lobby_name_input.placeholder_text = "Player"
+	lobby_name_input.custom_minimum_size = Vector2(140, 36)
+	lobby_name_input.add_theme_font_size_override("font_size", 18)
+	name_row.add_child(lobby_name_input)
+
 	# Host section - shows room code
 	lobby_host_section = VBoxContainer.new()
 	lobby_host_section.set_anchors_preset(Control.PRESET_CENTER)
-	lobby_host_section.offset_top = -80
+	lobby_host_section.offset_top = -50
 	lobby_host_section.offset_left = -200
 	lobby_host_section.offset_right = 200
 	lobby_host_section.offset_bottom = 60
@@ -691,7 +808,7 @@ func _build_lobby_panel(root: Control):
 	lobby_host_section.add_child(lobby_code_label)
 
 	var share_hint = Label.new()
-	share_hint.text = "Share this code with your friend"
+	share_hint.text = "Share this code with your friends"
 	share_hint.add_theme_font_size_override("font_size", 14)
 	share_hint.add_theme_color_override("font_color", Color(0.5, 0.5, 0.6))
 	share_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -700,7 +817,7 @@ func _build_lobby_panel(root: Control):
 	# Client section - code input
 	lobby_client_section = VBoxContainer.new()
 	lobby_client_section.set_anchors_preset(Control.PRESET_CENTER)
-	lobby_client_section.offset_top = -80
+	lobby_client_section.offset_top = -50
 	lobby_client_section.offset_left = -200
 	lobby_client_section.offset_right = 200
 	lobby_client_section.offset_bottom = 60
@@ -743,6 +860,17 @@ func _build_lobby_panel(root: Control):
 	lobby_status_label.offset_right = 250
 	lobby_panel.add_child(lobby_status_label)
 
+	# Connected players list
+	lobby_players_label = Label.new()
+	lobby_players_label.add_theme_font_size_override("font_size", 15)
+	lobby_players_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.9))
+	lobby_players_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lobby_players_label.set_anchors_preset(Control.PRESET_CENTER)
+	lobby_players_label.offset_top = 100
+	lobby_players_label.offset_left = -250
+	lobby_players_label.offset_right = 250
+	lobby_panel.add_child(lobby_players_label)
+
 	# Start button (host only)
 	lobby_start_btn = Button.new()
 	lobby_start_btn.text = "Start Game"
@@ -751,10 +879,10 @@ func _build_lobby_panel(root: Control):
 	lobby_start_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
 	lobby_start_btn.disabled = true
 	lobby_start_btn.set_anchors_preset(Control.PRESET_CENTER)
-	lobby_start_btn.offset_top = 120
+	lobby_start_btn.offset_top = 135
 	lobby_start_btn.offset_left = -100
 	lobby_start_btn.offset_right = 100
-	lobby_start_btn.offset_bottom = 170
+	lobby_start_btn.offset_bottom = 185
 	lobby_start_btn.pressed.connect(_on_lobby_start_pressed)
 	lobby_panel.add_child(lobby_start_btn)
 
@@ -789,6 +917,113 @@ func _build_building_tooltip(root: Control):
 	building_tooltip_label.add_theme_font_size_override("font_size", 14)
 	building_tooltip_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
 	building_tooltip.add_child(building_tooltip_label)
+
+
+func _build_recycle_panel(root: Control):
+	recycle_panel = PanelContainer.new()
+	recycle_panel.visible = false
+	recycle_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	recycle_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
+	style.set_corner_radius_all(6)
+	style.content_margin_left = 12
+	style.content_margin_right = 12
+	style.content_margin_top = 8
+	style.content_margin_bottom = 8
+	recycle_panel.add_theme_stylebox_override("panel", style)
+	recycle_panel.set_anchors_preset(Control.PRESET_CENTER)
+	recycle_panel.offset_top = -60
+	recycle_panel.offset_left = -120
+	recycle_panel.offset_right = 120
+	recycle_panel.offset_bottom = 60
+	root.add_child(recycle_panel)
+
+	var vbox = VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 6)
+	recycle_panel.add_child(vbox)
+
+	recycle_info_label = Label.new()
+	recycle_info_label.add_theme_font_size_override("font_size", 15)
+	recycle_info_label.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
+	recycle_info_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(recycle_info_label)
+
+	var btn_row = HBoxContainer.new()
+	btn_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	btn_row.add_theme_constant_override("separation", 12)
+	vbox.add_child(btn_row)
+
+	var recycle_btn = Button.new()
+	recycle_btn.text = "Recycle"
+	recycle_btn.custom_minimum_size = Vector2(90, 36)
+	recycle_btn.add_theme_font_size_override("font_size", 16)
+	recycle_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
+	recycle_btn.pressed.connect(_on_recycle_pressed)
+	btn_row.add_child(recycle_btn)
+
+	var cancel_btn = Button.new()
+	cancel_btn.text = "Cancel"
+	cancel_btn.custom_minimum_size = Vector2(90, 36)
+	cancel_btn.add_theme_font_size_override("font_size", 16)
+	cancel_btn.add_theme_color_override("font_color", Color(1.0, 0.5, 0.4))
+	cancel_btn.pressed.connect(_on_recycle_cancel_pressed)
+	btn_row.add_child(cancel_btn)
+
+
+func _get_building_type(building: Node2D) -> String:
+	if not building.has_method("get_building_name"):
+		return ""
+	match building.get_building_name():
+		"Turret": return "turret"
+		"Factory": return "factory"
+		"Wall": return "wall"
+		"Lightning Tower": return "lightning"
+		"Slow Tower": return "slow"
+		"Pylon": return "pylon"
+		"Power Plant": return "power_plant"
+		"Battery": return "battery"
+		"Flame Turret": return "flame_turret"
+		"Acid Turret": return "acid_turret"
+		"Repair Drone": return "repair_drone"
+	return ""
+
+
+func _show_recycle_panel(building: Node2D):
+	if not is_instance_valid(building) or not building.has_method("get_building_name"):
+		return
+	var bname = building.get_building_name()
+	if bname == "HQ":
+		return
+	var btype = _get_building_type(building)
+	if btype == "":
+		return
+	var base = CFG.get_base_cost(btype)
+	var hp_ratio = 1.0
+	if "hp" in building and "max_hp" in building and building.max_hp > 0:
+		hp_ratio = float(building.hp) / float(building.max_hp)
+	var refund_iron = int(base["iron"] * hp_ratio)
+	var refund_crystal = int(base["crystal"] * hp_ratio)
+	var hp_text = ""
+	if "hp" in building and "max_hp" in building:
+		hp_text = "\nHP: %d/%d" % [building.hp, building.max_hp]
+	recycle_info_label.text = "Recycle %s?%s\nRefund: %dI + %dC" % [bname, hp_text, refund_iron, refund_crystal]
+	recycle_panel.visible = true
+
+
+func _on_recycle_pressed():
+	if not is_instance_valid(selected_building):
+		recycle_panel.visible = false
+		selected_building = null
+		return
+	get_tree().current_scene.recycle_building(selected_building)
+	recycle_panel.visible = false
+	selected_building = null
+
+
+func _on_recycle_cancel_pressed():
+	recycle_panel.visible = false
+	selected_building = null
 
 
 func _detect_mobile() -> bool:
@@ -966,20 +1201,34 @@ func show_death_screen(wave: int, bosses: int, prestige: int):
 
 
 func _unhandled_input(event: InputEvent):
-	if not is_mobile or not _game_started or get_tree().paused:
+	if not _game_started or get_tree().paused:
 		return
-	if event is InputEventScreenTouch and event.pressed:
-		var player = _get_player()
-		if not player:
-			return
-		if player.is_in_build_mode():
-			# Tap sets the pending build position on mobile
-			var world_pos = _screen_to_world(event.position)
-			if world_pos != null:
-				player.pending_build_world_pos = world_pos.snapped(Vector2(40, 40))
-		else:
-			# Check for building selection (tooltip)
-			_handle_mobile_building_tap(event.position)
+	if is_mobile:
+		if event is InputEventScreenTouch and event.pressed:
+			var player = _get_player()
+			if not player:
+				return
+			if player.is_in_build_mode():
+				var world_pos = _screen_to_world(event.position)
+				if world_pos != null:
+					player.pending_build_world_pos = world_pos.snapped(Vector2(40, 40))
+			else:
+				_handle_mobile_building_tap(event.position)
+				if selected_building and is_instance_valid(selected_building):
+					_show_recycle_panel(selected_building)
+				else:
+					recycle_panel.visible = false
+	else:
+		# Desktop: right-click to select building for recycling
+		if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT:
+			var player = _get_player()
+			if player and not player.is_in_build_mode():
+				var world_pos = _screen_to_world(event.position)
+				if world_pos != null:
+					_handle_desktop_building_select(world_pos)
+				else:
+					selected_building = null
+					recycle_panel.visible = false
 
 
 func _screen_to_world(screen_pos: Vector2):
@@ -988,6 +1237,23 @@ func _screen_to_world(screen_pos: Vector2):
 		return null
 	var vp_size = get_viewport().get_visible_rect().size
 	return cam.global_position + (screen_pos - vp_size / 2.0) / cam.zoom
+
+
+func _handle_desktop_building_select(world_pos: Vector2):
+	var closest_building: Node2D = null
+	var closest_dist = 40.0
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b):
+			continue
+		var dist = world_pos.distance_to(b.global_position)
+		if dist < closest_dist:
+			closest_dist = dist
+			closest_building = b
+	selected_building = closest_building
+	if selected_building and is_instance_valid(selected_building):
+		_show_recycle_panel(selected_building)
+	else:
+		recycle_panel.visible = false
 
 
 func _handle_mobile_building_tap(screen_pos: Vector2):
@@ -1305,6 +1571,30 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 	alien_count_label.text = "Aliens: %d" % ac
 	alien_count_label.visible = ac > 0
 
+	# HQ health display
+	var hq_nodes = get_tree().get_nodes_in_group("hq")
+	if hq_nodes.size() > 0 and is_instance_valid(hq_nodes[0]):
+		var hq = hq_nodes[0]
+		hq_panel.visible = true
+		hq_health_label.text = "HQ: %d / %d" % [hq.hp, hq.max_hp]
+		var hp_ratio = float(hq.hp) / float(hq.max_hp)
+		hq_bar_fill.size.x = 170.0 * hp_ratio
+		if hp_ratio < 0.25:
+			# Critical - fast flash red
+			var flash = 0.5 + sin(Time.get_ticks_msec() * 0.01) * 0.5
+			hq_bar_fill.color = Color(1.0, 0.1, 0.1)
+			hq_health_label.add_theme_color_override("font_color", Color(1.0, 0.2 + flash * 0.3, 0.2))
+		elif hp_ratio < 0.5:
+			# Warning - slow flash orange
+			var flash = 0.5 + sin(Time.get_ticks_msec() * 0.005) * 0.5
+			hq_bar_fill.color = Color(1.0, 0.5, 0.1)
+			hq_health_label.add_theme_color_override("font_color", Color(1.0, 0.6 + flash * 0.2, 0.2))
+		else:
+			hq_bar_fill.color = Color(0.3, 0.8, 1.0)
+			hq_health_label.add_theme_color_override("font_color", Color(0.5, 0.8, 1.0))
+	else:
+		hq_panel.visible = false
+
 	# Energy display
 	power_label.text = "Energy: %d / %d" % [int(power_bank), int(max_power_bank)]
 	if power_gen >= power_cons:
@@ -1332,26 +1622,43 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 	# Prestige earned this run
 	prestige_hud_label.text = "Prestige: +%d" % prestige_earned
 
-	# Partner health in MP
+	# Partner health in MP (up to 3 other players)
 	if NetworkManager.is_multiplayer_active():
-		partner_panel.visible = true
-		var partner: Node2D = null
+		var partners: Array = []
 		for p in get_tree().get_nodes_in_group("player"):
 			if is_instance_valid(p) and p != player:
-				partner = p
-				break
-		if partner and "health" in partner and "max_health" in partner:
-			var color_name = "Host" if partner.peer_id == 1 else "Partner"
-			if partner.is_dead:
-				partner_health_label.text = "%s: DEAD" % color_name
-				partner_health_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+				partners.append(p)
+		for i in range(partner_panels.size()):
+			if i < partners.size():
+				var partner = partners[i]
+				var pi = partner_panels[i]
+				pi["panel"].visible = true
+				var display_name = partner.player_name if partner.player_name != "" else ("Host" if partner.peer_id == 1 else "P%d" % partner.peer_id)
+				if partner.is_dead:
+					pi["label"].text = "%s: DEAD" % display_name
+					pi["label"].add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
+				else:
+					pi["label"].text = "%s HP: %d/%d" % [display_name, partner.health, partner.max_health]
+					pi["label"].add_theme_color_override("font_color", partner.player_color)
 			else:
-				partner_health_label.text = "%s HP: %d/%d" % [color_name, partner.health, partner.max_health]
-				partner_health_label.add_theme_color_override("font_color", partner.player_color)
-		else:
-			partner_health_label.text = "Partner: --"
+				partner_panels[i]["panel"].visible = false
 	else:
-		partner_panel.visible = false
+		for pi in partner_panels:
+			pi["panel"].visible = false
+
+	# Respawn countdown
+	if player.is_dead and respawn_countdown > 0 and NetworkManager.is_multiplayer_active():
+		respawn_label.text = "Respawning in %d..." % ceili(respawn_countdown)
+		respawn_label.visible = true
+	else:
+		respawn_label.visible = false
+
+	# Room code display in MP
+	if NetworkManager.is_multiplayer_active() and NetworkManager.room_id != "":
+		room_code_label.text = "Room: %s" % NetworkManager.room_id
+		room_code_label.visible = true
+	else:
+		room_code_label.visible = false
 
 	# Update building costs dynamically
 	_update_build_costs(player)
@@ -1474,7 +1781,26 @@ func _desc(key: String, lv: int) -> String:
 func _on_card_click(event: InputEvent, idx: int):
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var key = card_info[idx]["key"]
-		if key != "":
+		if key == "":
+			return
+		if NetworkManager.is_multiplayer_active():
+			if _vote_locked:
+				return
+			_vote_locked = true
+			_local_vote_key = key
+			# Highlight the selected card
+			for i in range(card_info.size()):
+				var ci = card_info[i]
+				if not ci["panel"].visible:
+					continue
+				var data = UPGRADE_DATA.get(ci["key"], {})
+				var base_color = data.get("color", Color(0.4, 0.4, 0.5))
+				if ci["key"] == key:
+					ci["panel"].add_theme_stylebox_override("panel", _make_card_style(Color(1.0, 0.9, 0.3)))
+				else:
+					ci["panel"].add_theme_stylebox_override("panel", _make_card_style(base_color.lerp(Color.WHITE, 0.2)))
+			upgrade_chosen.emit(key)
+		else:
 			upgrade_panel.visible = false
 			_upgrade_showing = false
 			upgrade_chosen.emit(key)
@@ -1505,7 +1831,7 @@ func _on_host_coop_pressed():
 		lobby_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
 	else:
 		lobby_code_label.text = code
-		lobby_status_label.text = "Waiting for partner..."
+		lobby_status_label.text = "Waiting for players..."
 
 
 func _on_join_coop_pressed():
@@ -1533,6 +1859,9 @@ func _on_lobby_connect_pressed():
 
 
 func _on_lobby_start_pressed():
+	local_player_name = lobby_name_input.text.strip_edges()
+	if local_player_name == "":
+		local_player_name = "Host"
 	_disconnect_network_signals()
 	lobby_panel.visible = false
 	_game_started = true
@@ -1554,6 +1883,8 @@ func _connect_network_signals():
 		NetworkManager.connection_established.connect(_on_network_connected)
 	if not NetworkManager.connection_failed.is_connected(_on_network_failed):
 		NetworkManager.connection_failed.connect(_on_network_failed)
+	if not NetworkManager.peer_connected.is_connected(_on_network_peer_connected):
+		NetworkManager.peer_connected.connect(_on_network_peer_connected)
 	if not NetworkManager.peer_disconnected.is_connected(_on_network_peer_disconnected):
 		NetworkManager.peer_disconnected.connect(_on_network_peer_disconnected)
 
@@ -1563,17 +1894,36 @@ func _disconnect_network_signals():
 		NetworkManager.connection_established.disconnect(_on_network_connected)
 	if NetworkManager.connection_failed.is_connected(_on_network_failed):
 		NetworkManager.connection_failed.disconnect(_on_network_failed)
+	if NetworkManager.peer_connected.is_connected(_on_network_peer_connected):
+		NetworkManager.peer_connected.disconnect(_on_network_peer_connected)
 	if NetworkManager.peer_disconnected.is_connected(_on_network_peer_disconnected):
 		NetworkManager.peer_disconnected.disconnect(_on_network_peer_disconnected)
 
 
 func _on_network_connected():
 	lobby_status_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
+	var count = NetworkManager.get_player_count()
 	if NetworkManager.role == NetworkManager.NetRole.HOST:
-		lobby_status_label.text = "Partner connected!"
+		lobby_status_label.text = "%d player(s) connected" % count
 		lobby_start_btn.disabled = false
 	else:
-		lobby_status_label.text = "Connected! Waiting for host to start..."
+		lobby_status_label.text = "Connected! (%d players) Waiting for host..." % count
+	# Send name to host
+	var pname = lobby_name_input.text.strip_edges()
+	if pname == "":
+		pname = "Player"
+	local_player_name = pname
+	get_tree().current_scene.send_player_name(pname)
+
+
+func _on_network_peer_connected(_id: int):
+	if lobby_panel.visible:
+		var count = NetworkManager.get_player_count()
+		if NetworkManager.role == NetworkManager.NetRole.HOST:
+			lobby_status_label.text = "%d player(s) connected" % count
+			lobby_status_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
+		else:
+			lobby_status_label.text = "Connected! (%d players) Waiting for host..." % count
 
 
 func _on_network_failed(reason: String):
@@ -1584,6 +1934,109 @@ func _on_network_failed(reason: String):
 
 func _on_network_peer_disconnected(_id: int):
 	if lobby_panel.visible:
-		lobby_status_label.text = "Partner disconnected"
-		lobby_status_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
-		lobby_start_btn.disabled = true
+		var count = NetworkManager.get_player_count()
+		if count <= 1:
+			lobby_status_label.text = "All players disconnected"
+			lobby_start_btn.disabled = true
+		else:
+			lobby_status_label.text = "%d player(s) connected" % count
+		lobby_status_label.add_theme_color_override("font_color", Color(1.0, 0.7, 0.3))
+
+
+func update_lobby_player_list(names: Dictionary):
+	var lines: Array = []
+	for pid in names:
+		lines.append(names[pid])
+	if lines.size() > 0:
+		lobby_players_label.text = "Players: " + ", ".join(lines)
+	else:
+		lobby_players_label.text = ""
+
+
+# --- Upgrade Voting ---
+
+func show_vote_selection(keys: Array, current_upgrades: Dictionary, votes: Dictionary, _all_players: Dictionary, _names: Dictionary):
+	_local_vote_key = ""
+	_vote_locked = false
+
+	for i in range(3):
+		if i < keys.size():
+			var key = keys[i]
+			var data = UPGRADE_DATA[key]
+			var cur = current_upgrades.get(key, 0)
+			var ci = card_info[i]
+			ci["key"] = key
+			ci["panel"].visible = true
+			ci["name_lbl"].text = data["name"]
+			ci["name_lbl"].add_theme_color_override("font_color", data["color"])
+			ci["lvl_lbl"].text = "Lv %d -> %d" % [cur, cur + 1]
+			ci["desc_lbl"].text = _desc(key, cur + 1)
+			ci["panel"].add_theme_stylebox_override("panel", _make_card_style(data["color"].lerp(Color.WHITE, 0.2)))
+		else:
+			card_info[i]["panel"].visible = false
+
+	update_vote_display(votes, _all_players, _names)
+
+	upgrade_panel.visible = true
+	_upgrade_showing = true
+	vote_status_label.text = "Vote for an upgrade (must be unanimous)"
+	vote_status_label.add_theme_color_override("font_color", Color(0.9, 0.8, 0.3))
+	vote_status_label.visible = true
+
+
+func update_vote_display(votes: Dictionary, _all_players: Dictionary, names: Dictionary):
+	if not _upgrade_showing:
+		return
+	var total_players = _all_players.size()
+	for i in range(3):
+		var ci = card_info[i]
+		if not ci["panel"].visible:
+			continue
+		var key = ci["key"]
+		var voter_names: Array = []
+		var vote_count = 0
+		for pid in votes:
+			if votes[pid] == key:
+				vote_count += 1
+				var pname = names.get(pid, "P%d" % pid)
+				voter_names.append(pname)
+
+		ci["vote_count_lbl"].visible = true
+		ci["vote_count_lbl"].text = "%d/%d votes" % [vote_count, total_players]
+		ci["voters_lbl"].visible = voter_names.size() > 0
+		ci["voters_lbl"].text = ", ".join(voter_names)
+
+
+func hide_vote_panel(_chosen_key: String):
+	upgrade_panel.visible = false
+	_upgrade_showing = false
+	_vote_locked = false
+	_local_vote_key = ""
+	vote_status_label.visible = false
+	for ci in card_info:
+		ci["vote_count_lbl"].visible = false
+		ci["voters_lbl"].visible = false
+
+
+func reset_vote_display(keys: Array, current_upgrades: Dictionary, votes: Dictionary, _all_players: Dictionary, names: Dictionary):
+	_vote_locked = false
+	_local_vote_key = ""
+	vote_status_label.text = "Not unanimous! Vote again..."
+	vote_status_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.3))
+	# Re-populate cards (same keys)
+	for i in range(3):
+		if i < keys.size():
+			var key = keys[i]
+			var data = UPGRADE_DATA[key]
+			var cur = current_upgrades.get(key, 0)
+			var ci = card_info[i]
+			ci["key"] = key
+			ci["panel"].visible = true
+			ci["name_lbl"].text = data["name"]
+			ci["name_lbl"].add_theme_color_override("font_color", data["color"])
+			ci["lvl_lbl"].text = "Lv %d -> %d" % [cur, cur + 1]
+			ci["desc_lbl"].text = _desc(key, cur + 1)
+			ci["panel"].add_theme_stylebox_override("panel", _make_card_style(data["color"].lerp(Color.WHITE, 0.2)))
+		else:
+			card_info[i]["panel"].visible = false
+	update_vote_display(votes, _all_players, names)
