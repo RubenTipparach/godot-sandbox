@@ -123,7 +123,7 @@ func _fire(dir: Vector2, spd: float):
 	b.direction = dir
 	b.speed = spd
 	b.damage = maxi(int(damage * 0.3), 3)
-	get_tree().current_scene.add_child(b)
+	get_tree().current_scene.game_world_2d.add_child(b)
 	get_tree().current_scene.spawn_synced_enemy_bullet(b.global_position, b.direction)
 
 
@@ -135,6 +135,8 @@ func _find_player() -> Node2D:
 
 
 func take_damage(amount: int):
+	if is_puppet:
+		return
 	hp -= amount
 	hit_flash_timer = 0.1
 	if hp <= 0:
@@ -147,18 +149,20 @@ func _die():
 		gem.global_position = global_position + Vector2(randf_range(-30, 30), randf_range(-30, 30))
 		gem.xp_value = maxi(xp_value / 5, 1)
 		gem.gem_size = 2
-		get_tree().current_scene.add_child(gem)
+		get_tree().current_scene.game_world_2d.add_child(gem)
 	# Drop prestige orbs scaled for player count (so split is fair)
 	var orb_count = 5 * NetworkManager.get_player_count()
 	for i in range(orb_count):
 		var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
 		orb.global_position = global_position + Vector2(randf_range(-25, 25), randf_range(-25, 25))
-		get_tree().current_scene.add_child(orb)
+		get_tree().current_scene.game_world_2d.add_child(orb)
+		get_tree().current_scene.spawn_synced_prestige_orb(orb.global_position)
 	# Boss always drops a heal
 	var powerup = preload("res://scenes/powerup.tscn").instantiate()
 	powerup.global_position = global_position
 	powerup.powerup_type = "heal"
-	get_tree().current_scene.add_child(powerup)
+	get_tree().current_scene.game_world_2d.add_child(powerup)
+	get_tree().current_scene.spawn_synced_powerup(powerup.global_position, powerup.powerup_type)
 	get_tree().current_scene.on_boss_killed()
 	queue_free()
 

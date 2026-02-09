@@ -27,7 +27,6 @@ var card_info: Array = []
 var _upgrade_showing: bool = false
 var vote_status_label: Label
 var _local_vote_key: String = ""
-var _vote_locked: bool = false
 
 var death_panel: Control
 var death_stats_label: Label
@@ -433,7 +432,7 @@ func _build_upgrade_panel(root: Control):
 	vote_status_label.add_theme_color_override("font_color", Color(0.9, 0.8, 0.3))
 	vote_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	vote_status_label.set_anchors_preset(Control.PRESET_CENTER)
-	vote_status_label.offset_top = 85
+	vote_status_label.offset_top = 160
 	vote_status_label.offset_left = -250
 	vote_status_label.offset_right = 250
 	vote_status_label.visible = false
@@ -598,6 +597,7 @@ func _build_start_menu(root: Control):
 	host_btn.add_theme_font_size_override("font_size", 18)
 	host_btn.add_theme_color_override("font_color", Color(0.3, 0.9, 0.5))
 	host_btn.pressed.connect(_on_host_coop_pressed)
+	_style_button(host_btn, Color(0.15, 0.4, 0.2))
 	coop_container.add_child(host_btn)
 
 	var join_btn = Button.new()
@@ -606,6 +606,7 @@ func _build_start_menu(root: Control):
 	join_btn.add_theme_font_size_override("font_size", 18)
 	join_btn.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
 	join_btn.pressed.connect(_on_join_coop_pressed)
+	_style_button(join_btn, Color(0.15, 0.25, 0.45))
 	coop_container.add_child(join_btn)
 
 	var debug_toggle_btn = Button.new()
@@ -823,6 +824,7 @@ func _build_lobby_panel(root: Control):
 	name_row.add_child(lobby_name_input)
 	lobby_name_input.focus_entered.connect(_on_lobby_input_focused.bind(lobby_name_input))
 	lobby_name_input.focus_exited.connect(_on_lobby_input_unfocused)
+	lobby_name_input.text_changed.connect(_on_lobby_name_changed)
 
 	# Host section - shows room code
 	lobby_host_section = VBoxContainer.new()
@@ -892,6 +894,7 @@ func _build_lobby_panel(root: Control):
 	lobby_connect_btn.custom_minimum_size = Vector2(200, 45)
 	lobby_connect_btn.add_theme_font_size_override("font_size", 18)
 	lobby_connect_btn.pressed.connect(_on_lobby_connect_pressed)
+	_style_button(lobby_connect_btn, Color(0.15, 0.25, 0.45))
 	lobby_client_section.add_child(lobby_connect_btn)
 
 	# Shared status + players container (below both host/client sections)
@@ -926,6 +929,7 @@ func _build_lobby_panel(root: Control):
 	lobby_start_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
 	lobby_start_btn.disabled = true
 	lobby_start_btn.pressed.connect(_on_lobby_start_pressed)
+	_style_button(lobby_start_btn, Color(0.15, 0.45, 0.2))
 	status_vbox.add_child(lobby_start_btn)
 
 	var back_btn = Button.new()
@@ -938,6 +942,7 @@ func _build_lobby_panel(root: Control):
 	back_btn.offset_right = 75
 	back_btn.offset_bottom = -15
 	back_btn.pressed.connect(_on_lobby_back_pressed)
+	_style_button(back_btn, Color(0.3, 0.2, 0.2))
 	lobby_panel.add_child(back_btn)
 
 
@@ -1218,11 +1223,25 @@ func _unhandled_input(event: InputEvent):
 
 
 func _screen_to_world(screen_pos: Vector2):
-	var cam = get_viewport().get_camera_2d()
-	if not cam:
+	var main = get_tree().current_scene
+	if not "camera_3d" in main or not is_instance_valid(main.camera_3d):
 		return null
-	var vp_size = get_viewport().get_visible_rect().size
-	return cam.global_position + (screen_pos - vp_size / 2.0) / cam.zoom
+	var cam = main.camera_3d
+	var from = cam.project_ray_origin(screen_pos)
+	var dir = cam.project_ray_normal(screen_pos)
+	if dir.y != 0:
+		var t = -from.y / dir.y
+		if t > 0:
+			var hit = from + dir * t
+			return Vector2(hit.x, hit.z)
+	return null
+
+
+func _world_to_screen(world_pos: Vector2) -> Vector2:
+	var main = get_tree().current_scene
+	if "camera_3d" in main and is_instance_valid(main.camera_3d):
+		return main.camera_3d.unproject_position(Vector3(world_pos.x, 0, world_pos.y))
+	return Vector2.ZERO
 
 
 func _handle_building_tap(screen_pos: Vector2):
@@ -1290,7 +1309,7 @@ func _spawn_recycle_popup(pos: Vector2, value: Dictionary):
 	popup.global_position = pos + Vector2(0, -30)
 	popup.text = "+%dI +%dC" % [value["iron"], value["crystal"]]
 	popup.color = Color(1.0, 0.6, 0.2)
-	get_tree().current_scene.add_child(popup)
+	get_tree().current_scene.game_world_2d.add_child(popup)
 
 
 func _update_building_info_panel():
@@ -1316,14 +1335,11 @@ func _update_building_info_panel():
 			building_info_panel.visible = false
 		return
 
-	var cam = get_viewport().get_camera_2d()
-	if not cam:
+	var screen_pos = _world_to_screen(selected_building.global_position)
+	if screen_pos == Vector2.ZERO:
 		if building_info_panel:
 			building_info_panel.visible = false
 		return
-
-	var vp_size = get_viewport().get_visible_rect().size
-	var screen_pos = (selected_building.global_position - cam.global_position) * cam.zoom + vp_size / 2.0
 
 	# Build info text
 	var bname = selected_building.get_building_name() if selected_building.has_method("get_building_name") else "Building"
@@ -1361,6 +1377,7 @@ func _update_building_info_panel():
 	building_info_panel.visible = true
 	var panel_size = building_info_panel.get_combined_minimum_size()
 	building_info_panel.position = Vector2(screen_pos.x - panel_size.x / 2.0, screen_pos.y - panel_size.y - 40)
+	var vp_size = get_viewport().get_visible_rect().size
 	building_info_panel.position.x = clampf(building_info_panel.position.x, 5, vp_size.x - panel_size.x - 5)
 	building_info_panel.position.y = clampf(building_info_panel.position.y, 5, vp_size.y - panel_size.y - 5)
 
@@ -1380,10 +1397,9 @@ func _process(delta):
 		if in_build and player:
 			var valid = player.can_place_at(player.pending_build_world_pos) and player.can_afford(player.build_mode)
 			confirm_btn.disabled = not valid
-			var cam = get_viewport().get_camera_2d()
-			if cam and player.pending_build_world_pos != Vector2.ZERO:
+			if player.pending_build_world_pos != Vector2.ZERO:
+				var screen_pos = _world_to_screen(player.pending_build_world_pos)
 				var vp_size = get_viewport().get_visible_rect().size
-				var screen_pos = (player.pending_build_world_pos - cam.global_position) * cam.zoom + vp_size / 2.0
 				var panel_w = build_confirm_panel.size.x
 				var panel_h = build_confirm_panel.size.y
 				build_confirm_panel.position = Vector2(screen_pos.x - panel_w / 2.0, screen_pos.y + 40)
@@ -1407,21 +1423,18 @@ func _update_building_tooltip():
 		building_tooltip.visible = false
 		return
 
-	var cam = get_viewport().get_camera_2d()
-	if not cam:
+	if is_mobile:
+		_update_building_tooltip_mobile()
+	else:
+		_update_building_tooltip_desktop()
+
+
+func _update_building_tooltip_desktop():
+	var mouse_screen = get_viewport().get_mouse_position()
+	var mouse_world = _screen_to_world(mouse_screen)
+	if mouse_world == null:
 		building_tooltip.visible = false
 		return
-
-	if is_mobile:
-		_update_building_tooltip_mobile(cam)
-	else:
-		_update_building_tooltip_desktop(cam)
-
-
-func _update_building_tooltip_desktop(cam: Camera2D):
-	var mouse_screen = get_viewport().get_mouse_position()
-	var vp_size = get_viewport().get_visible_rect().size
-	var mouse_world = cam.get_global_transform().affine_inverse() * mouse_screen + cam.global_position - vp_size / 2.0 / cam.zoom
 
 	# Find building under mouse
 	var closest_building: Node2D = null
@@ -1443,7 +1456,7 @@ func _update_building_tooltip_desktop(cam: Camera2D):
 		building_tooltip.visible = false
 
 
-func _update_building_tooltip_mobile(cam: Camera2D):
+func _update_building_tooltip_mobile():
 	var player = _get_player()
 	var vp_size = get_viewport().get_visible_rect().size
 
@@ -1464,7 +1477,7 @@ func _update_building_tooltip_mobile(cam: Camera2D):
 		building_tooltip.visible = false
 		return
 
-	var screen_pos = (selected_building.global_position - cam.global_position) * cam.zoom + vp_size / 2.0
+	var screen_pos = _world_to_screen(selected_building.global_position)
 	building_tooltip_label.text = _get_building_info_text(selected_building)
 	building_tooltip.visible = true
 	building_tooltip.position = screen_pos + Vector2(15, -60)
@@ -1705,6 +1718,24 @@ func _make_card_style(border_col: Color) -> StyleBoxFlat:
 	s.content_margin_left = 15; s.content_margin_right = 15
 	s.content_margin_top = 15; s.content_margin_bottom = 15
 	return s
+
+
+func _style_button(btn: Button, color: Color):
+	var normal = StyleBoxFlat.new()
+	normal.bg_color = color
+	normal.set_corner_radius_all(6)
+	normal.content_margin_left = 12; normal.content_margin_right = 12
+	normal.content_margin_top = 8; normal.content_margin_bottom = 8
+	btn.add_theme_stylebox_override("normal", normal)
+	var hover = normal.duplicate()
+	hover.bg_color = color.lightened(0.2)
+	btn.add_theme_stylebox_override("hover", hover)
+	var pressed_style = normal.duplicate()
+	pressed_style.bg_color = color.darkened(0.15)
+	btn.add_theme_stylebox_override("pressed", pressed_style)
+	var disabled_style = normal.duplicate()
+	disabled_style.bg_color = Color(0.2, 0.2, 0.25, 0.8)
+	btn.add_theme_stylebox_override("disabled", disabled_style)
 
 
 func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active: bool = false, power_gen: float = 0.0, power_cons: float = 0.0, _power_on: bool = true, rates: Dictionary = {}, power_bank: float = 0.0, max_power_bank: float = 0.0, prestige_earned: int = 0):
@@ -1961,9 +1992,6 @@ func _on_card_click(event: InputEvent, idx: int):
 		if key == "":
 			return
 		if NetworkManager.is_multiplayer_active():
-			if _vote_locked:
-				return
-			_vote_locked = true
 			_local_vote_key = key
 			# Highlight the selected card
 			for i in range(card_info.size()):
@@ -2027,6 +2055,16 @@ func _on_join_coop_pressed():
 		lobby_name_input.grab_focus()
 	else:
 		lobby_code_input.grab_focus()
+
+
+func _on_lobby_name_changed(new_text: String):
+	var pname = new_text.strip_edges()
+	if pname == "":
+		return
+	local_player_name = pname
+	GameData.player_name = pname
+	if NetworkManager.is_multiplayer_active():
+		get_tree().current_scene.send_player_name(pname)
 
 
 func _on_lobby_input_focused(line_edit: LineEdit):
@@ -2163,7 +2201,6 @@ func show_vote_selection(keys: Array, current_upgrades: Dictionary, votes: Dicti
 	if p:
 		p.cancel_build_mode()
 	_local_vote_key = ""
-	_vote_locked = false
 
 	for i in range(3):
 		if i < keys.size():
@@ -2216,7 +2253,6 @@ func update_vote_display(votes: Dictionary, _all_players: Dictionary, names: Dic
 func hide_vote_panel(_chosen_key: String):
 	upgrade_panel.visible = false
 	_upgrade_showing = false
-	_vote_locked = false
 	_local_vote_key = ""
 	vote_status_label.visible = false
 	for ci in card_info:
@@ -2224,25 +2260,3 @@ func hide_vote_panel(_chosen_key: String):
 		ci["voters_lbl"].visible = false
 
 
-func reset_vote_display(keys: Array, current_upgrades: Dictionary, votes: Dictionary, _all_players: Dictionary, names: Dictionary):
-	_vote_locked = false
-	_local_vote_key = ""
-	vote_status_label.text = "Not unanimous! Vote again..."
-	vote_status_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.3))
-	# Re-populate cards (same keys)
-	for i in range(3):
-		if i < keys.size():
-			var key = keys[i]
-			var data = UPGRADE_DATA[key]
-			var cur = current_upgrades.get(key, 0)
-			var ci = card_info[i]
-			ci["key"] = key
-			ci["panel"].visible = true
-			ci["name_lbl"].text = data["name"]
-			ci["name_lbl"].add_theme_color_override("font_color", data["color"])
-			ci["lvl_lbl"].text = "Lv %d -> %d" % [cur, cur + 1]
-			ci["desc_lbl"].text = _desc(key, cur + 1)
-			ci["panel"].add_theme_stylebox_override("panel", _make_card_style(data["color"].lerp(Color.WHITE, 0.2)))
-		else:
-			card_info[i]["panel"].visible = false
-	update_vote_display(votes, _all_players, names)

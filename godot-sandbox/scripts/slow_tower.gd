@@ -71,7 +71,7 @@ func _spawn_aliens_on_death():
 		alien.damage = 5
 		alien.speed = 70.0
 		alien.alien_type = "fast"
-		get_tree().current_scene.get_node("Aliens").add_child(alien)
+		get_tree().current_scene.aliens_node.add_child(alien)
 
 
 func _draw():

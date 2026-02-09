@@ -75,7 +75,7 @@ func _shoot_acid(target: Node2D):
 	# Spawn acid puddle at target position
 	var puddle = preload("res://scenes/acid_puddle.tscn").instantiate()
 	puddle.global_position = target.global_position
-	get_tree().current_scene.add_child(puddle)
+	get_tree().current_scene.game_world_2d.add_child(puddle)
 
 
 func take_damage(amount: int):
@@ -94,7 +94,7 @@ func _spawn_aliens_on_death():
 		alien.max_hp = 25
 		alien.damage = 6
 		alien.speed = 55.0
-		get_tree().current_scene.get_node("Aliens").add_child(alien)
+		get_tree().current_scene.aliens_node.add_child(alien)
 
 
 func _draw():

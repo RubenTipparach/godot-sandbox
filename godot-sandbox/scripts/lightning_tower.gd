@@ -75,7 +75,7 @@ func _spawn_aliens_on_death():
 		alien.max_hp = 25
 		alien.damage = 6
 		alien.speed = 55.0
-		get_tree().current_scene.get_node("Aliens").add_child(alien)
+		get_tree().current_scene.aliens_node.add_child(alien)
 
 
 func _draw():

@@ -130,6 +130,8 @@ func _get_separation_force() -> Vector2:
 
 
 func take_damage(amount: int):
+	if is_puppet:
+		return
 	hp -= amount
 	hit_flash_timer = 0.1
 	if hp <= 0:
@@ -140,13 +142,14 @@ func _die():
 	var gem = preload("res://scenes/xp_gem.tscn").instantiate()
 	gem.global_position = global_position
 	gem.xp_value = xp_value
-	get_tree().current_scene.add_child(gem)
+	get_tree().current_scene.game_world_2d.add_child(gem)
 	# 1 in 10 chance to drop a prestige orb (scaled for player count)
 	if randi() % 10 == 0:
 		var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
 		orb.global_position = global_position
 		orb.prestige_value = NetworkManager.get_player_count()
-		get_tree().current_scene.add_child(orb)
+		get_tree().current_scene.game_world_2d.add_child(orb)
+		get_tree().current_scene.spawn_synced_prestige_orb(orb.global_position)
 	# Health-based heal drop - lower health = higher chance
 	_try_drop_heal()
 	queue_free()
@@ -163,7 +166,8 @@ func _try_drop_heal():
 		var powerup = preload("res://scenes/powerup.tscn").instantiate()
 		powerup.global_position = global_position
 		powerup.powerup_type = "heal"
-		get_tree().current_scene.add_child(powerup)
+		get_tree().current_scene.game_world_2d.add_child(powerup)
+		get_tree().current_scene.spawn_synced_powerup(powerup.global_position, powerup.powerup_type)
 
 
 func _find_player() -> Node2D:

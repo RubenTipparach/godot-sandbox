@@ -1,6 +1,19 @@
-extends Node2D
+extends Node3D
 
 const CFG = preload("res://resources/game_config.tres")
+
+# 3D scene nodes
+var camera_3d: Camera3D
+var game_viewport: SubViewport
+var game_sprite: Sprite3D
+var game_world_2d: Node2D
+var world_overlay: Node2D
+var mouse_world_2d: Vector2 = Vector2.ZERO
+
+# 3D light tracking
+var building_lights: Dictionary = {}   # Node2D -> OmniLight3D
+var player_lights: Dictionary = {}     # Node2D -> OmniLight3D
+var building_shadows: Dictionary = {}  # Node2D -> MeshInstance3D
 
 var wave_number: int = 0
 var wave_timer: float = CFG.first_wave_delay
@@ -123,6 +136,7 @@ var hq_node: Node2D
 
 
 func _ready():
+	process_mode = Node.PROCESS_MODE_ALWAYS
 	_setup_inputs()
 	_create_world()
 
@@ -148,17 +162,74 @@ func _setup_inputs():
 
 
 func _create_world():
+	# --- 3D Environment ---
+	var env_node = WorldEnvironment.new()
+	var env = Environment.new()
+	env.background_mode = Environment.BG_COLOR
+	env.background_color = Color(0.12, 0.11, 0.1, 1)
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	env.ambient_light_color = Color(0.6, 0.6, 0.55)
+	env_node.environment = env
+	add_child(env_node)
+
+	var light = DirectionalLight3D.new()
+	light.rotation_degrees = Vector3(-60, 30, 0)
+	light.light_energy = 0.4
+	light.shadow_enabled = true
+	light.directional_shadow_max_distance = 1500.0
+	add_child(light)
+
+	# --- 3D Camera ---
+	camera_3d = Camera3D.new()
+	camera_3d.fov = 50
+	camera_3d.position = Vector3(0, 600, 350)
+	camera_3d.rotation_degrees = Vector3(-60, 0, 0)
+	add_child(camera_3d)
+
+	# --- Ground plane with dirt/grass ---
+	var ground = MeshInstance3D.new()
+	var plane_mesh = PlaneMesh.new()
+	plane_mesh.size = Vector2(2400, 2400)
+	ground.mesh = plane_mesh
+	var mat = StandardMaterial3D.new()
+	mat.albedo_texture = preload("res://resources/dirt_grass.png")
+	mat.uv1_scale = Vector3(60, 60, 1)
+	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	ground.material_override = mat
+	add_child(ground)
+
+	# --- SubViewport for 2D game world ---
+	game_viewport = SubViewport.new()
+	game_viewport.transparent_bg = true
+	game_viewport.size = Vector2i(2048, 2048)
+	game_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	game_viewport.canvas_transform = Transform2D(0, Vector2(1024, 1024))
+	add_child(game_viewport)
+
+	# World overlay (map boundary + selection highlight)
+	world_overlay = preload("res://scenes/world_overlay.tscn").instantiate()
+	game_viewport.add_child(world_overlay)
+
+	# Y-sorted container for all game entities
+	game_world_2d = Node2D.new()
+	game_world_2d.name = "GameWorld"
+	game_world_2d.y_sort_enabled = true
+	game_viewport.add_child(game_world_2d)
+
 	resources_node = Node2D.new()
 	resources_node.name = "Resources"
-	add_child(resources_node)
+	resources_node.y_sort_enabled = true
+	game_world_2d.add_child(resources_node)
 
 	powerups_node = Node2D.new()
 	powerups_node.name = "Powerups"
-	add_child(powerups_node)
+	powerups_node.y_sort_enabled = true
+	game_world_2d.add_child(powerups_node)
 
 	buildings_node = Node2D.new()
 	buildings_node.name = "Buildings"
-	add_child(buildings_node)
+	buildings_node.y_sort_enabled = true
+	game_world_2d.add_child(buildings_node)
 
 	# Spawn HQ at center - if destroyed, game over
 	hq_node = preload("res://scenes/hq.tscn").instantiate()
@@ -171,14 +242,28 @@ func _create_world():
 	player_node.name = "Player"
 	player_node.peer_id = 1
 	player_node.is_local = true
-	add_child(player_node)
+	game_world_2d.add_child(player_node)
 	player_node.level_up.connect(_on_player_level_up)
 	players[1] = player_node
 
 	aliens_node = Node2D.new()
 	aliens_node.name = "Aliens"
-	add_child(aliens_node)
+	aliens_node.y_sort_enabled = true
+	game_world_2d.add_child(aliens_node)
 
+	# --- Sprite3D to display SubViewport on ground plane ---
+	game_sprite = Sprite3D.new()
+	game_sprite.texture = game_viewport.get_texture()
+	game_sprite.pixel_size = 1.0
+	game_sprite.rotation_degrees = Vector3(-90, 0, 0)
+	game_sprite.position = Vector3(0, 0.1, 0)
+	game_sprite.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	game_sprite.shaded = false
+	game_sprite.transparent = true
+	game_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_DISABLED
+	add_child(game_sprite)
+
+	# --- HUD (CanvasLayer, works on any parent) ---
 	var hud_scene = preload("res://scenes/hud.tscn")
 	hud_node = hud_scene.instantiate()
 	add_child(hud_node)
@@ -210,6 +295,21 @@ func _process(delta):
 	if game_over:
 		return
 
+	# When paused (during voting), only do network sync so RPCs still flow
+	if get_tree().paused:
+		if NetworkManager.is_multiplayer_active():
+			state_sync_timer += delta
+			if state_sync_timer >= STATE_SYNC_INTERVAL:
+				state_sync_timer = 0.0
+				if NetworkManager.is_host():
+					_broadcast_state()
+				else:
+					_send_client_state()
+		if is_instance_valid(hud_node):
+			var rates = get_factory_rates()
+			hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank, run_prestige)
+		return
+
 	var is_authority = not NetworkManager.is_multiplayer_active() or NetworkManager.is_host()
 
 	# Tick respawn timers (host only)
@@ -231,7 +331,6 @@ func _process(delta):
 		if wave_active:
 			if alien_count == 0:
 				wave_active = false
-				pending_upgrades += 1
 		else:
 			wave_timer -= delta
 			if wave_timer <= 0:
@@ -271,7 +370,22 @@ func _process(delta):
 			hud_node.respawn_countdown = respawn_timers.get(player_node.peer_id, 0.0)
 		hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank, run_prestige)
 
-	queue_redraw()
+	# Sync world overlay with HUD selection state
+	if is_instance_valid(world_overlay) and is_instance_valid(hud_node):
+		world_overlay.selected_building = hud_node.selected_building
+
+	# Update mouse world position from 3D camera raycast
+	_update_mouse_world()
+
+	# Update 3D camera to follow player (position only, fixed angle)
+	if is_instance_valid(camera_3d) and is_instance_valid(player_node):
+		var p2d = player_node.global_position
+		var cam_target = Vector3(p2d.x, 0, p2d.y)
+		var cam_offset = Vector3(0, 600, 350)
+		camera_3d.position = camera_3d.position.lerp(cam_target + cam_offset, 8.0 * delta)
+
+	# Sync 3D lights for buildings and player
+	_sync_3d_lights()
 
 
 func _regenerate_resources():
@@ -305,37 +419,96 @@ func _spawn_powerup():
 	powerups_node.add_child(powerup)
 
 
-func _draw():
-	var hs = CFG.map_half_size
-	draw_rect(Rect2(-hs, -hs, hs * 2, hs * 2), Color(1, 0.3, 0.2, 0.3), false, 3.0)
-	draw_rect(Rect2(-hs + 50, -hs + 50, (hs - 50) * 2, (hs - 50) * 2), Color(1, 0.3, 0.2, 0.08), false, 1.0)
-
-	if not is_instance_valid(player_node):
+func _update_mouse_world():
+	if not is_instance_valid(camera_3d):
 		return
-	var cam = get_viewport().get_camera_2d()
-	if not cam:
-		return
-	var vp_size = get_viewport_rect().size / cam.zoom
-	var center = cam.global_position
-	var gs = 40.0
-	var s = (center - vp_size / 2.0 - Vector2(gs, gs)).snapped(Vector2(gs, gs))
-	var e = center + vp_size / 2.0 + Vector2(gs, gs)
-	var gc = Color(1, 1, 1, 0.04)
-	var x = s.x
-	while x <= e.x:
-		draw_line(Vector2(x, s.y), Vector2(x, e.y), gc)
-		x += gs
-	var y = s.y
-	while y <= e.y:
-		draw_line(Vector2(s.x, y), Vector2(e.x, y), gc)
-		y += gs
+	var mouse_screen = get_viewport().get_mouse_position()
+	var from = camera_3d.project_ray_origin(mouse_screen)
+	var dir = camera_3d.project_ray_normal(mouse_screen)
+	if dir.y != 0:
+		var t = -from.y / dir.y
+		if t > 0:
+			var hit = from + dir * t
+			mouse_world_2d = Vector2(hit.x, hit.z)
 
-	# Selection highlight around selected building
-	if is_instance_valid(hud_node) and hud_node.selected_building != null and is_instance_valid(hud_node.selected_building):
-		var bpos = hud_node.selected_building.global_position
-		var pulse = 0.5 + sin(Time.get_ticks_msec() * 0.005) * 0.3
-		draw_arc(bpos, 22, 0, TAU, 32, Color(0.3, 0.8, 1.0, pulse), 1.5)
-		draw_arc(bpos, 24, 0, TAU, 32, Color(0.3, 0.8, 1.0, pulse * 0.4), 1.0)
+
+func world_to_screen(world_2d: Vector2) -> Vector2:
+	if is_instance_valid(camera_3d):
+		return camera_3d.unproject_position(Vector3(world_2d.x, 0, world_2d.y))
+	return Vector2.ZERO
+
+
+func _sync_3d_lights():
+	# Clean up lights/shadows for destroyed entities
+	for key in building_lights.keys():
+		if not is_instance_valid(key):
+			building_lights[key].queue_free()
+			building_lights.erase(key)
+			if key in building_shadows:
+				building_shadows[key].queue_free()
+				building_shadows.erase(key)
+	for key in player_lights.keys():
+		if not is_instance_valid(key):
+			player_lights[key].queue_free()
+			player_lights.erase(key)
+
+	# Building lights + shadow proxies
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b): continue
+		var pos3d = Vector3(b.global_position.x, 15, b.global_position.y)
+		if b not in building_lights:
+			var light = OmniLight3D.new()
+			light.light_energy = 0.5
+			light.omni_range = 50.0
+			light.omni_attenuation = 1.5
+			light.light_color = _get_building_light_color(b)
+			light.shadow_enabled = false
+			add_child(light)
+			building_lights[b] = light
+			# Shadow proxy box (invisible, casts shadows only)
+			var proxy = MeshInstance3D.new()
+			var box = BoxMesh.new()
+			box.size = Vector3(24, 30, 24)
+			proxy.mesh = box
+			proxy.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+			add_child(proxy)
+			building_shadows[b] = proxy
+		building_lights[b].position = pos3d
+		if b in building_shadows:
+			building_shadows[b].position = Vector3(b.global_position.x, 15, b.global_position.y)
+
+	# Player lights
+	for p in get_tree().get_nodes_in_group("player"):
+		if not is_instance_valid(p): continue
+		var pos3d = Vector3(p.global_position.x, 20, p.global_position.y)
+		if p not in player_lights:
+			var light = OmniLight3D.new()
+			light.light_energy = 1.0
+			light.omni_range = 80.0
+			light.omni_attenuation = 1.5
+			light.light_color = p.player_color if "player_color" in p else Color(0.2, 0.9, 0.3)
+			light.shadow_enabled = false
+			add_child(light)
+			player_lights[p] = light
+		player_lights[p].position = pos3d
+
+
+func _get_building_light_color(building: Node2D) -> Color:
+	if building.has_method("get_building_name"):
+		match building.get_building_name():
+			"Turret": return Color(0.4, 0.6, 1.0)
+			"Factory": return Color(0.9, 0.7, 0.2)
+			"Wall": return Color(0.5, 0.5, 0.6)
+			"Lightning Tower": return Color(0.5, 0.3, 1.0)
+			"Slow Tower": return Color(0.3, 0.7, 1.0)
+			"Pylon": return Color(0.8, 0.9, 0.3)
+			"Power Plant": return Color(1.0, 0.9, 0.3)
+			"Battery": return Color(0.5, 0.9, 0.3)
+			"Flame Turret": return Color(1.0, 0.5, 0.15)
+			"Acid Turret": return Color(0.3, 0.9, 0.2)
+			"Repair Drone": return Color(0.3, 1.0, 0.5)
+			"HQ": return Color(1.0, 0.85, 0.4)
+	return Color(1.0, 0.85, 0.5)
 
 
 func _spawn_wave():
@@ -622,7 +795,7 @@ func _spawn_remote_player(pid: int, color: Color):
 	var total = maxi(players.size() + 1, 2)
 	var angle = TAU * player_index / total
 	remote.position = Vector2.from_angle(angle) * 60.0
-	add_child(remote)
+	game_world_2d.add_child(remote)
 	players[pid] = remote
 
 
@@ -659,7 +832,7 @@ func _broadcast_state():
 	for pid in players:
 		var p = players[pid]
 		if is_instance_valid(p):
-			player_states.append([pid, p.global_position.x, p.global_position.y, p.facing_angle, p.health, p.max_health, p.is_dead, respawn_timers.get(pid, 0.0)])
+			player_states.append([pid, p.global_position.x, p.global_position.y, p.facing_angle, p.health, p.max_health, p.is_dead, respawn_timers.get(pid, 0.0), p.upgrades.get("orbital_lasers", 0)])
 
 	# Clean dead aliens from tracking
 	var dead_ids = []
@@ -759,6 +932,8 @@ func _receive_state(state: Array):
 				rp.health = ps[4]
 				rp.max_health = ps[5]
 				rp.is_dead = ps[6]
+				if ps.size() > 8:
+					rp.upgrades["orbital_lasers"] = ps[8]
 
 	# Sync enemies
 	_sync_enemies(enemy_data)
@@ -866,6 +1041,9 @@ func _start_vote_round():
 	vote_round += 1
 	vote_active = true
 
+	# Pause game during voting
+	get_tree().paused = true
+
 	# Show locally on host
 	hud_node.show_vote_selection(vote_upgrade_keys, player_node.upgrades, vote_choices, players, player_names)
 	# Send to all clients
@@ -880,6 +1058,7 @@ func _rpc_start_vote(keys: Array, round_num: int):
 	vote_choices.clear()
 	for pid in players:
 		vote_choices[pid] = ""
+	get_tree().paused = true
 	if is_instance_valid(hud_node):
 		hud_node.show_vote_selection(keys, player_node.upgrades if is_instance_valid(player_node) else {}, vote_choices, players, player_names)
 
@@ -928,6 +1107,7 @@ func _evaluate_votes():
 	if unanimous and chosen_key != "":
 		# Apply upgrade for all players
 		vote_active = false
+		get_tree().paused = false
 		for pid in players:
 			if is_instance_valid(players[pid]):
 				players[pid].apply_upgrade(chosen_key)
@@ -936,18 +1116,7 @@ func _evaluate_votes():
 		_rpc_vote_resolved.rpc(chosen_key)
 		if is_instance_valid(hud_node):
 			hud_node.hide_vote_panel(chosen_key)
-	else:
-		# Not unanimous - show results briefly, then reset
-		await get_tree().create_timer(2.0).timeout
-		if not vote_active:
-			return  # Vote was cancelled (e.g. disconnect)
-		vote_choices.clear()
-		for pid in players:
-			vote_choices[pid] = ""
-		vote_round += 1
-		_rpc_vote_reset.rpc(vote_upgrade_keys, vote_round)
-		if is_instance_valid(hud_node):
-			hud_node.reset_vote_display(vote_upgrade_keys, player_node.upgrades if is_instance_valid(player_node) else {}, vote_choices, players, player_names)
+	# If not unanimous, do nothing — players can change their votes until they agree
 
 
 @rpc("authority", "call_remote", "reliable")
@@ -962,20 +1131,11 @@ func _rpc_vote_state(votes: Dictionary, round_num: int):
 @rpc("authority", "call_remote", "reliable")
 func _rpc_vote_resolved(key: String):
 	vote_active = false
+	get_tree().paused = false
 	if is_instance_valid(player_node):
 		player_node.apply_upgrade(key)
 	if is_instance_valid(hud_node):
 		hud_node.hide_vote_panel(key)
-
-
-@rpc("authority", "call_remote", "reliable")
-func _rpc_vote_reset(keys: Array, round_num: int):
-	vote_round = round_num
-	vote_choices.clear()
-	for pid in players:
-		vote_choices[pid] = ""
-	if is_instance_valid(hud_node):
-		hud_node.reset_vote_display(keys, player_node.upgrades if is_instance_valid(player_node) else {}, vote_choices, players, player_names)
 
 
 func _respawn_player(pid: int):
@@ -1135,6 +1295,33 @@ func _rpc_building_toggled(pos_x: float, pos_y: float, disabled: bool):
 		b.manually_disabled = disabled
 
 
+# --- Drop sync RPCs ---
+
+func spawn_synced_prestige_orb(pos: Vector2):
+	if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
+		_rpc_spawn_prestige_orb.rpc(pos.x, pos.y)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_spawn_prestige_orb(px: float, py: float):
+	var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
+	orb.global_position = Vector2(px, py)
+	game_world_2d.add_child(orb)
+
+
+func spawn_synced_powerup(pos: Vector2, type: String):
+	if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
+		_rpc_spawn_powerup.rpc(pos.x, pos.y, type)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_spawn_powerup(px: float, py: float, type: String):
+	var powerup = preload("res://scenes/powerup.tscn").instantiate()
+	powerup.global_position = Vector2(px, py)
+	powerup.powerup_type = type
+	powerups_node.add_child(powerup)
+
+
 @rpc("any_peer", "call_remote", "reliable")
 func _request_build(type: String, pos_x: float, pos_y: float):
 	# Host handles client build request
@@ -1226,7 +1413,7 @@ func _sync_enemies(enemy_data: Array):
 				var gem = preload("res://scenes/xp_gem.tscn").instantiate()
 				gem.global_position = a.global_position
 				gem.xp_value = a.xp_value
-				add_child(gem)
+				game_world_2d.add_child(gem)
 				a.queue_free()
 			to_remove.append(nid)
 	for nid in to_remove:
@@ -1249,7 +1436,7 @@ func _rpc_spawn_bullet(px: float, py: float, dx: float, dy: float, from_turret: 
 	b.burn_dps = burn
 	b.slow_amount = slow
 	b.visual_only = true
-	add_child(b)
+	game_world_2d.add_child(b)
 
 
 func spawn_synced_enemy_bullet(pos: Vector2, dir: Vector2):
@@ -1263,7 +1450,7 @@ func _rpc_spawn_enemy_bullet(px: float, py: float, dx: float, dy: float):
 	b.global_position = Vector2(px, py)
 	b.direction = Vector2(dx, dy)
 	b.visual_only = true
-	add_child(b)
+	game_world_2d.add_child(b)
 
 
 # --- Prestige sync ---

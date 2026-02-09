@@ -92,7 +92,7 @@ func _shoot_at(target: Node2D):
 			bullet.slow_amount = 0.3
 		if fire_rounds:
 			bullet.burn_dps = 6.0
-		get_tree().current_scene.add_child(bullet)
+		get_tree().current_scene.game_world_2d.add_child(bullet)
 		get_tree().current_scene.spawn_synced_bullet(bullet.global_position, bullet.direction, true, bullet.burn_dps, bullet.slow_amount)
 
 
@@ -112,7 +112,7 @@ func _spawn_aliens_on_death():
 		alien.max_hp = 25
 		alien.damage = 6
 		alien.speed = 55.0
-		get_tree().current_scene.get_node("Aliens").add_child(alien)
+		get_tree().current_scene.aliens_node.add_child(alien)
 
 
 func _draw():

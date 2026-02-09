@@ -120,11 +120,13 @@ func _shoot_at(target: Node2D):
 	b.global_position = global_position + dir * 15
 	b.direction = dir
 	b.damage = damage
-	get_tree().current_scene.add_child(b)
+	get_tree().current_scene.game_world_2d.add_child(b)
 	get_tree().current_scene.spawn_synced_enemy_bullet(b.global_position, b.direction)
 
 
 func take_damage(amount: int):
+	if is_puppet:
+		return
 	hp -= amount
 	hit_flash_timer = 0.1
 	if hp <= 0:
@@ -135,12 +137,13 @@ func _die():
 	var gem = preload("res://scenes/xp_gem.tscn").instantiate()
 	gem.global_position = global_position
 	gem.xp_value = xp_value
-	get_tree().current_scene.add_child(gem)
+	get_tree().current_scene.game_world_2d.add_child(gem)
 	# 1 in 10 chance to drop a prestige orb
 	if randi() % 10 == 0:
 		var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
 		orb.global_position = global_position
-		get_tree().current_scene.add_child(orb)
+		get_tree().current_scene.game_world_2d.add_child(orb)
+		get_tree().current_scene.spawn_synced_prestige_orb(orb.global_position)
 	# Health-based heal drop
 	_try_drop_heal()
 	queue_free()
@@ -156,7 +159,8 @@ func _try_drop_heal():
 		var powerup = preload("res://scenes/powerup.tscn").instantiate()
 		powerup.global_position = global_position
 		powerup.powerup_type = "heal"
-		get_tree().current_scene.add_child(powerup)
+		get_tree().current_scene.game_world_2d.add_child(powerup)
+		get_tree().current_scene.spawn_synced_powerup(powerup.global_position, powerup.powerup_type)
 
 
 func _draw():

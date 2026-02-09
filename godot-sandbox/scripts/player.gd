@@ -76,12 +76,6 @@ var _remote_target_pos: Vector2 = Vector2.ZERO
 
 func _ready():
 	add_to_group("player")
-	if is_local:
-		var cam = Camera2D.new()
-		cam.zoom = Vector2(1.5, 1.5)
-		cam.position_smoothing_enabled = true
-		cam.position_smoothing_speed = 8.0
-		add_child(cam)
 
 
 func enter_build_mode(building_type: String):
@@ -135,6 +129,9 @@ func _process(delta):
 		if _remote_target_pos != Vector2.ZERO:
 			global_position = global_position.lerp(_remote_target_pos, minf(delta * 15.0, 1.0))
 		invuln_timer = maxf(0.0, invuln_timer - delta)
+		# Animate orbital lasers visually for remote players
+		if upgrades["orbital_lasers"] > 0:
+			orbital_angle += delta * (2.5 + upgrades["orbital_lasers"] * 0.5)
 		queue_redraw()
 		return
 
@@ -169,7 +166,7 @@ func _process(delta):
 			if nearest_alien:
 				facing_angle = (nearest_alien.global_position - global_position).angle()
 	else:
-		facing_angle = (get_global_mouse_position() - global_position).angle()
+		facing_angle = (get_tree().current_scene.mouse_world_2d - global_position).angle()
 	shoot_timer = maxf(0.0, shoot_timer - delta)
 	invuln_timer = maxf(0.0, invuln_timer - delta)
 	magnet_timer = maxf(0.0, magnet_timer - delta)
@@ -293,7 +290,7 @@ func _shoot():
 		b.chain_retention = CFG.chain_base_retention + GameData.get_research_bonus("chain_retention")
 		b.burn_dps = upgrades["burning"] * CFG.burn_dps_per_level
 		b.slow_amount = upgrades["ice"] * CFG.slow_per_level
-		get_tree().current_scene.add_child(b)
+		get_tree().current_scene.game_world_2d.add_child(b)
 		get_tree().current_scene.spawn_synced_bullet(b.global_position, b.direction, false, b.burn_dps, b.slow_amount)
 
 
@@ -324,13 +321,13 @@ func _mine_nearby(qty: int):
 			var gem = preload("res://scenes/xp_gem.tscn").instantiate()
 			gem.global_position = res_pos
 			gem.xp_value = maxi(1, result["amount"])
-			get_tree().current_scene.add_child(gem)
+			get_tree().current_scene.game_world_2d.add_child(gem)
 			# 1 in 5 chance to drop a prestige orb from depleted rock
 			if randi() % 5 == 0:
 				var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
 				orb.global_position = res_pos
 				orb.prestige_value = NetworkManager.get_player_count()
-				get_tree().current_scene.add_child(orb)
+				get_tree().current_scene.game_world_2d.add_child(orb)
 
 
 func _repair_nearby():
@@ -414,9 +411,10 @@ func _apply_powerup(type: String):
 			text = "+%d HP" % CFG.heal_powerup_amount
 			color = Color(1.0, 0.3, 0.4)
 		"nuke":
-			for a in get_tree().get_nodes_in_group("aliens"):
-				if is_instance_valid(a) and not a.is_in_group("bosses"):
-					a.take_damage(CFG.nuke_damage)
+			if not NetworkManager.is_multiplayer_active() or NetworkManager.is_host():
+				for a in get_tree().get_nodes_in_group("aliens"):
+					if is_instance_valid(a) and not a.is_in_group("bosses"):
+						a.take_damage(CFG.nuke_damage)
 			text = "NUKE!"
 			color = Color(1.0, 0.5, 0.1)
 		"mining_boost":
@@ -433,7 +431,7 @@ func _spawn_popup(text: String, color: Color):
 	popup.global_position = global_position + Vector2(0, -30)
 	popup.text = text
 	popup.color = color
-	get_tree().current_scene.add_child(popup)
+	get_tree().current_scene.game_world_2d.add_child(popup)
 
 
 func add_xp(amount: int):
@@ -479,7 +477,7 @@ func get_building_cost(type: String) -> Dictionary:
 
 
 func _try_build(type: String) -> bool:
-	var bp = get_global_mouse_position().snapped(Vector2(40, 40))
+	var bp = get_tree().current_scene.mouse_world_2d.snapped(Vector2(40, 40))
 	return _try_build_at(type, bp)
 
 
@@ -552,7 +550,7 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 
 	if building:
 		building.global_position = bp
-		get_tree().current_scene.get_node("Buildings").add_child(building)
+		get_tree().current_scene.buildings_node.add_child(building)
 		# Apply building health research bonus
 		var health_bonus = GameData.get_research_bonus("building_health")
 		if health_bonus > 0 and "hp" in building and "max_hp" in building:
@@ -634,9 +632,12 @@ func _process_aura(delta):
 func _process_orbitals(delta):
 	orbital_angle += delta * (2.5 + upgrades["orbital_lasers"] * 0.5)
 	var cnt = upgrades["orbital_lasers"]
+	var can_deal_damage = not NetworkManager.is_multiplayer_active() or NetworkManager.is_host()
 	for i in range(cnt):
 		var ang = orbital_angle + TAU * i / cnt
 		var op = global_position + Vector2.from_angle(ang) * 80.0
+		if not can_deal_damage:
+			continue
 		for a in get_tree().get_nodes_in_group("aliens"):
 			if not is_instance_valid(a): continue
 			if op.distance_to(a.global_position) < 22 and a.can_take_orbital_hit():
@@ -776,7 +777,7 @@ func _draw():
 		if is_mobile and pending_build_world_pos != Vector2.ZERO:
 			bp = pending_build_world_pos
 		else:
-			bp = get_global_mouse_position().snapped(Vector2(40, 40))
+			bp = get_tree().current_scene.mouse_world_2d.snapped(Vector2(40, 40))
 		var ghost_pos = bp - global_position
 		var valid = can_place_at(bp) and can_afford(build_mode)
 		var ghost_color = Color(0.3, 1.0, 0.4, 0.5) if valid else Color(1.0, 0.3, 0.3, 0.5)

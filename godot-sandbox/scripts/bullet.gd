@@ -62,7 +62,7 @@ func _spawn_damage_number(pos: Vector2, amount: int, is_crit: bool):
 		popup.color = Color(1.0, 1.0, 1.0)
 	popup.velocity = Vector2(randf_range(-20, 20), -60)
 	popup.lifetime = 0.8
-	get_tree().current_scene.add_child(popup)
+	get_tree().current_scene.game_world_2d.add_child(popup)
 
 
 func _chain_lightning(start: Node2D):
@@ -97,7 +97,7 @@ func _chain_lightning(start: Node2D):
 		var fx = Node2D.new()
 		fx.set_script(preload("res://scripts/lightning_effect.gd"))
 		fx.points = chain_positions
-		get_tree().current_scene.add_child(fx)
+		get_tree().current_scene.game_world_2d.add_child(fx)
 
 
 func _draw():
