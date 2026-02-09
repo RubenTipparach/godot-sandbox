@@ -821,6 +821,8 @@ func _build_lobby_panel(root: Control):
 	if GameData.player_name != "":
 		lobby_name_input.text = GameData.player_name
 	name_row.add_child(lobby_name_input)
+	lobby_name_input.focus_entered.connect(_on_lobby_input_focused.bind(lobby_name_input))
+	lobby_name_input.focus_exited.connect(_on_lobby_input_unfocused)
 
 	# Host section - shows room code
 	lobby_host_section = VBoxContainer.new()
@@ -881,6 +883,9 @@ func _build_lobby_panel(root: Control):
 	lobby_code_input.custom_minimum_size = Vector2(240, 50)
 	lobby_code_input.add_theme_font_size_override("font_size", 32)
 	lobby_client_section.add_child(lobby_code_input)
+	lobby_code_input.focus_entered.connect(_on_lobby_input_focused.bind(lobby_code_input))
+	lobby_code_input.focus_exited.connect(_on_lobby_input_unfocused)
+	lobby_code_input.text_submitted.connect(_on_lobby_code_text_submitted)
 
 	lobby_connect_btn = Button.new()
 	lobby_connect_btn.text = "Connect"
@@ -2022,6 +2027,22 @@ func _on_join_coop_pressed():
 		lobby_name_input.grab_focus()
 	else:
 		lobby_code_input.grab_focus()
+
+
+func _on_lobby_input_focused(line_edit: LineEdit):
+	if is_mobile and OS.has_feature("web"):
+		DisplayServer.virtual_keyboard_show(line_edit.text)
+
+
+func _on_lobby_input_unfocused():
+	if is_mobile and OS.has_feature("web"):
+		DisplayServer.virtual_keyboard_hide()
+
+
+func _on_lobby_code_text_submitted(_text: String):
+	if is_mobile and OS.has_feature("web"):
+		DisplayServer.virtual_keyboard_hide()
+	_on_lobby_connect_pressed()
 
 
 func _on_lobby_connect_pressed():
