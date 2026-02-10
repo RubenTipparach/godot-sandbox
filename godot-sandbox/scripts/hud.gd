@@ -930,17 +930,22 @@ func _build_lobby_panel(root: Control):
 	lobby_name_input.focus_exited.connect(_on_lobby_input_unfocused)
 	lobby_name_input.text_changed.connect(_on_lobby_name_changed)
 
+	# Single centered VBoxContainer for all lobby content (auto-stacks, no overlaps)
+	var lobby_center = VBoxContainer.new()
+	lobby_center.set_anchors_preset(Control.PRESET_CENTER)
+	lobby_center.offset_left = -200
+	lobby_center.offset_right = 200
+	lobby_center.offset_top = -180
+	lobby_center.offset_bottom = 200
+	lobby_center.add_theme_constant_override("separation", 10)
+	lobby_center.alignment = BoxContainer.ALIGNMENT_CENTER
+	lobby_panel.add_child(lobby_center)
+
 	# Host section - shows room code
 	lobby_host_section = VBoxContainer.new()
-	lobby_host_section.set_anchors_preset(Control.PRESET_CENTER)
-	lobby_host_section.offset_top = -50
-	lobby_host_section.offset_left = -200
-	lobby_host_section.offset_right = 200
-	lobby_host_section.offset_bottom = 60
-	lobby_host_section.alignment = BoxContainer.ALIGNMENT_CENTER
-	lobby_host_section.add_theme_constant_override("separation", 12)
+	lobby_host_section.add_theme_constant_override("separation", 8)
 	lobby_host_section.visible = false
-	lobby_panel.add_child(lobby_host_section)
+	lobby_center.add_child(lobby_host_section)
 
 	var code_title = Label.new()
 	code_title.text = "Room Code:"
@@ -972,15 +977,9 @@ func _build_lobby_panel(root: Control):
 
 	# Client section - code input
 	lobby_client_section = VBoxContainer.new()
-	lobby_client_section.set_anchors_preset(Control.PRESET_CENTER)
-	lobby_client_section.offset_top = -40
-	lobby_client_section.offset_left = -200
-	lobby_client_section.offset_right = 200
-	lobby_client_section.offset_bottom = 140
-	lobby_client_section.alignment = BoxContainer.ALIGNMENT_CENTER
 	lobby_client_section.add_theme_constant_override("separation", 14)
 	lobby_client_section.visible = false
-	lobby_panel.add_child(lobby_client_section)
+	lobby_center.add_child(lobby_client_section)
 
 	var input_title = Label.new()
 	input_title.text = "Enter Room Code:"
@@ -1008,29 +1007,19 @@ func _build_lobby_panel(root: Control):
 	_style_button(lobby_connect_btn, Color(0.15, 0.25, 0.45))
 	lobby_client_section.add_child(lobby_connect_btn)
 
-	# Shared status + players container (below both host/client sections)
-	var status_vbox = VBoxContainer.new()
-	status_vbox.set_anchors_preset(Control.PRESET_CENTER)
-	status_vbox.offset_top = 80
-	status_vbox.offset_left = -250
-	status_vbox.offset_right = 250
-	status_vbox.offset_bottom = 230
-	status_vbox.add_theme_constant_override("separation", 10)
-	status_vbox.alignment = BoxContainer.ALIGNMENT_BEGIN
-	lobby_panel.add_child(status_vbox)
-
+	# Shared status + players (auto-stacked below whichever section is visible)
 	lobby_status_label = Label.new()
 	lobby_status_label.text = ""
 	lobby_status_label.add_theme_font_size_override("font_size", 18)
 	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
 	lobby_status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	status_vbox.add_child(lobby_status_label)
+	lobby_center.add_child(lobby_status_label)
 
 	lobby_players_label = Label.new()
 	lobby_players_label.add_theme_font_size_override("font_size", 15)
 	lobby_players_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.9))
 	lobby_players_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	status_vbox.add_child(lobby_players_label)
+	lobby_center.add_child(lobby_players_label)
 
 	# Start button (host only)
 	lobby_start_btn = Button.new()
@@ -1041,7 +1030,7 @@ func _build_lobby_panel(root: Control):
 	lobby_start_btn.disabled = true
 	lobby_start_btn.pressed.connect(_on_lobby_start_pressed)
 	_style_button(lobby_start_btn, Color(0.15, 0.45, 0.2))
-	status_vbox.add_child(lobby_start_btn)
+	lobby_center.add_child(lobby_start_btn)
 
 	var back_btn = Button.new()
 	back_btn.text = "Back"
@@ -1376,10 +1365,17 @@ func _on_toggle_auto_aim():
 	auto_aim_btn.text = "Auto Aim: ON" if player.auto_aim else "Auto Aim: OFF"
 
 
+func _copy_to_clipboard(text: String):
+	if OS.has_feature("web"):
+		JavaScriptBridge.eval("navigator.clipboard.writeText('%s')" % text.replace("'", "\\'"))
+	else:
+		DisplayServer.clipboard_set(text)
+
+
 func _on_copy_lobby_code():
 	var code = lobby_code_label.text
-	if code != "------" and code != "...":
-		DisplayServer.clipboard_set(code)
+	if code != "------" and code != "..." and code != "Copied!":
+		_copy_to_clipboard(code)
 		lobby_code_label.text = "Copied!"
 		get_tree().create_timer(1.5).timeout.connect(func():
 			if is_instance_valid(lobby_code_label):
@@ -1389,7 +1385,7 @@ func _on_copy_lobby_code():
 
 func _on_copy_room_code():
 	if NetworkManager.room_id != "":
-		DisplayServer.clipboard_set(NetworkManager.room_id)
+		_copy_to_clipboard(NetworkManager.room_id)
 		room_code_label.text = "Copied!"
 		get_tree().create_timer(1.5).timeout.connect(func():
 			if is_instance_valid(room_code_label) and NetworkManager.room_id != "":
