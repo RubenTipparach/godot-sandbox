@@ -4,6 +4,8 @@ const CFG = preload("res://resources/game_config.tres")
 
 # 3D scene nodes
 var camera_3d: Camera3D
+var _ground_mesh: MeshInstance3D
+var _dir_light: DirectionalLight3D
 var game_viewport: SubViewport
 var game_sprite: Sprite3D
 var game_world_2d: Node2D
@@ -69,6 +71,7 @@ var wave_timer: float = CFG.first_wave_delay
 var wave_active: bool = false
 var is_first_wave: bool = true  # Extra prep time on first wave of each run
 var game_over: bool = false
+var world_visible: bool = false  # False until game starts (menu shows clean background)
 var resource_regen_timer: float = CFG.resource_regen_interval
 var powerup_timer: float = 10.0
 var pending_upgrades: int = 0
@@ -215,7 +218,7 @@ func _setup_inputs():
 
 
 func _create_world():
-	# --- 3D Environment ---
+	# --- 3D Environment (menu background) ---
 	var env_node = WorldEnvironment.new()
 	var env = Environment.new()
 	env.background_mode = Environment.BG_COLOR
@@ -225,22 +228,39 @@ func _create_world():
 	env_node.environment = env
 	add_child(env_node)
 
-	var light = DirectionalLight3D.new()
-	light.rotation_degrees = Vector3(-60, 30, 0)
-	light.light_energy = CFG.directional_light_energy
-	light.shadow_enabled = true
-	light.directional_shadow_max_distance = 1500.0
-	add_child(light)
-
-	# --- 3D Camera ---
+	# --- 3D Camera (menu background) ---
 	camera_3d = Camera3D.new()
 	camera_3d.fov = 50
 	camera_3d.position = Vector3(0, 600, 350)
 	camera_3d.rotation_degrees = Vector3(-60, 0, 0)
 	add_child(camera_3d)
 
-	# --- Ground plane with dirt/grass (subdivided for gouraud-style vertex lighting) ---
-	var ground = MeshInstance3D.new()
+	# --- HUD (needed for menus/lobby — no gameplay objects created yet) ---
+	var hud_scene = preload("res://scenes/hud.tscn")
+	hud_node = hud_scene.instantiate()
+	add_child(hud_node)
+	hud_node.upgrade_chosen.connect(_on_upgrade_chosen)
+	hud_node.game_started.connect(_on_game_started)
+
+
+func _init_game_world():
+	# Called when the game actually starts (host clicks Play / player clicks wave).
+	# Creates all gameplay objects, pools, shaders, etc. with loading progress.
+
+	# Step 1: Lighting & ground
+	if is_instance_valid(hud_node):
+		hud_node.show_loading("Creating world...", 0.0)
+	await get_tree().process_frame
+
+	_dir_light = DirectionalLight3D.new()
+	_dir_light.rotation_degrees = Vector3(-60, 30, 0)
+	_dir_light.light_energy = CFG.directional_light_energy
+	_dir_light.shadow_enabled = true
+	_dir_light.directional_shadow_max_distance = 1500.0
+	add_child(_dir_light)
+
+	_ground_mesh = MeshInstance3D.new()
+	var ground = _ground_mesh
 	var plane_mesh = PlaneMesh.new()
 	plane_mesh.size = Vector2(2400, 2400)
 	plane_mesh.subdivide_width = 60
@@ -255,7 +275,11 @@ func _create_world():
 	ground.material_override = mat
 	add_child(ground)
 
-	# --- SubViewport for 2D game world ---
+	# Step 2: Game viewport & entities
+	if is_instance_valid(hud_node):
+		hud_node.show_loading("Setting up entities...", 0.15)
+	await get_tree().process_frame
+
 	game_viewport = SubViewport.new()
 	game_viewport.transparent_bg = true
 	game_viewport.size = Vector2i(2048, 2048)
@@ -319,19 +343,23 @@ func _create_world():
 	aliens_node.y_sort_enabled = true
 	game_world_2d.add_child(aliens_node)
 
-	# --- Sprite3D to display SubViewport on ground plane ---
+	# Sprite3D to display SubViewport on ground plane
 	game_sprite = Sprite3D.new()
 	game_sprite.texture = game_viewport.get_texture()
 	game_sprite.pixel_size = 1.0
 	game_sprite.rotation_degrees = Vector3(-90, 0, 0)
 	game_sprite.position = Vector3(0, 0.1, 0)
 	game_sprite.billboard = BaseMaterial3D.BILLBOARD_DISABLED
-	game_sprite.shaded = false  # Unlit — text, lasers, bullets not affected by 3D lighting
+	game_sprite.shaded = false
 	game_sprite.transparent = true
 	game_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_OPAQUE_PREPASS
 	add_child(game_sprite)
 
-	# --- Pre-warm shaders (force GPU compilation at startup, not mid-game) ---
+	# Step 3: Compile shaders
+	if is_instance_valid(hud_node):
+		hud_node.show_loading("Compiling shaders...", 0.35)
+	await get_tree().process_frame
+
 	_laser_shader = Shader.new()
 	_laser_shader.code = """
 shader_type spatial;
@@ -398,7 +426,6 @@ void fragment() {
 	RIM_TINT = 0.3;
 }
 """
-	# --- Energy merged-disc projection shader (union of circles on a single plane) ---
 	_energy_proj_shader = Shader.new()
 	_energy_proj_shader.code = """
 shader_type spatial;
@@ -442,10 +469,9 @@ void fragment() {
 	_energy_proj_mesh.visible = false
 	add_child(_energy_proj_mesh)
 
-	# --- Nuke explosion ring (reuses AoE shader, scaled dynamically) ---
 	_nuke_ring_mesh = MeshInstance3D.new()
 	var nuke_plane = PlaneMesh.new()
-	nuke_plane.size = Vector2(2, 2)  # Unit size, scaled via transform
+	nuke_plane.size = Vector2(2, 2)
 	_nuke_ring_mesh.mesh = nuke_plane
 	_nuke_ring_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_nuke_ring_mat = ShaderMaterial.new()
@@ -465,7 +491,6 @@ void fragment() {
 	_nuke_flash_light.visible = false
 	add_child(_nuke_flash_light)
 
-	# --- Occlusion dither shader (AoE2-style see-through for units behind buildings) ---
 	_dither_occlude_shader = Shader.new()
 	_dither_occlude_shader.code = """
 shader_type spatial;
@@ -493,7 +518,7 @@ void fragment() {
 	_flash_white_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_flash_white_mat.next_pass = _dither_occlude_mat
 
-	# Tiny invisible meshes that force GPU shader compilation during loading
+	# Tiny invisible meshes that force GPU shader compilation
 	for shader in [_laser_shader, _aoe_shader, _crystal_shader, _energy_proj_shader, _dither_occlude_shader]:
 		var warmup = MeshInstance3D.new()
 		var cm = CylinderMesh.new()
@@ -508,7 +533,11 @@ void fragment() {
 		warmup.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(warmup)
 
-	# --- Pre-create laser beam pool (zero allocation when mining starts) ---
+	# Step 4: Create object pools
+	if is_instance_valid(hud_node):
+		hud_node.show_loading("Creating object pools...", 0.6)
+	await get_tree().process_frame
+
 	for i in range(LASER_POOL_SIZE):
 		var e = {}
 		var laser_light = OmniLight3D.new()
@@ -523,7 +552,6 @@ void fragment() {
 		beam_group.visible = false
 		add_child(beam_group)
 		e["group"] = beam_group
-		# Outer glow cylinder (unit height, scaled via transform)
 		var mi_outer = MeshInstance3D.new()
 		var cm_outer = CylinderMesh.new()
 		cm_outer.top_radius = 2.0
@@ -540,7 +568,6 @@ void fragment() {
 		beam_group.add_child(mi_outer)
 		e["outer_mi"] = mi_outer
 		e["outer_mat"] = outer_mat
-		# Inner core cylinder (unit height)
 		var mi_inner = MeshInstance3D.new()
 		var cm_inner = CylinderMesh.new()
 		cm_inner.top_radius = 0.6
@@ -557,7 +584,6 @@ void fragment() {
 		beam_group.add_child(mi_inner)
 		e["inner_mi"] = mi_inner
 		e["inner_mat"] = inner_mat
-		# Impact sparks
 		var sparks = GPUParticles3D.new()
 		sparks.amount = 12
 		sparks.lifetime = 0.4
@@ -585,7 +611,6 @@ void fragment() {
 		e["active"] = false
 		_laser_pool.append(e)
 
-	# --- Lightning bolt pool (thin cylinders, no sparks) ---
 	for i in range(LIGHTNING_POOL_SIZE):
 		var le = {}
 		var bolt_group = Node3D.new()
@@ -621,7 +646,11 @@ void fragment() {
 		le["active"] = false
 		_lightning_pool.append(le)
 
-	# --- Pylon wire materials (cached, two states) ---
+	# Step 5: Materials & overlays
+	if is_instance_valid(hud_node):
+		hud_node.show_loading("Preparing materials...", 0.85)
+	await get_tree().process_frame
+
 	_wire_mat_powered = StandardMaterial3D.new()
 	_wire_mat_powered.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	_wire_mat_powered.albedo_color = Color(0.3, 0.7, 1.0)
@@ -635,21 +664,22 @@ void fragment() {
 	_wire_mat_unpowered.emission = Color(0.2, 0.2, 0.2)
 	_wire_mat_unpowered.emission_energy_multiplier = 0.2
 
-	# --- HP bar overlay (screen-space, below HUD) ---
 	hp_bar_layer = CanvasLayer.new()
-	hp_bar_layer.layer = 1  # Below HUD which is usually layer 2+
+	hp_bar_layer.layer = 1
 	add_child(hp_bar_layer)
 
-	# --- HUD (CanvasLayer, works on any parent) ---
-	var hud_scene = preload("res://scenes/hud.tscn")
-	hud_node = hud_scene.instantiate()
-	add_child(hud_node)
-	hud_node.upgrade_chosen.connect(_on_upgrade_chosen)
-	hud_node.game_started.connect(_on_game_started)
+	# Step 6: Spawn resources
+	if is_instance_valid(hud_node):
+		hud_node.show_loading("Spawning resources...", 0.95)
+	await get_tree().process_frame
 
-	# Only host spawns initial resources; clients receive them via state sync
 	if not NetworkManager.is_multiplayer_active() or NetworkManager.is_host():
 		_spawn_resources()
+
+	# Done — mark world as ready
+	world_visible = true
+	if is_instance_valid(hud_node):
+		hud_node.hide_loading()
 
 
 func _spawn_resources():
@@ -678,6 +708,10 @@ func _spawn_resources():
 
 func _process(delta):
 	if game_over:
+		return
+
+	# Before game world is created, nothing to process
+	if not world_visible:
 		return
 
 	# When paused (during voting), do network sync + 3D rendering but skip game logic
@@ -2472,6 +2506,8 @@ func _on_upgrade_chosen(upgrade_key: String):
 func _on_game_started(start_wave: int):
 	starting_wave = start_wave
 	run_prestige = 0
+	# Create all gameplay objects (deferred from _ready to avoid loading during menu)
+	await _init_game_world()
 	# Apply research bonuses
 	if is_instance_valid(player_node):
 		player_node.iron += int(GameData.get_research_bonus("starting_iron"))
@@ -2741,7 +2777,7 @@ func _rpc_start_game(wave: int, all_peers: Array = [], host_research: Dictionary
 	if is_instance_valid(hud_node):
 		hud_node.start_mp_game()
 	get_tree().paused = false
-	_on_game_started(wave)
+	await _on_game_started(wave)
 	# Spawn other remote players that this client doesn't know about yet
 	var my_id = multiplayer.get_unique_id()
 	for info in all_peers:

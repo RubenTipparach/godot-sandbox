@@ -89,6 +89,10 @@ var auto_fire_btn: Button = null
 var auto_aim_btn: Button = null
 var _settings_from_pause: bool = false  # Track where settings was opened from
 var start_wave_btn: Button = null
+var loading_panel: Control = null
+var loading_bar_fill: ColorRect = null
+var loading_label: Label = null
+var _loading_step: int = -1
 
 const UPGRADE_DATA = {
 	"chain_lightning": {"name": "Chain Lightning", "color": Color(0.3, 0.7, 1.0), "max": 5},
@@ -360,6 +364,7 @@ func _ready():
 	_build_lobby_panel(root)
 	_build_building_tooltip(root)
 	_build_building_info_panel(root)
+	_build_loading_panel(root)
 
 	# Detect mobile and add virtual controls
 	is_mobile = _detect_mobile()
@@ -951,6 +956,13 @@ func _build_lobby_panel(root: Control):
 	lobby_code_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lobby_host_section.add_child(lobby_code_label)
 
+	var lobby_copy_btn = Button.new()
+	lobby_copy_btn.text = "Copy Code"
+	lobby_copy_btn.custom_minimum_size = Vector2(140, 32)
+	lobby_copy_btn.add_theme_font_size_override("font_size", 14)
+	lobby_copy_btn.pressed.connect(_on_copy_lobby_code)
+	lobby_host_section.add_child(lobby_copy_btn)
+
 	var share_hint = Label.new()
 	share_hint.text = "Share this code with your friends"
 	share_hint.add_theme_font_size_override("font_size", 14)
@@ -961,10 +973,10 @@ func _build_lobby_panel(root: Control):
 	# Client section - code input
 	lobby_client_section = VBoxContainer.new()
 	lobby_client_section.set_anchors_preset(Control.PRESET_CENTER)
-	lobby_client_section.offset_top = -20
+	lobby_client_section.offset_top = -40
 	lobby_client_section.offset_left = -200
 	lobby_client_section.offset_right = 200
-	lobby_client_section.offset_bottom = 100
+	lobby_client_section.offset_bottom = 140
 	lobby_client_section.alignment = BoxContainer.ALIGNMENT_CENTER
 	lobby_client_section.add_theme_constant_override("separation", 14)
 	lobby_client_section.visible = false
@@ -1109,6 +1121,61 @@ func _build_building_info_panel(root: Control):
 	recycle_btn.add_theme_color_override("font_color", Color(1.0, 0.6, 0.2))
 	recycle_btn.pressed.connect(_on_recycle_pressed)
 	btn_row.add_child(recycle_btn)
+
+
+func _build_loading_panel(root: Control):
+	loading_panel = Control.new()
+	loading_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	loading_panel.visible = false
+	loading_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	root.add_child(loading_panel)
+
+	# Dark background overlay
+	var bg = ColorRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0.08, 0.07, 0.06, 0.95)
+	loading_panel.add_child(bg)
+
+	# Centered container
+	var center = VBoxContainer.new()
+	center.set_anchors_preset(Control.PRESET_CENTER)
+	center.offset_left = -150
+	center.offset_right = 150
+	center.offset_top = -40
+	center.offset_bottom = 40
+	center.add_theme_constant_override("separation", 12)
+	loading_panel.add_child(center)
+
+	loading_label = Label.new()
+	loading_label.text = "Loading..."
+	loading_label.add_theme_font_size_override("font_size", 18)
+	loading_label.add_theme_color_override("font_color", Color(0.9, 0.85, 0.7))
+	loading_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	center.add_child(loading_label)
+
+	# Bar background
+	var bar_bg = ColorRect.new()
+	bar_bg.custom_minimum_size = Vector2(300, 16)
+	bar_bg.color = Color(0.15, 0.15, 0.2)
+	center.add_child(bar_bg)
+
+	loading_bar_fill = ColorRect.new()
+	loading_bar_fill.color = Color(0.3, 0.7, 1.0)
+	loading_bar_fill.position = Vector2.ZERO
+	loading_bar_fill.size = Vector2(0, 16)
+	bar_bg.add_child(loading_bar_fill)
+
+
+func show_loading(text: String, progress: float):
+	if loading_panel:
+		loading_panel.visible = true
+		loading_label.text = text
+		loading_bar_fill.size.x = 300.0 * clampf(progress, 0.0, 1.0)
+
+
+func hide_loading():
+	if loading_panel:
+		loading_panel.visible = false
 
 
 func _detect_mobile() -> bool:
@@ -1307,6 +1374,17 @@ func _on_toggle_auto_aim():
 		auto_aim_btn.text = "Auto Aim: OFF" if auto_aim_btn.text == "Auto Aim: ON" else "Auto Aim: ON"
 		return
 	auto_aim_btn.text = "Auto Aim: ON" if player.auto_aim else "Auto Aim: OFF"
+
+
+func _on_copy_lobby_code():
+	var code = lobby_code_label.text
+	if code != "------" and code != "...":
+		DisplayServer.clipboard_set(code)
+		lobby_code_label.text = "Copied!"
+		get_tree().create_timer(1.5).timeout.connect(func():
+			if is_instance_valid(lobby_code_label):
+				lobby_code_label.text = code
+		)
 
 
 func _on_copy_room_code():
@@ -2231,7 +2309,7 @@ func _on_join_coop_pressed():
 	lobby_client_section.visible = true
 	lobby_start_btn.visible = false
 	lobby_code_input.text = ""
-	lobby_status_label.text = "Enter the room code and click Connect"
+	lobby_status_label.text = ""
 	lobby_status_label.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
 	_connect_network_signals()
 	if lobby_name_input.text.strip_edges() == "":
