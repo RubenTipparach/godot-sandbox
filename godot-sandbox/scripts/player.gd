@@ -59,6 +59,9 @@ var upgrades = {
 var aura_timer: float = 0.0
 var orbital_angle: float = 0.0
 var regen_timer: float = 0.0
+var nuke_radius: float = 0.0       # Current expanding radius (0 = inactive)
+var nuke_origin: Vector2 = Vector2.ZERO
+var nuke_hit_ids: Dictionary = {}   # Track aliens already hit by this nuke
 
 # Research bonuses (set by main.gd on game start)
 var research_move_speed: float = 0.0
@@ -225,6 +228,9 @@ func _process(delta):
 	if Input.is_action_just_pressed("build_repair_drone"):
 		if GameData.get_research_bonus("unlock_repair_drone") >= 1.0:
 			_try_build("repair_drone")
+	if Input.is_action_just_pressed("build_poison_turret"):
+		if GameData.get_research_bonus("turret_poison") >= 1.0:
+			_try_build("poison_turret")
 
 	# Build mode placement (click to place)
 	if build_mode != "":
@@ -248,8 +254,26 @@ func _process(delta):
 		_process_orbitals(delta)
 	if upgrades["health_regen"] > 0:
 		_process_regen(delta)
+	if nuke_radius > 0:
+		_process_nuke(delta)
 
 	queue_redraw()
+
+
+func _process_nuke(delta):
+	nuke_radius += CFG.nuke_expand_speed * delta
+	var can_deal_damage = not NetworkManager.is_multiplayer_active() or NetworkManager.is_host()
+	if can_deal_damage:
+		for a in get_tree().get_nodes_in_group("aliens"):
+			if not is_instance_valid(a): continue
+			if a.get_instance_id() in nuke_hit_ids: continue
+			var dist = nuke_origin.distance_to(a.global_position)
+			if dist <= nuke_radius:
+				a.take_damage(CFG.nuke_damage)
+				nuke_hit_ids[a.get_instance_id()] = true
+	if nuke_radius >= CFG.nuke_range:
+		nuke_radius = 0.0
+		nuke_hit_ids.clear()
 
 
 func _process_regen(delta):
@@ -411,10 +435,9 @@ func _apply_powerup(type: String):
 			text = "+%d HP" % CFG.heal_powerup_amount
 			color = Color(1.0, 0.3, 0.4)
 		"nuke":
-			if not NetworkManager.is_multiplayer_active() or NetworkManager.is_host():
-				for a in get_tree().get_nodes_in_group("aliens"):
-					if is_instance_valid(a) and not a.is_in_group("bosses"):
-						a.take_damage(CFG.nuke_damage)
+			nuke_radius = 0.01
+			nuke_origin = global_position
+			nuke_hit_ids.clear()
 			text = "NUKE!"
 			color = Color(1.0, 0.5, 0.1)
 		"mining_boost":
@@ -506,6 +529,8 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 		return false
 	if type == "repair_drone" and GameData.get_research_bonus("unlock_repair_drone") < 1.0:
 		return false
+	if type == "poison_turret" and GameData.get_research_bonus("turret_poison") < 1.0:
+		return false
 	if global_position.distance_to(bp) > CFG.build_range:
 		return false
 	for b in get_tree().get_nodes_in_group("buildings"):
@@ -547,6 +572,8 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 			building = preload("res://scenes/acid_turret.tscn").instantiate()
 		"repair_drone":
 			building = preload("res://scenes/repair_drone.tscn").instantiate()
+		"poison_turret":
+			building = preload("res://scenes/poison_turret.tscn").instantiate()
 
 	if building:
 		building.global_position = bp
@@ -832,3 +859,7 @@ func _draw():
 				draw_rect(Rect2(ghost_pos.x - 14, ghost_pos.y - 4, 28, 12), ghost_color)
 				draw_circle(ghost_pos + Vector2(0, -14), 8, ghost_color.lightened(0.2))
 				draw_arc(ghost_pos, CFG.repair_drone_range + GameData.get_research_bonus("repair_drone_range"), 0, TAU, 48, Color(0.3, 1.0, 0.4, 0.15), 1.5)
+			"poison_turret":
+				draw_circle(ghost_pos, 16, ghost_color)
+				draw_arc(ghost_pos, 16, 0, TAU, 32, ghost_color.lightened(0.3), 2.0)
+				draw_arc(ghost_pos, CFG.poison_range, 0, TAU, 48, Color(0.3, 0.85, 0.15, 0.15), 1.5)

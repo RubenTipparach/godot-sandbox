@@ -13,6 +13,12 @@ extends Resource
 @export var building_light_range: float = 80.0
 @export var hq_light_energy: float = 4.0
 @export var hq_light_range: float = 150.0
+@export var resource_iron_light_color: Color = Color(0.9, 0.25, 0.15)
+@export var resource_iron_light_energy: float = 3.0
+@export var resource_iron_light_range: float = 40.0
+@export var resource_crystal_light_color: Color = Color(0.3, 0.5, 1.0)
+@export var resource_crystal_light_energy: float = 4.0
+@export var resource_crystal_light_range: float = 50.0
 
 @export_group("World")
 @export var map_half_size: float = 1000.0
@@ -49,6 +55,8 @@ extends Resource
 @export var mining_boost_multiplier: int = 5
 @export var heal_powerup_amount: int = 50
 @export var nuke_damage: int = 50
+@export var nuke_range: float = 250.0
+@export var nuke_expand_speed: float = 300.0
 
 # =============================================================================
 # BULLET
@@ -193,6 +201,19 @@ extends Resource
 @export var repair_drone_tick_interval: float = 1.0
 
 # =============================================================================
+# POISON TURRET
+# =============================================================================
+@export_group("Poison Turret")
+@export var poison_range: float = 130.0
+@export var poison_dps: float = 4.0
+@export var poison_duration: float = 5.0
+@export var poison_tick_interval: float = 1.0
+@export var hp_poison_turret: int = 50
+@export var cost_poison_turret_iron: int = 22
+@export var cost_poison_turret_crystal: int = 14
+@export var power_poison_turret: float = 9.0
+
+# =============================================================================
 # WAVE ENEMIES
 # =============================================================================
 @export_group("Basic Alien")
@@ -273,6 +294,7 @@ func get_base_cost(type: String) -> Dictionary:
 		"flame_turret": return {"iron": cost_flame_turret_iron, "crystal": cost_flame_turret_crystal}
 		"acid_turret": return {"iron": cost_acid_turret_iron, "crystal": cost_acid_turret_crystal}
 		"repair_drone": return {"iron": cost_repair_drone_iron, "crystal": cost_repair_drone_crystal}
+		"poison_turret": return {"iron": cost_poison_turret_iron, "crystal": cost_poison_turret_crystal}
 	return {"iron": 10, "crystal": 5}
 
 

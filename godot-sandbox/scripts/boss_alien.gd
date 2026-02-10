@@ -6,6 +6,7 @@ var speed: float = 30.0
 var damage: int = 20
 var xp_value: int = 20
 var wave_level: int = 5
+var move_direction: Vector2 = Vector2.ZERO
 
 var burn_timer: float = 0.0
 var burn_dps: float = 0.0
@@ -13,6 +14,14 @@ var slow_factor: float = 1.0
 var slow_timer: float = 0.0
 var orbital_cooldown: float = 0.0
 var hit_flash_timer: float = 0.0
+var poison_timer: float = 0.0
+var poison_dps: float = 0.0
+
+# Stuck detection
+var _stuck_check_pos: Vector2 = Vector2.ZERO
+var _stuck_timer: float = 0.0
+var _unstuck_timer: float = 0.0
+var _unstuck_dir: Vector2 = Vector2.ZERO
 
 var pattern_timer: float = 0.0
 var current_pattern: int = 0
@@ -20,6 +29,7 @@ var pattern_duration: float = 4.0
 var attack_angle: float = 0.0
 var burst_timer: float = 0.0
 const PATTERNS = ["spiral", "ring", "aimed_burst", "rotating_streams"]
+const RESOURCE_AVOID_FORCE = 1.5
 
 # Multiplayer puppet
 var net_id: int = 0
@@ -46,6 +56,11 @@ func apply_slow(amount: float, duration: float = 2.0):
 	slow_timer = maxf(slow_timer, duration * 0.5)
 
 
+func apply_poison(dps: float, duration: float = 5.0):
+	poison_dps = maxf(poison_dps, dps)
+	poison_timer = maxf(poison_timer, duration * 0.5)  # Boss resists poison
+
+
 func _process(delta):
 	orbital_cooldown = maxf(0.0, orbital_cooldown - delta)
 	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
@@ -63,17 +78,41 @@ func _process(delta):
 			_die()
 			return
 
+	if poison_timer > 0:
+		poison_timer -= delta
+		hp -= int(poison_dps * delta)
+		if hp <= 0:
+			_die()
+			return
+
 	if slow_timer > 0:
 		slow_timer -= delta
 		if slow_timer <= 0:
 			slow_factor = 1.0
 
-	var target = _find_player()
-	if target:
-		var dist = global_position.distance_to(target.global_position)
-		var dir = (target.global_position - global_position).normalized()
-		if dist > 150:
-			position += dir * speed * slow_factor * delta
+	# Stuck detection
+	_stuck_timer += delta
+	if _stuck_timer >= 0.5:
+		if _stuck_check_pos != Vector2.ZERO and global_position.distance_to(_stuck_check_pos) < 3.0:
+			_unstuck_timer = randf_range(1.0, 2.0)
+			_unstuck_dir = Vector2.from_angle(randf() * TAU)
+		_stuck_check_pos = global_position
+		_stuck_timer = 0.0
+
+	if _unstuck_timer > 0:
+		_unstuck_timer -= delta
+		position += _unstuck_dir * speed * slow_factor * delta
+		move_direction = _unstuck_dir
+	else:
+		var target = _find_player()
+		if target:
+			var dist = global_position.distance_to(target.global_position)
+			var dir = (target.global_position - global_position).normalized()
+			if dist > 150:
+				var resource_avoid = _get_resource_avoidance()
+				var move_dir = (dir + resource_avoid * RESOURCE_AVOID_FORCE).normalized()
+				position += move_dir * speed * slow_factor * delta
+				move_direction = move_dir
 
 	pattern_timer += delta
 	burst_timer += delta
@@ -134,6 +173,19 @@ func _find_player() -> Node2D:
 	return null
 
 
+func _get_resource_avoidance() -> Vector2:
+	var avoidance = Vector2.ZERO
+	for r in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(r): continue
+		var diff = global_position - r.global_position
+		var dist = diff.length()
+		var r_size = (10.0 + r.amount * 0.5) if "amount" in r else 15.0
+		var avoid_dist = r_size + 25.0
+		if dist < avoid_dist and dist > 0.1:
+			avoidance += diff.normalized() * (1.0 - dist / avoid_dist)
+	return avoidance.normalized() if avoidance.length() > 0 else Vector2.ZERO
+
+
 func take_damage(amount: int):
 	if is_puppet:
 		return
@@ -177,6 +229,8 @@ func _draw():
 		body_color = body_color.lerp(Color(1, 0.5, 0), 0.3)
 	if slow_timer > 0:
 		body_color = body_color.lerp(Color(0.5, 0.8, 1.0), 0.3)
+	if poison_timer > 0:
+		body_color = body_color.lerp(Color(0.3, 0.8, 0.1), 0.3)
 
 	var pts = PackedVector2Array()
 	for i in range(10):

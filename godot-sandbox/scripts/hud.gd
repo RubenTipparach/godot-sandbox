@@ -236,6 +236,7 @@ func _ready():
 	build_cost_labels.append(_build_icon(build_hbox, "flame_turret", "9", "Flame Turret"))
 	build_cost_labels.append(_build_icon(build_hbox, "acid_turret", "0", "Acid Turret"))
 	build_cost_labels.append(_build_icon(build_hbox, "repair_drone", "Q", "Repair Drone"))
+	build_cost_labels.append(_build_icon(build_hbox, "poison_turret", "E", "Poison Turret"))
 
 	# Instant build bar tooltip (bypasses Godot's tooltip delay)
 	build_bar_tooltip = PanelContainer.new()
@@ -1617,6 +1618,7 @@ func _get_power_info(build_type: String) -> String:
 		"flame_turret": return "-%.0f" % CFG.power_flame_turret
 		"acid_turret": return "-%.0f" % CFG.power_acid_turret
 		"repair_drone": return "-%.0f" % CFG.power_repair_drone
+		"poison_turret": return "-%.0f" % CFG.power_poison_turret
 	return ""
 
 
@@ -1632,6 +1634,7 @@ func _get_building_power_info(bname: String) -> String:
 		"Flame Turret": return "-%.0f" % CFG.power_flame_turret
 		"Acid Turret": return "-%.0f" % CFG.power_acid_turret
 		"Repair Drone": return "-%.0f" % CFG.power_repair_drone
+		"Poison Turret": return "-%.0f" % CFG.power_poison_turret
 	return ""
 
 
@@ -1899,6 +1902,8 @@ func _update_build_costs(player: Node2D):
 				info["icon"].locked = GameData.get_research_bonus("unlock_battery") < 1.0
 			"repair_drone":
 				info["icon"].locked = GameData.get_research_bonus("unlock_repair_drone") < 1.0
+			"poison_turret":
+				info["icon"].locked = GameData.get_research_bonus("turret_poison") < 1.0
 			_:
 				info["icon"].locked = false
 

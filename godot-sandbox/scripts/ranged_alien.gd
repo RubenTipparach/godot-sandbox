@@ -5,12 +5,14 @@ var max_hp: int = 20
 var speed: float = 50.0
 var damage: int = 5
 var xp_value: int = 2
+var move_direction: Vector2 = Vector2.ZERO
 var shoot_timer: float = 0.0
 const SHOOT_INTERVAL = 2.0
 const PREFERRED_DIST = 180.0
 const ATTACK_RANGE = 300.0
 const SEPARATION_RADIUS = 30.0
 const SEPARATION_FORCE = 0.5
+const RESOURCE_AVOID_FORCE = 1.5
 
 var burn_timer: float = 0.0
 var burn_dps: float = 0.0
@@ -19,6 +21,14 @@ var slow_timer: float = 0.0
 var orbital_cooldown: float = 0.0
 var hit_flash_timer: float = 0.0
 var acid_timer: float = 0.0
+var poison_timer: float = 0.0
+var poison_dps: float = 0.0
+
+# Stuck detection
+var _stuck_check_pos: Vector2 = Vector2.ZERO
+var _stuck_timer: float = 0.0
+var _unstuck_timer: float = 0.0
+var _unstuck_dir: Vector2 = Vector2.ZERO
 
 # Multiplayer puppet
 var net_id: int = 0
@@ -44,6 +54,11 @@ func apply_slow(amount: float, duration: float = 2.0):
 	slow_timer = maxf(slow_timer, duration)
 
 
+func apply_poison(dps: float, duration: float = 5.0):
+	poison_dps = maxf(poison_dps, dps)
+	poison_timer = maxf(poison_timer, duration)
+
+
 func _process(delta):
 	orbital_cooldown = maxf(0.0, orbital_cooldown - delta)
 	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
@@ -62,30 +77,61 @@ func _process(delta):
 			_die()
 			return
 
+	if poison_timer > 0:
+		poison_timer -= delta
+		hp -= int(poison_dps * delta)
+		if hp <= 0:
+			_die()
+			return
+		for other in get_tree().get_nodes_in_group("aliens"):
+			if other == self or not is_instance_valid(other): continue
+			if "poison_timer" in other and other.poison_timer <= 0:
+				if global_position.distance_to(other.global_position) < SEPARATION_RADIUS * 1.2:
+					other.apply_poison(poison_dps * 0.7, poison_timer * 0.5)
+
 	if slow_timer > 0:
 		slow_timer -= delta
 		if slow_timer <= 0:
 			slow_factor = 1.0
 
-	var target = _find_target()
-	if target:
-		var dist = global_position.distance_to(target.global_position)
-		var dir = (target.global_position - global_position).normalized()
-		var separation = _get_separation_force()
+	# Stuck detection
+	_stuck_timer += delta
+	if _stuck_timer >= 0.5:
+		if _stuck_check_pos != Vector2.ZERO and global_position.distance_to(_stuck_check_pos) < 3.0:
+			_unstuck_timer = randf_range(1.0, 2.0)
+			_unstuck_dir = Vector2.from_angle(randf() * TAU)
+		_stuck_check_pos = global_position
+		_stuck_timer = 0.0
 
-		if dist > PREFERRED_DIST + 30:
-			var move_dir = (dir + separation * SEPARATION_FORCE).normalized()
-			position += move_dir * speed * slow_factor * delta
-		elif dist < PREFERRED_DIST - 30:
-			var move_dir = (-dir + separation * SEPARATION_FORCE).normalized()
-			position += move_dir * speed * slow_factor * delta * 0.5
-		elif separation.length() > 0.1:
-			position += separation * speed * slow_factor * delta * 0.3
+	if _unstuck_timer > 0:
+		_unstuck_timer -= delta
+		position += _unstuck_dir * speed * slow_factor * delta
+		move_direction = _unstuck_dir
+	else:
+		var target = _find_target()
+		if target:
+			var dist = global_position.distance_to(target.global_position)
+			var dir = (target.global_position - global_position).normalized()
+			var separation = _get_separation_force()
+			var resource_avoid = _get_resource_avoidance()
 
-		shoot_timer += delta
-		if shoot_timer >= SHOOT_INTERVAL and dist < ATTACK_RANGE:
-			shoot_timer = 0.0
-			_shoot_at(target)
+			if dist > PREFERRED_DIST + 30:
+				var move_dir = (dir + separation * SEPARATION_FORCE + resource_avoid * RESOURCE_AVOID_FORCE).normalized()
+				position += move_dir * speed * slow_factor * delta
+				move_direction = move_dir
+			elif dist < PREFERRED_DIST - 30:
+				var move_dir = (-dir + separation * SEPARATION_FORCE + resource_avoid * RESOURCE_AVOID_FORCE).normalized()
+				position += move_dir * speed * slow_factor * delta * 0.5
+				move_direction = move_dir
+			elif (separation + resource_avoid).length() > 0.1:
+				var move_dir = (separation + resource_avoid).normalized()
+				position += move_dir * speed * slow_factor * delta * 0.3
+				move_direction = move_dir
+
+			shoot_timer += delta
+			if shoot_timer >= SHOOT_INTERVAL and dist < ATTACK_RANGE:
+				shoot_timer = 0.0
+				_shoot_at(target)
 
 	queue_redraw()
 
@@ -112,6 +158,19 @@ func _get_separation_force() -> Vector2:
 		if dist < SEPARATION_RADIUS and dist > 0.1:
 			separation += diff.normalized() * (1.0 - dist / SEPARATION_RADIUS)
 	return separation.normalized() if separation.length() > 0 else Vector2.ZERO
+
+
+func _get_resource_avoidance() -> Vector2:
+	var avoidance = Vector2.ZERO
+	for r in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(r): continue
+		var diff = global_position - r.global_position
+		var dist = diff.length()
+		var r_size = (10.0 + r.amount * 0.5) if "amount" in r else 15.0
+		var avoid_dist = r_size + 20.0
+		if dist < avoid_dist and dist > 0.1:
+			avoidance += diff.normalized() * (1.0 - dist / avoid_dist)
+	return avoidance.normalized() if avoidance.length() > 0 else Vector2.ZERO
 
 
 func _shoot_at(target: Node2D):
@@ -175,6 +234,8 @@ func _draw():
 		body_color = body_color.lerp(Color(0.5, 0.8, 1.0), 0.4)
 	if acid_timer > 0 and hit_flash_timer <= 0:
 		body_color = body_color.lerp(Color(0.2, 0.9, 0.1), 0.5)
+	if poison_timer > 0 and hit_flash_timer <= 0:
+		body_color = body_color.lerp(Color(0.3, 0.8, 0.1), 0.5)
 
 	var pts = PackedVector2Array([
 		Vector2(0, -size),

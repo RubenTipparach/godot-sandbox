@@ -6,11 +6,13 @@ var speed: float = 60.0
 var damage: int = 8
 var xp_value: int = 1
 var alien_type: String = "basic"
+var move_direction: Vector2 = Vector2.ZERO
 var attack_timer: float = 0.0
 const ATTACK_INTERVAL = 1.0
 const ATTACK_RANGE = 28.0
 const SEPARATION_RADIUS = 25.0  # Distance at which aliens start avoiding each other
 const SEPARATION_FORCE = 0.6  # How strongly they push apart (0-1)
+const RESOURCE_AVOID_FORCE = 1.5
 
 # Status effects
 var burn_timer: float = 0.0
@@ -22,6 +24,14 @@ var hit_flash_timer: float = 0.0
 var tower_slow: float = 0.0  # From slow towers
 var tower_slow_timer: float = 0.0
 var acid_timer: float = 0.0  # Tint timer from acid puddles
+var poison_timer: float = 0.0
+var poison_dps: float = 0.0
+
+# Stuck detection
+var _stuck_check_pos: Vector2 = Vector2.ZERO
+var _stuck_timer: float = 0.0
+var _unstuck_timer: float = 0.0
+var _unstuck_dir: Vector2 = Vector2.ZERO
 
 # Multiplayer puppet
 var net_id: int = 0
@@ -47,6 +57,11 @@ func apply_slow(amount: float, duration: float = 2.0):
 	slow_timer = maxf(slow_timer, duration)
 
 
+func apply_poison(dps: float, duration: float = 5.0):
+	poison_dps = maxf(poison_dps, dps)
+	poison_timer = maxf(poison_timer, duration)
+
+
 func _process(delta):
 	orbital_cooldown = maxf(0.0, orbital_cooldown - delta)
 	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
@@ -70,6 +85,19 @@ func _process(delta):
 		if slow_timer <= 0:
 			slow_factor = 1.0
 
+	if poison_timer > 0:
+		poison_timer -= delta
+		hp -= int(poison_dps * delta)
+		if hp <= 0:
+			_die()
+			return
+		# Spread poison to nearby non-poisoned aliens
+		for other in get_tree().get_nodes_in_group("aliens"):
+			if other == self or not is_instance_valid(other): continue
+			if "poison_timer" in other and other.poison_timer <= 0:
+				if global_position.distance_to(other.global_position) < SEPARATION_RADIUS * 1.2:
+					other.apply_poison(poison_dps * 0.7, poison_timer * 0.5)
+
 	# Tower slow decay
 	if tower_slow_timer > 0:
 		tower_slow_timer -= delta
@@ -78,22 +106,40 @@ func _process(delta):
 
 	var total_slow = slow_factor * (1.0 - tower_slow)
 
-	var target = _find_target()
-	if target:
-		var dir = (target.global_position - global_position).normalized()
-		var dist = global_position.distance_to(target.global_position)
-		if dist > ATTACK_RANGE:
-			# Add separation from other aliens
-			var separation = _get_separation_force()
-			var move_dir = (dir + separation * SEPARATION_FORCE).normalized()
-			position += move_dir * speed * total_slow * delta
-			attack_timer = 0.0
-		else:
-			attack_timer += delta
-			if attack_timer >= ATTACK_INTERVAL:
+	# Stuck detection: check every 0.5s if we've barely moved
+	_stuck_timer += delta
+	if _stuck_timer >= 0.5:
+		if _stuck_check_pos != Vector2.ZERO and global_position.distance_to(_stuck_check_pos) < 3.0:
+			_unstuck_timer = randf_range(1.0, 2.0)
+			# Pick a random perpendicular-ish direction to escape
+			var escape_angle = randf() * TAU
+			_unstuck_dir = Vector2.from_angle(escape_angle)
+		_stuck_check_pos = global_position
+		_stuck_timer = 0.0
+
+	if _unstuck_timer > 0:
+		_unstuck_timer -= delta
+		position += _unstuck_dir * speed * total_slow * delta
+		move_direction = _unstuck_dir
+	else:
+		var target = _find_target()
+		if target:
+			var dir = (target.global_position - global_position).normalized()
+			var dist = global_position.distance_to(target.global_position)
+			if dist > ATTACK_RANGE:
+				# Add separation from other aliens + resource avoidance
+				var separation = _get_separation_force()
+				var resource_avoid = _get_resource_avoidance()
+				var move_dir = (dir + separation * SEPARATION_FORCE + resource_avoid * RESOURCE_AVOID_FORCE).normalized()
+				position += move_dir * speed * total_slow * delta
+				move_direction = move_dir
 				attack_timer = 0.0
-				if target.has_method("take_damage"):
-					target.take_damage(damage)
+			else:
+				attack_timer += delta
+				if attack_timer >= ATTACK_INTERVAL:
+					attack_timer = 0.0
+					if target.has_method("take_damage"):
+						target.take_damage(damage)
 
 	queue_redraw()
 
@@ -127,6 +173,19 @@ func _get_separation_force() -> Vector2:
 			# Push away from nearby aliens, stronger when closer
 			separation += diff.normalized() * (1.0 - dist / SEPARATION_RADIUS)
 	return separation.normalized() if separation.length() > 0 else Vector2.ZERO
+
+
+func _get_resource_avoidance() -> Vector2:
+	var avoidance = Vector2.ZERO
+	for r in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(r): continue
+		var diff = global_position - r.global_position
+		var dist = diff.length()
+		var r_size = (10.0 + r.amount * 0.5) if "amount" in r else 15.0
+		var avoid_dist = r_size + 20.0
+		if dist < avoid_dist and dist > 0.1:
+			avoidance += diff.normalized() * (1.0 - dist / avoid_dist)
+	return avoidance.normalized() if avoidance.length() > 0 else Vector2.ZERO
 
 
 func take_damage(amount: int):
@@ -194,6 +253,8 @@ func _draw():
 			body_color = body_color.lerp(Color(0.2, 0.9, 0.1), 0.5)
 		if slow_timer > 0 or tower_slow > 0:
 			body_color = body_color.lerp(Color(0.3, 0.6, 1.0), 0.5)
+		if poison_timer > 0:
+			body_color = body_color.lerp(Color(0.3, 0.8, 0.1), 0.5)
 
 	var points = PackedVector2Array()
 	for i in range(7):
@@ -219,6 +280,11 @@ func _draw():
 
 	if acid_timer > 0:
 		draw_arc(Vector2.ZERO, size + 2, 0, TAU, 12, Color(0.2, 0.9, 0.1, 0.4), 1.5)
+
+	if poison_timer > 0:
+		var t2 = Time.get_ticks_msec() * 0.008
+		for j in range(4):
+			draw_circle(Vector2(sin(t2 + j * 1.5) * 6, cos(t2 + j * 2.0) * 6), 1.5, Color(0.3, 0.85, 0.15, 0.5))
 
 	if hp < max_hp:
 		draw_rect(Rect2(-size, -size - 8, size * 2, 3), Color(0.3, 0, 0))

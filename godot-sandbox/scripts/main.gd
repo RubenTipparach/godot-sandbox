@@ -14,8 +14,21 @@ var mouse_world_2d: Vector2 = Vector2.ZERO
 var building_lights: Dictionary = {}   # Node2D -> OmniLight3D
 var player_lights: Dictionary = {}     # Node2D -> OmniLight3D
 var alien_lights: Dictionary = {}      # Node2D -> OmniLight3D
-var mining_laser_lights: Array = []    # Array of OmniLight3D for active laser targets
-var mining_laser_meshes: Array = []    # Array of Node3D for active laser beams
+var resource_lights: Dictionary = {}   # Node2D -> OmniLight3D
+var mining_laser_beams: Dictionary = {} # target -> pool entry dict
+var _laser_pool: Array = []              # Pre-created beam objects (grabbed on demand)
+const LASER_POOL_SIZE = 12
+var repair_beam_active: Dictionary = {} # "drone_id:target_id" -> pool entry dict
+# Lightning bolt pool
+var _lightning_pool: Array = []
+const LIGHTNING_POOL_SIZE = 16
+var lightning_beam_active: Dictionary = {} # building -> Array of pool entries
+# Acid puddle 3D
+var puddle_meshes: Dictionary = {}      # Node2D -> MeshInstance3D
+# Pylon wire 3D
+var wire_meshes: Dictionary = {}        # String (pair key) -> MeshInstance3D
+var _wire_mat_powered: StandardMaterial3D
+var _wire_mat_unpowered: StandardMaterial3D
 # HQ light
 var hq_light_3d: OmniLight3D
 # 3D mesh representations (replaces SubViewport mirrors)
@@ -28,8 +41,25 @@ var gem_meshes: Dictionary = {}         # Node2D -> Node3D
 var powerup_meshes: Dictionary = {}     # Node2D -> Node3D
 var orb_meshes: Dictionary = {}         # Node2D -> Node3D
 var _mat_cache: Dictionary = {}         # String -> StandardMaterial3D
+var resource_init_amt: Dictionary = {}   # Node2D -> int (initial amount for scale calc)
+var _laser_shader: Shader                # Cached laser beam shader
+var _crystal_shader: Shader              # Cached crystal shader
+var _iron_material: StandardMaterial3D   # Cached iron PBR material
 var hp_bar_layer: CanvasLayer            # Screen-space HP bar overlay
 var hp_bar_nodes: Dictionary = {}        # Node2D -> Control (HP bar UI)
+var build_preview_mesh: Node3D = null    # 3D ghost for build placement
+var build_preview_type: String = ""      # Current preview building type
+var aoe_meshes: Dictionary = {}          # Node2D -> MeshInstance3D (combat range rings, selected-only)
+var aoe_player_mesh: MeshInstance3D = null  # Player damage aura mesh
+var _aoe_shader: Shader                  # Cached dithered AoE shader (with ring_width uniform)
+# Energy grid merged-disc system (shader-based union of circles)
+var _energy_proj_mesh: MeshInstance3D     # Large ground plane with energy disc shader
+var _energy_proj_shader: Shader
+var _energy_proj_mat: ShaderMaterial
+# Nuke explosion visual
+var _nuke_ring_mesh: MeshInstance3D
+var _nuke_ring_mat: ShaderMaterial
+var _nuke_flash_light: OmniLight3D
 
 var wave_number: int = 0
 var wave_timer: float = CFG.first_wave_delay
@@ -105,7 +135,8 @@ func _update_power_system(delta):
 	var flame_count = get_tree().get_nodes_in_group("flame_turrets").size()
 	var acid_count = get_tree().get_nodes_in_group("acid_turrets").size()
 	var drone_count = get_tree().get_nodes_in_group("repair_drones").size()
-	total_power_consumption = turret_count * CFG.power_turret + factory_count * CFG.power_factory + lightning_count * CFG.power_lightning + slow_count * CFG.power_slow + pylon_count * CFG.power_pylon + flame_count * CFG.power_flame_turret + acid_count * CFG.power_acid_turret + drone_count * CFG.power_repair_drone
+	var poison_count = get_tree().get_nodes_in_group("poison_turrets").size()
+	total_power_consumption = turret_count * CFG.power_turret + factory_count * CFG.power_factory + lightning_count * CFG.power_lightning + slow_count * CFG.power_slow + pylon_count * CFG.power_pylon + flame_count * CFG.power_flame_turret + acid_count * CFG.power_acid_turret + drone_count * CFG.power_repair_drone + poison_count * CFG.power_poison_turret
 
 	# Calculate energy storage capacity (HQ = 200 base, each battery = 50)
 	var battery_count = get_tree().get_nodes_in_group("batteries").size()
@@ -173,6 +204,7 @@ func _setup_inputs():
 	_add_key_action("build_flame_turret", KEY_9)
 	_add_key_action("build_acid_turret", KEY_0)
 	_add_key_action("build_repair_drone", KEY_Q)
+	_add_key_action("build_poison_turret", KEY_E)
 	_add_key_action("pause", KEY_ESCAPE)
 	_add_mouse_action("shoot", MOUSE_BUTTON_LEFT)
 
@@ -234,6 +266,7 @@ func _create_world():
 	game_world_2d = Node2D.new()
 	game_world_2d.name = "GameWorld"
 	game_world_2d.y_sort_enabled = true
+	game_world_2d.process_mode = Node.PROCESS_MODE_PAUSABLE
 	game_viewport.add_child(game_world_2d)
 
 	resources_node = Node2D.new()
@@ -293,6 +326,282 @@ func _create_world():
 	game_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_OPAQUE_PREPASS
 	add_child(game_sprite)
 
+	# --- Pre-warm shaders (force GPU compilation at startup, not mid-game) ---
+	_laser_shader = Shader.new()
+	_laser_shader.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled;
+uniform vec4 beam_color : source_color = vec4(1.0, 0.8, 0.3, 1.0);
+uniform float time_offset = 0.0;
+void fragment() {
+	float t = TIME + time_offset;
+	float pulse = 0.7 + 0.3 * sin(t * 8.0);
+	float scroll = fract(UV.y * 3.0 - t * 2.0);
+	float band = smoothstep(0.0, 0.15, scroll) * smoothstep(1.0, 0.85, scroll);
+	float edge_glow = 1.0 - abs(UV.x - 0.5) * 2.0;
+	edge_glow = pow(edge_glow, 0.5);
+	float brightness = pulse * (0.6 + 0.4 * band) * edge_glow;
+	ALBEDO = beam_color.rgb * brightness;
+	EMISSION = beam_color.rgb * brightness * 2.0;
+	ALPHA = clamp(brightness * beam_color.a, 0.0, 1.0);
+}
+"""
+	_aoe_shader = Shader.new()
+	_aoe_shader.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, shadows_disabled, depth_draw_never;
+uniform vec4 ring_color : source_color = vec4(0.3, 0.6, 1.0, 0.5);
+uniform float ring_width = 0.2;
+void fragment() {
+	vec2 centered = UV * 2.0 - 1.0;
+	float dist = length(centered);
+	if (dist > 1.0) discard;
+	vec2 sp = floor(FRAGCOORD.xy);
+	float m1 = mod(sp.x + sp.y, 2.0);
+	float m2 = mod(floor(sp.x * 0.5) + floor(sp.y * 0.5), 2.0);
+	float threshold = (m1 * 2.0 + m2 + 0.5) / 4.0;
+	float inner = 1.0 - ring_width;
+	float fade_in = inner + ring_width * 0.3;
+	float fade_out = 1.0 - ring_width * 0.3;
+	float ring = smoothstep(inner, fade_in, dist) * (1.0 - smoothstep(fade_out, 1.0, dist));
+	float fill = (1.0 - smoothstep(0.0, inner, dist)) * 0.08;
+	float alpha = (ring * 0.8 + fill) * ring_color.a;
+	if (alpha < threshold) discard;
+	ALBEDO = ring_color.rgb;
+	ALPHA = 1.0;
+}
+"""
+	_crystal_shader = Shader.new()
+	_crystal_shader.code = """
+shader_type spatial;
+render_mode cull_disabled;
+uniform vec4 crystal_color : source_color = vec4(0.2, 0.4, 0.95, 1.0);
+uniform float refraction_strength = 0.08;
+void fragment() {
+	float t = TIME;
+	float facet = abs(sin(VERTEX.x * 2.0 + VERTEX.y * 3.0 + t * 0.5));
+	float shimmer = sin(t * 2.0 + VERTEX.y * 4.0) * 0.5 + 0.5;
+	float edge = 1.0 - abs(dot(NORMAL, VIEW));
+	float fresnel = pow(edge, 2.5);
+	ALBEDO = crystal_color.rgb * (0.3 + 0.2 * facet);
+	METALLIC = 0.1;
+	ROUGHNESS = 0.05;
+	SPECULAR = 0.9;
+	EMISSION = crystal_color.rgb * (fresnel * 1.5 + shimmer * 0.3 + facet * 0.2);
+	ALPHA = 0.85 + fresnel * 0.15;
+	RIM = 0.6;
+	RIM_TINT = 0.3;
+}
+"""
+	# --- Energy merged-disc projection shader (union of circles on a single plane) ---
+	_energy_proj_shader = Shader.new()
+	_energy_proj_shader.code = """
+shader_type spatial;
+render_mode unshaded, cull_disabled, shadows_disabled, depth_draw_never;
+uniform vec4 disc_color : source_color = vec4(0.2, 0.5, 1.0, 0.35);
+uniform int source_count = 0;
+uniform vec4 sources[32];
+varying vec3 world_vertex;
+void vertex() {
+	world_vertex = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+}
+void fragment() {
+	float max_cov = 0.0;
+	for (int i = 0; i < source_count; i++) {
+		float d = length(world_vertex.xz - sources[i].xy);
+		float r = sources[i].z;
+		max_cov = max(max_cov, 1.0 - smoothstep(r * 0.92, r, d));
+	}
+	if (max_cov < 0.01) discard;
+	vec2 sp = floor(FRAGCOORD.xy);
+	float m1 = mod(sp.x + sp.y, 2.0);
+	float m2 = mod(floor(sp.x * 0.5) + floor(sp.y * 0.5), 2.0);
+	float threshold = (m1 * 2.0 + m2 + 0.5) / 4.0;
+	float alpha = max_cov * disc_color.a;
+	if (alpha < threshold) discard;
+	ALBEDO = disc_color.rgb;
+	ALPHA = 1.0;
+}
+"""
+	_energy_proj_mat = ShaderMaterial.new()
+	_energy_proj_mat.shader = _energy_proj_shader
+	_energy_proj_mat.set_shader_parameter("disc_color", Color(0.2, 0.5, 1.0, 0.35))
+	_energy_proj_mat.set_shader_parameter("source_count", 0)
+	_energy_proj_mesh = MeshInstance3D.new()
+	var energy_plane = PlaneMesh.new()
+	energy_plane.size = Vector2(CFG.map_half_size * 2, CFG.map_half_size * 2)
+	_energy_proj_mesh.mesh = energy_plane
+	_energy_proj_mesh.material_override = _energy_proj_mat
+	_energy_proj_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_energy_proj_mesh.position = Vector3(0, 0.15, 0)
+	_energy_proj_mesh.visible = false
+	add_child(_energy_proj_mesh)
+
+	# --- Nuke explosion ring (reuses AoE shader, scaled dynamically) ---
+	_nuke_ring_mesh = MeshInstance3D.new()
+	var nuke_plane = PlaneMesh.new()
+	nuke_plane.size = Vector2(2, 2)  # Unit size, scaled via transform
+	_nuke_ring_mesh.mesh = nuke_plane
+	_nuke_ring_mesh.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_nuke_ring_mat = ShaderMaterial.new()
+	_nuke_ring_mat.shader = _aoe_shader
+	_nuke_ring_mat.set_shader_parameter("ring_color", Color(1.0, 0.5, 0.1, 0.7))
+	_nuke_ring_mat.set_shader_parameter("ring_width", 0.3)
+	_nuke_ring_mesh.material_override = _nuke_ring_mat
+	_nuke_ring_mesh.visible = false
+	_nuke_ring_mesh.position.y = 0.2
+	add_child(_nuke_ring_mesh)
+	_nuke_flash_light = OmniLight3D.new()
+	_nuke_flash_light.light_color = Color(1.0, 0.6, 0.2)
+	_nuke_flash_light.light_energy = 0.0
+	_nuke_flash_light.omni_range = 200.0
+	_nuke_flash_light.omni_attenuation = 0.8
+	_nuke_flash_light.shadow_enabled = false
+	_nuke_flash_light.visible = false
+	add_child(_nuke_flash_light)
+
+	# Tiny invisible meshes that force GPU shader compilation during loading
+	for shader in [_laser_shader, _aoe_shader, _crystal_shader, _energy_proj_shader]:
+		var warmup = MeshInstance3D.new()
+		var cm = CylinderMesh.new()
+		cm.height = 0.01
+		cm.top_radius = 0.01
+		cm.bottom_radius = 0.01
+		warmup.mesh = cm
+		var wm = ShaderMaterial.new()
+		wm.shader = shader
+		warmup.material_override = wm
+		warmup.position = Vector3(0, -500, 0)
+		warmup.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(warmup)
+
+	# --- Pre-create laser beam pool (zero allocation when mining starts) ---
+	for i in range(LASER_POOL_SIZE):
+		var e = {}
+		var laser_light = OmniLight3D.new()
+		laser_light.light_energy = 2.0
+		laser_light.omni_range = 45.0
+		laser_light.omni_attenuation = 1.0
+		laser_light.shadow_enabled = false
+		laser_light.visible = false
+		add_child(laser_light)
+		e["light"] = laser_light
+		var beam_group = Node3D.new()
+		beam_group.visible = false
+		add_child(beam_group)
+		e["group"] = beam_group
+		# Outer glow cylinder (unit height, scaled via transform)
+		var mi_outer = MeshInstance3D.new()
+		var cm_outer = CylinderMesh.new()
+		cm_outer.top_radius = 2.0
+		cm_outer.bottom_radius = 2.0
+		cm_outer.height = 1.0
+		cm_outer.radial_segments = 8
+		mi_outer.mesh = cm_outer
+		mi_outer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var outer_mat = ShaderMaterial.new()
+		outer_mat.shader = _laser_shader
+		outer_mat.set_shader_parameter("beam_color", Color(1.0, 0.8, 0.3, 0.6))
+		outer_mat.set_shader_parameter("time_offset", 0.0)
+		mi_outer.material_override = outer_mat
+		beam_group.add_child(mi_outer)
+		e["outer_mi"] = mi_outer
+		e["outer_mat"] = outer_mat
+		# Inner core cylinder (unit height)
+		var mi_inner = MeshInstance3D.new()
+		var cm_inner = CylinderMesh.new()
+		cm_inner.top_radius = 0.6
+		cm_inner.bottom_radius = 0.6
+		cm_inner.height = 1.0
+		cm_inner.radial_segments = 6
+		mi_inner.mesh = cm_inner
+		mi_inner.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var inner_mat = ShaderMaterial.new()
+		inner_mat.shader = _laser_shader
+		inner_mat.set_shader_parameter("beam_color", Color(1, 1, 1, 1))
+		inner_mat.set_shader_parameter("time_offset", 0.5)
+		mi_inner.material_override = inner_mat
+		beam_group.add_child(mi_inner)
+		e["inner_mi"] = mi_inner
+		e["inner_mat"] = inner_mat
+		# Impact sparks
+		var sparks = GPUParticles3D.new()
+		sparks.amount = 12
+		sparks.lifetime = 0.4
+		sparks.one_shot = false
+		sparks.explosiveness = 0.8
+		sparks.emitting = false
+		var spark_mat = ParticleProcessMaterial.new()
+		spark_mat.direction = Vector3(0, 1, 0)
+		spark_mat.spread = 45.0
+		spark_mat.initial_velocity_min = 15.0
+		spark_mat.initial_velocity_max = 40.0
+		spark_mat.gravity = Vector3(0, -60, 0)
+		spark_mat.scale_min = 0.5
+		spark_mat.scale_max = 1.5
+		spark_mat.color = Color(1.0, 0.8, 0.3)
+		sparks.process_material = spark_mat
+		var spark_mesh = SphereMesh.new()
+		spark_mesh.radius = 0.8
+		spark_mesh.height = 1.6
+		sparks.draw_pass_1 = spark_mesh
+		sparks.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		beam_group.add_child(sparks)
+		e["sparks"] = sparks
+		e["spark_mat"] = spark_mat
+		e["active"] = false
+		_laser_pool.append(e)
+
+	# --- Lightning bolt pool (thin cylinders, no sparks) ---
+	for i in range(LIGHTNING_POOL_SIZE):
+		var le = {}
+		var bolt_group = Node3D.new()
+		bolt_group.visible = false
+		add_child(bolt_group)
+		le["group"] = bolt_group
+		var bolt_mi = MeshInstance3D.new()
+		var bolt_cm = CylinderMesh.new()
+		bolt_cm.top_radius = 0.5
+		bolt_cm.bottom_radius = 0.5
+		bolt_cm.height = 1.0
+		bolt_cm.radial_segments = 4
+		bolt_mi.mesh = bolt_cm
+		var bolt_mat = StandardMaterial3D.new()
+		bolt_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		bolt_mat.albedo_color = Color(0.7, 0.85, 1.0)
+		bolt_mat.emission_enabled = true
+		bolt_mat.emission = Color(0.6, 0.8, 1.0)
+		bolt_mat.emission_energy_multiplier = 4.0
+		bolt_mi.material_override = bolt_mat
+		bolt_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		bolt_group.add_child(bolt_mi)
+		le["mi"] = bolt_mi
+		var bolt_light = OmniLight3D.new()
+		bolt_light.light_color = Color(0.6, 0.8, 1.0)
+		bolt_light.light_energy = 3.0
+		bolt_light.omni_range = 30.0
+		bolt_light.omni_attenuation = 1.2
+		bolt_light.shadow_enabled = false
+		bolt_light.visible = false
+		add_child(bolt_light)
+		le["light"] = bolt_light
+		le["active"] = false
+		_lightning_pool.append(le)
+
+	# --- Pylon wire materials (cached, two states) ---
+	_wire_mat_powered = StandardMaterial3D.new()
+	_wire_mat_powered.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_wire_mat_powered.albedo_color = Color(0.3, 0.7, 1.0)
+	_wire_mat_powered.emission_enabled = true
+	_wire_mat_powered.emission = Color(0.3, 0.7, 1.0)
+	_wire_mat_powered.emission_energy_multiplier = 1.0
+	_wire_mat_unpowered = StandardMaterial3D.new()
+	_wire_mat_unpowered.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_wire_mat_unpowered.albedo_color = Color(0.4, 0.35, 0.3)
+	_wire_mat_unpowered.emission_enabled = true
+	_wire_mat_unpowered.emission = Color(0.2, 0.2, 0.2)
+	_wire_mat_unpowered.emission_energy_multiplier = 0.2
+
 	# --- HP bar overlay (screen-space, below HUD) ---
 	hp_bar_layer = CanvasLayer.new()
 	hp_bar_layer.layer = 1  # Below HUD which is usually layer 2+
@@ -330,7 +639,7 @@ func _process(delta):
 	if game_over:
 		return
 
-	# When paused (during voting), only do network sync so RPCs still flow
+	# When paused (during voting), do network sync + 3D rendering but skip game logic
 	if get_tree().paused:
 		if NetworkManager.is_multiplayer_active():
 			state_sync_timer += delta
@@ -343,6 +652,10 @@ func _process(delta):
 		if is_instance_valid(hud_node):
 			var rates = get_factory_rates()
 			hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank, run_prestige)
+		# Keep 3D visuals in sync even during pause (entities may still move via RPCs)
+		_sync_3d_lights()
+		_sync_3d_meshes()
+		_sync_hp_bars()
 		return
 
 	var is_authority = not NetworkManager.is_multiplayer_active() or NetworkManager.is_host()
@@ -428,6 +741,18 @@ func _process(delta):
 	# Sync screen-space HP bars
 	_sync_hp_bars()
 
+	# Sync AoE range rings (dithered overlay)
+	_sync_aoe_rings()
+
+	# Sync 3D pylon wires
+	_sync_pylon_wires()
+
+	# Sync 3D build placement preview
+	_sync_build_preview()
+
+	# Sync nuke explosion visual
+	_sync_nuke_visual()
+
 	# Sync HQ light position
 	if is_instance_valid(hq_node) and is_instance_valid(hq_light_3d):
 		var hpos = hq_node.global_position
@@ -498,6 +823,10 @@ func _sync_3d_lights():
 		if not is_instance_valid(key):
 			alien_lights[key].queue_free()
 			alien_lights.erase(key)
+	for key in resource_lights.keys():
+		if not is_instance_valid(key):
+			resource_lights[key].queue_free()
+			resource_lights.erase(key)
 
 	# Building lights (skip HQ — it has its own dedicated light)
 	for b in get_tree().get_nodes_in_group("buildings"):
@@ -514,7 +843,16 @@ func _sync_3d_lights():
 			light.shadow_enabled = false
 			add_child(light)
 			building_lights[b] = light
-		building_lights[b].position = pos3d
+		var blight = building_lights[b]
+		blight.position = pos3d
+		# Unpowered buildings: dim light + red tint
+		var b_powered = not b.has_method("is_powered") or b.is_powered()
+		if b_powered:
+			blight.light_energy = CFG.building_light_energy
+			blight.light_color = bcolor
+		else:
+			blight.light_energy = 0.4
+			blight.light_color = Color(1.0, 0.15, 0.1)
 
 	# Player lights
 	for p in get_tree().get_nodes_in_group("player"):
@@ -535,16 +873,18 @@ func _sync_3d_lights():
 	# Alien lights (red/orange glow)
 	for a in get_tree().get_nodes_in_group("aliens"):
 		if not is_instance_valid(a): continue
-		var pos3d = Vector3(a.global_position.x, 8, a.global_position.y)
+		var is_boss = a.is_in_group("bosses")
+		var pos3d = Vector3(a.global_position.x, 30 if is_boss else 8, a.global_position.y)
 		if a not in alien_lights:
 			var light = OmniLight3D.new()
 			light.light_energy = 0.6
 			light.omni_range = 30.0
 			light.omni_attenuation = 1.5
 			var acolor = Color(0.9, 0.2, 0.1)
-			if a.is_in_group("bosses"):
-				light.light_energy = 2.0
-				light.omni_range = 60.0
+			if is_boss:
+				light.light_energy = 8.0
+				light.omni_range = 120.0
+				light.omni_attenuation = 0.8
 				acolor = Color(1.0, 0.15, 0.1)
 			light.light_color = acolor
 			light.shadow_enabled = false
@@ -552,76 +892,314 @@ func _sync_3d_lights():
 			alien_lights[a] = light
 		alien_lights[a].position = pos3d
 
-	# Mining laser lights + 3D beams — recreate each frame for active targets
-	for old_light in mining_laser_lights:
-		if is_instance_valid(old_light):
-			old_light.queue_free()
-	mining_laser_lights.clear()
-	for old_beam in mining_laser_meshes:
-		if is_instance_valid(old_beam):
-			old_beam.queue_free()
-	mining_laser_meshes.clear()
+	# Resource lights (blue for crystal, red for iron)
+	for r in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(r): continue
+		var rtype = r.resource_type if "resource_type" in r else "iron"
+		var rpos = Vector3(r.global_position.x, 15, r.global_position.y)
+		if r not in resource_lights:
+			var light = OmniLight3D.new()
+			if rtype == "crystal":
+				light.light_color = CFG.resource_crystal_light_color
+				light.light_energy = CFG.resource_crystal_light_energy
+				light.omni_range = CFG.resource_crystal_light_range
+			else:
+				light.light_color = CFG.resource_iron_light_color
+				light.light_energy = CFG.resource_iron_light_energy
+				light.omni_range = CFG.resource_iron_light_range
+			light.omni_attenuation = 1.2
+			light.shadow_enabled = false
+			add_child(light)
+			resource_lights[r] = light
+		resource_lights[r].position = rpos
+
+	# Mining laser beams — use pre-created pool, zero allocation at runtime
+	var active_targets: Dictionary = {}
 	for p in get_tree().get_nodes_in_group("player"):
 		if not is_instance_valid(p): continue
 		if not "mine_targets" in p: continue
 		var ppos = p.global_position
 		for target in p.mine_targets:
 			if not is_instance_valid(target): continue
+			active_targets[target] = ppos
 			var tpos = target.global_position
 			var lc = Color(1.0, 0.8, 0.3)
 			if "resource_type" in target and target.resource_type == "crystal":
 				lc = Color(0.4, 0.7, 1.0)
-			# Light at target
-			var laser_light = OmniLight3D.new()
-			laser_light.light_energy = 1.5
-			laser_light.omni_range = 40.0
-			laser_light.omni_attenuation = 1.0
-			laser_light.light_color = lc
-			laser_light.shadow_enabled = false
-			laser_light.position = Vector3(tpos.x, 6, tpos.y)
-			add_child(laser_light)
-			mining_laser_lights.append(laser_light)
-			# 3D beam from player center to resource surface
 			var t_amt = target.amount if "amount" in target else 10
 			var t_sz = 10.0 + t_amt * 0.5
 			var t_rtype = target.resource_type if "resource_type" in target else "iron"
 			var t_center_y = t_sz * 0.3 if t_rtype == "iron" else t_sz * 0.5
 			var start = Vector3(ppos.x, 8, ppos.y)
 			var raw_end = Vector3(tpos.x, t_center_y, tpos.y)
-			# Offset end toward player to hit surface instead of center
-			var to_player = (start - raw_end)
+			var to_player = start - raw_end
 			var to_len = to_player.length()
 			var surface_offset = minf(t_sz * 0.4, to_len * 0.5)
 			var end_pt = raw_end + to_player.normalized() * surface_offset if to_len > 0.1 else raw_end
 			var dist = start.distance_to(end_pt)
 			if dist < 0.1: continue
-			var beam_root = Node3D.new()
-			beam_root.position = start
-			beam_root.look_at(end_pt, Vector3.UP)
-			# Outer glow cylinder
-			var mi_outer = MeshInstance3D.new()
-			var cm_outer = CylinderMesh.new()
-			cm_outer.top_radius = 1.5
-			cm_outer.bottom_radius = 1.5
-			cm_outer.height = dist
-			mi_outer.mesh = cm_outer
-			mi_outer.material_override = _unlit_mat(lc.darkened(0.5))
-			mi_outer.rotation.x = PI / 2
-			mi_outer.position.z = -dist / 2.0
-			beam_root.add_child(mi_outer)
-			# Inner core cylinder
-			var mi_inner = MeshInstance3D.new()
-			var cm_inner = CylinderMesh.new()
-			cm_inner.top_radius = 0.4
-			cm_inner.bottom_radius = 0.4
-			cm_inner.height = dist
-			mi_inner.mesh = cm_inner
-			mi_inner.material_override = _unlit_mat(Color(1, 1, 1))
-			mi_inner.rotation.x = PI / 2
-			mi_inner.position.z = -dist / 2.0
-			beam_root.add_child(mi_inner)
-			add_child(beam_root)
-			mining_laser_meshes.append(beam_root)
+			var mid = (start + end_pt) / 2.0
+			var dir = (end_pt - start).normalized()
+			var side: Vector3
+			if abs(dir.dot(Vector3.UP)) < 0.999:
+				side = dir.cross(Vector3.UP).normalized()
+			else:
+				side = dir.cross(Vector3.FORWARD).normalized()
+			var fwd = side.cross(dir).normalized()
+			var scaled_basis = Basis(side, dir * dist, fwd)
+			if target in mining_laser_beams:
+				# UPDATE existing — just set transforms (no allocation)
+				var e = mining_laser_beams[target]
+				e["light"].position = Vector3(tpos.x, 6, tpos.y)
+				e["outer_mi"].global_transform = Transform3D(scaled_basis, mid)
+				e["inner_mi"].global_transform = Transform3D(scaled_basis, mid)
+				e["sparks"].global_position = end_pt
+				e["spark_mat"].direction = Vector3(to_player.x, 1, to_player.z).normalized()
+			else:
+				# ACTIVATE a pool entry (no node creation, just show + set uniforms)
+				var e = _acquire_laser_beam()
+				e["light"].light_color = lc
+				e["light"].position = Vector3(tpos.x, 6, tpos.y)
+				e["light"].visible = true
+				e["outer_mat"].set_shader_parameter("beam_color", Color(lc.r, lc.g, lc.b, 0.6))
+				e["outer_mat"].set_shader_parameter("time_offset", tpos.x * 0.01)
+				e["inner_mat"].set_shader_parameter("time_offset", tpos.x * 0.01 + 0.5)
+				e["outer_mi"].global_transform = Transform3D(scaled_basis, mid)
+				e["inner_mi"].global_transform = Transform3D(scaled_basis, mid)
+				e["spark_mat"].direction = Vector3(to_player.x, 1, to_player.z).normalized()
+				e["spark_mat"].color = lc
+				e["sparks"].global_position = end_pt
+				e["sparks"].emitting = true
+				e["group"].visible = true
+				e["active"] = true
+				mining_laser_beams[target] = e
+	# Return beams to pool for targets no longer being mined
+	for key in mining_laser_beams.keys():
+		if key not in active_targets or not is_instance_valid(key):
+			var e = mining_laser_beams[key]
+			e["light"].visible = false
+			e["group"].visible = false
+			e["sparks"].emitting = false
+			e["active"] = false
+			mining_laser_beams.erase(key)
+
+	# --- Repair drone beams (green, reuse laser pool) ---
+	var active_repair_keys: Dictionary = {}
+	for b in get_tree().get_nodes_in_group("repair_drones"):
+		if not is_instance_valid(b): continue
+		if not "repair_targets" in b or not "drone_angle" in b: continue
+		if not b.has_method("is_powered") or not b.is_powered(): continue
+		var mr = building_meshes.get(b)
+		if not mr: continue
+		var drone_node = mr.get_node_or_null("Drone")
+		if not drone_node: continue
+		var bpos = b.global_position
+		var drone_world = Vector3(bpos.x, 0, bpos.y) + drone_node.position
+		for target in b.repair_targets:
+			if not is_instance_valid(target): continue
+			var rkey = str(b.get_instance_id()) + ":" + str(target.get_instance_id())
+			active_repair_keys[rkey] = true
+			var tpos = target.global_position
+			var start = drone_world
+			var end_pt = Vector3(tpos.x, 10, tpos.y)
+			var dist2 = start.distance_to(end_pt)
+			if dist2 < 0.1: continue
+			var mid2 = (start + end_pt) / 2.0
+			var dir2 = (end_pt - start).normalized()
+			var side2: Vector3
+			if abs(dir2.dot(Vector3.UP)) < 0.999:
+				side2 = dir2.cross(Vector3.UP).normalized()
+			else:
+				side2 = dir2.cross(Vector3.FORWARD).normalized()
+			var fwd2 = side2.cross(dir2).normalized()
+			var scaled_basis2 = Basis(side2, dir2 * dist2, fwd2)
+			if rkey in repair_beam_active:
+				var re = repair_beam_active[rkey]
+				re["light"].position = end_pt
+				re["outer_mi"].global_transform = Transform3D(scaled_basis2, mid2)
+				re["inner_mi"].global_transform = Transform3D(scaled_basis2, mid2)
+				re["sparks"].global_position = end_pt
+			else:
+				var re = _acquire_laser_beam()
+				var gc = Color(0.3, 1.0, 0.5)
+				re["light"].light_color = gc
+				re["light"].position = end_pt
+				re["light"].visible = true
+				re["outer_mat"].set_shader_parameter("beam_color", Color(gc.r, gc.g, gc.b, 0.5))
+				re["outer_mat"].set_shader_parameter("time_offset", tpos.x * 0.01)
+				re["inner_mat"].set_shader_parameter("beam_color", Color(1, 1, 1, 0.8))
+				re["inner_mat"].set_shader_parameter("time_offset", tpos.x * 0.01 + 0.5)
+				re["outer_mi"].global_transform = Transform3D(scaled_basis2, mid2)
+				re["inner_mi"].global_transform = Transform3D(scaled_basis2, mid2)
+				re["spark_mat"].color = gc
+				re["sparks"].global_position = end_pt
+				re["sparks"].emitting = true
+				re["group"].visible = true
+				re["active"] = true
+				repair_beam_active[rkey] = re
+	for rkey in repair_beam_active.keys():
+		if rkey not in active_repair_keys:
+			var re = repair_beam_active[rkey]
+			re["light"].visible = false
+			re["group"].visible = false
+			re["sparks"].emitting = false
+			re["active"] = false
+			repair_beam_active.erase(rkey)
+
+	# --- Lightning bolts (flash on for one frame per zap) ---
+	# Deactivate all current bolts first
+	for entries in lightning_beam_active.values():
+		for le in entries:
+			le["group"].visible = false
+			le["light"].visible = false
+			le["active"] = false
+	lightning_beam_active.clear()
+	for b in get_tree().get_nodes_in_group("lightnings"):
+		if not is_instance_valid(b): continue
+		if not "zap_targets" in b or b.zap_targets.is_empty(): continue
+		var bpos = b.global_position
+		var bolt_entries: Array = []
+		for target_offset in b.zap_targets:
+			var le = _acquire_lightning_bolt()
+			var bolt_start = Vector3(bpos.x, 32, bpos.y)
+			var tpos2 = bpos + target_offset
+			var bolt_end = Vector3(tpos2.x, 8, tpos2.y)
+			var bolt_dist = bolt_start.distance_to(bolt_end)
+			if bolt_dist < 0.1: continue
+			var bolt_mid = (bolt_start + bolt_end) / 2.0
+			var bolt_dir = (bolt_end - bolt_start).normalized()
+			var bolt_side: Vector3
+			if abs(bolt_dir.dot(Vector3.UP)) < 0.999:
+				bolt_side = bolt_dir.cross(Vector3.UP).normalized()
+			else:
+				bolt_side = bolt_dir.cross(Vector3.FORWARD).normalized()
+			var bolt_fwd = bolt_side.cross(bolt_dir).normalized()
+			var bolt_basis = Basis(bolt_side, bolt_dir * bolt_dist, bolt_fwd)
+			le["mi"].global_transform = Transform3D(bolt_basis, bolt_mid)
+			le["group"].visible = true
+			le["light"].position = bolt_mid
+			le["light"].visible = true
+			le["active"] = true
+			bolt_entries.append(le)
+		if not bolt_entries.is_empty():
+			lightning_beam_active[b] = bolt_entries
+
+
+func _acquire_laser_beam() -> Dictionary:
+	# Grab an inactive pool entry, or create a new one if pool is exhausted
+	for e in _laser_pool:
+		if not e["active"]:
+			return e
+	# Pool exhausted — expand (shouldn't normally happen)
+	var e = {}
+	var laser_light = OmniLight3D.new()
+	laser_light.light_energy = 2.0
+	laser_light.omni_range = 45.0
+	laser_light.omni_attenuation = 1.0
+	laser_light.shadow_enabled = false
+	laser_light.visible = false
+	add_child(laser_light)
+	e["light"] = laser_light
+	var beam_group = Node3D.new()
+	beam_group.visible = false
+	add_child(beam_group)
+	e["group"] = beam_group
+	var mi_outer = MeshInstance3D.new()
+	var cm_outer = CylinderMesh.new()
+	cm_outer.top_radius = 2.0
+	cm_outer.bottom_radius = 2.0
+	cm_outer.height = 1.0
+	cm_outer.radial_segments = 8
+	mi_outer.mesh = cm_outer
+	mi_outer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var outer_mat = ShaderMaterial.new()
+	outer_mat.shader = _laser_shader
+	mi_outer.material_override = outer_mat
+	beam_group.add_child(mi_outer)
+	e["outer_mi"] = mi_outer
+	e["outer_mat"] = outer_mat
+	var mi_inner = MeshInstance3D.new()
+	var cm_inner = CylinderMesh.new()
+	cm_inner.top_radius = 0.6
+	cm_inner.bottom_radius = 0.6
+	cm_inner.height = 1.0
+	cm_inner.radial_segments = 6
+	mi_inner.mesh = cm_inner
+	mi_inner.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var inner_mat = ShaderMaterial.new()
+	inner_mat.shader = _laser_shader
+	inner_mat.set_shader_parameter("beam_color", Color(1, 1, 1, 1))
+	mi_inner.material_override = inner_mat
+	beam_group.add_child(mi_inner)
+	e["inner_mi"] = mi_inner
+	e["inner_mat"] = inner_mat
+	var sparks = GPUParticles3D.new()
+	sparks.amount = 12
+	sparks.lifetime = 0.4
+	sparks.one_shot = false
+	sparks.explosiveness = 0.8
+	sparks.emitting = false
+	var spark_mat = ParticleProcessMaterial.new()
+	spark_mat.spread = 45.0
+	spark_mat.initial_velocity_min = 15.0
+	spark_mat.initial_velocity_max = 40.0
+	spark_mat.gravity = Vector3(0, -60, 0)
+	spark_mat.scale_min = 0.5
+	spark_mat.scale_max = 1.5
+	sparks.process_material = spark_mat
+	var spark_mesh = SphereMesh.new()
+	spark_mesh.radius = 0.8
+	spark_mesh.height = 1.6
+	sparks.draw_pass_1 = spark_mesh
+	sparks.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	beam_group.add_child(sparks)
+	e["sparks"] = sparks
+	e["spark_mat"] = spark_mat
+	e["active"] = false
+	_laser_pool.append(e)
+	print("[BEAM] Pool exhausted, created extra beam entry")
+	return e
+
+
+func _acquire_lightning_bolt() -> Dictionary:
+	for e in _lightning_pool:
+		if not e["active"]:
+			return e
+	# Pool exhausted — create new bolt entry
+	var le = {}
+	var bolt_group = Node3D.new()
+	bolt_group.visible = false
+	add_child(bolt_group)
+	le["group"] = bolt_group
+	var bolt_mi = MeshInstance3D.new()
+	var bolt_cm = CylinderMesh.new()
+	bolt_cm.top_radius = 0.5
+	bolt_cm.bottom_radius = 0.5
+	bolt_cm.height = 1.0
+	bolt_cm.radial_segments = 4
+	bolt_mi.mesh = bolt_cm
+	var bolt_mat = StandardMaterial3D.new()
+	bolt_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	bolt_mat.albedo_color = Color(0.7, 0.85, 1.0)
+	bolt_mat.emission_enabled = true
+	bolt_mat.emission = Color(0.6, 0.8, 1.0)
+	bolt_mat.emission_energy_multiplier = 4.0
+	bolt_mi.material_override = bolt_mat
+	bolt_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	bolt_group.add_child(bolt_mi)
+	le["mi"] = bolt_mi
+	var bolt_light = OmniLight3D.new()
+	bolt_light.light_color = Color(0.6, 0.8, 1.0)
+	bolt_light.light_energy = 3.0
+	bolt_light.omni_range = 30.0
+	bolt_light.omni_attenuation = 1.2
+	bolt_light.shadow_enabled = false
+	bolt_light.visible = false
+	add_child(bolt_light)
+	le["light"] = bolt_light
+	le["active"] = false
+	_lightning_pool.append(le)
+	return le
 
 
 func _get_building_light_color(building: Node2D) -> Color:
@@ -638,6 +1216,7 @@ func _get_building_light_color(building: Node2D) -> Color:
 			"Flame Turret": return Color(1.0, 0.5, 0.15)
 			"Acid Turret": return Color(0.3, 0.9, 0.2)
 			"Repair Drone": return Color(0.3, 1.0, 0.5)
+			"Poison Turret": return Color(0.3, 0.85, 0.2)
 			"HQ": return Color(1.0, 0.85, 0.4)
 	return Color(1.0, 0.85, 0.5)
 
@@ -712,6 +1291,100 @@ func _mesh_sphere(r: float, col: Color, pos: Vector3 = Vector3.ZERO) -> MeshInst
 	return mi
 
 
+# ---- Status Effect 3D FX Helpers ----
+
+func _ensure_burn_fx(alien_root: Node3D, active: bool):
+	var fx = alien_root.get_node_or_null("BurnFX")
+	if active:
+		if not fx:
+			fx = GPUParticles3D.new()
+			fx.name = "BurnFX"
+			fx.amount = 8
+			fx.lifetime = 0.6
+			fx.explosiveness = 0.3
+			var pm = ParticleProcessMaterial.new()
+			pm.direction = Vector3(0, 1, 0)
+			pm.spread = 25.0
+			pm.initial_velocity_min = 8.0
+			pm.initial_velocity_max = 20.0
+			pm.gravity = Vector3(0, -5, 0)
+			pm.scale_min = 0.8
+			pm.scale_max = 2.0
+			pm.color = Color(1.0, 0.5, 0.1)
+			fx.process_material = pm
+			var sm = SphereMesh.new()
+			sm.radius = 1.5
+			sm.height = 3.0
+			fx.draw_pass_1 = sm
+			fx.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			fx.position.y = 6
+			alien_root.add_child(fx)
+		fx.emitting = true
+		fx.visible = true
+	elif fx:
+		fx.emitting = false
+		fx.visible = false
+
+
+func _ensure_frozen_fx(alien_root: Node3D, active: bool, alien_size: float):
+	var fx = alien_root.get_node_or_null("FrozenFX")
+	if active:
+		if not fx:
+			fx = MeshInstance3D.new()
+			fx.name = "FrozenFX"
+			var bm = BoxMesh.new()
+			var s = alien_size * 1.3
+			bm.size = Vector3(s, s, s)
+			fx.mesh = bm
+			var mat = StandardMaterial3D.new()
+			mat.albedo_color = Color(0.5, 0.75, 1.0, 0.3)
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			mat.emission_enabled = true
+			mat.emission = Color(0.3, 0.6, 1.0)
+			mat.emission_energy_multiplier = 0.5
+			fx.material_override = mat
+			fx.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			fx.position.y = alien_size * 0.5
+			alien_root.add_child(fx)
+		fx.visible = true
+	elif fx:
+		fx.visible = false
+
+
+func _ensure_poison_fx(alien_root: Node3D, active: bool):
+	var fx = alien_root.get_node_or_null("PoisonFX")
+	if active:
+		if not fx:
+			fx = GPUParticles3D.new()
+			fx.name = "PoisonFX"
+			fx.amount = 6
+			fx.lifetime = 0.8
+			fx.explosiveness = 0.2
+			var pm = ParticleProcessMaterial.new()
+			pm.direction = Vector3(0, 1, 0)
+			pm.spread = 35.0
+			pm.initial_velocity_min = 4.0
+			pm.initial_velocity_max = 12.0
+			pm.gravity = Vector3(0, 2, 0)
+			pm.scale_min = 1.0
+			pm.scale_max = 3.0
+			pm.color = Color(0.2, 0.85, 0.15, 0.6)
+			fx.process_material = pm
+			var sm = SphereMesh.new()
+			sm.radius = 1.2
+			sm.height = 2.4
+			fx.draw_pass_1 = sm
+			fx.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			fx.position.y = 6
+			alien_root.add_child(fx)
+		fx.emitting = true
+		fx.visible = true
+	elif fx:
+		fx.emitting = false
+		fx.visible = false
+
+
 func _create_hp_bar_ui() -> Control:
 	var container = Control.new()
 	container.size = Vector2(40, 6)
@@ -746,7 +1419,7 @@ func _sync_hp_bars():
 		if is_instance_valid(p) and "health" in p and "max_health" in p:
 			var dead = p.is_dead if "is_dead" in p else false
 			if not dead:
-				entities.append({"node": p, "hp": p.health, "max_hp": p.max_health, "y_offset": 18, "bar_w": 32})
+				entities.append({"node": p, "hp": p.health, "max_hp": p.max_health, "y_offset": 18, "bar_w": 32, "always": true})
 	for a in get_tree().get_nodes_in_group("aliens"):
 		if is_instance_valid(a) and "hp" in a and "max_hp" in a:
 			entities.append({"node": a, "hp": a.hp, "max_hp": a.max_hp, "y_offset": 16, "bar_w": 28})
@@ -755,7 +1428,7 @@ func _sync_hp_bars():
 	for e in entities:
 		var node = e["node"]
 		if e["max_hp"] <= 0: continue
-		if e["hp"] >= e["max_hp"]: continue  # Full health = no bar
+		if e["hp"] >= e["max_hp"] and not e.get("always", false): continue  # Full health = no bar (unless always-on)
 		active_set[node] = true
 		if node not in hp_bar_nodes:
 			var new_bar = _create_hp_bar_ui()
@@ -838,6 +1511,32 @@ func _create_building_mesh(bname: String) -> Node3D:
 			root.add_child(_mesh_box(Vector3(18, 10, 18), Color(0.65, 0.35, 0.15), Vector3(0, 5, 0)))
 			root.add_child(_mesh_cyl(4, 8, Color(0.75, 0.4, 0.15), Vector3(0, 14, 0)))
 			root.add_child(_mesh_sphere(2, Color(1.0, 0.6, 0.2), Vector3(0, 20, 0)))
+			# Fire particles (toggled by power state in _sync_3d_meshes)
+			var fire_fx = GPUParticles3D.new()
+			fire_fx.name = "FireFX"
+			fire_fx.amount = 24
+			fire_fx.lifetime = 0.8
+			fire_fx.explosiveness = 0.1
+			fire_fx.emitting = false
+			var fpm = ParticleProcessMaterial.new()
+			fpm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+			fpm.emission_sphere_radius = 8.0
+			fpm.direction = Vector3(0, 1, 0)
+			fpm.spread = 180.0
+			fpm.initial_velocity_min = 10.0
+			fpm.initial_velocity_max = 25.0
+			fpm.gravity = Vector3(0, 5, 0)
+			fpm.scale_min = 1.0
+			fpm.scale_max = 3.0
+			fpm.color = Color(1.0, 0.5, 0.1, 0.7)
+			fire_fx.process_material = fpm
+			var fsm = SphereMesh.new()
+			fsm.radius = 1.5
+			fsm.height = 3.0
+			fire_fx.draw_pass_1 = fsm
+			fire_fx.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			fire_fx.position = Vector3(0, 12, 0)
+			root.add_child(fire_fx)
 		"Acid Turret":
 			root.add_child(_mesh_box(Vector3(18, 10, 18), Color(0.25, 0.55, 0.2), Vector3(0, 5, 0)))
 			var ahead = Node3D.new()
@@ -856,6 +1555,10 @@ func _create_building_mesh(bname: String) -> Node3D:
 			drone.add_child(_mesh_box(Vector3(8, 4, 8), Color(0.25, 0.65, 0.4)))
 			drone.add_child(_mesh_cyl(5, 1, Color(0.3, 0.7, 0.45), Vector3(0, 3, 0)))
 			root.add_child(drone)
+		"Poison Turret":
+			root.add_child(_mesh_box(Vector3(18, 10, 18), Color(0.25, 0.45, 0.2), Vector3(0, 5, 0)))
+			root.add_child(_mesh_cyl(4, 8, Color(0.3, 0.55, 0.15), Vector3(0, 14, 0)))
+			root.add_child(_mesh_sphere(3, Color(0.4, 0.85, 0.2), Vector3(0, 20, 0)))
 	return root
 
 
@@ -885,6 +1588,7 @@ func _create_alien_mesh(a: Node2D) -> Node3D:
 	var is_boss = a.is_in_group("bosses")
 	var atype = a.alien_type if "alien_type" in a else "basic"
 	var mi = MeshInstance3D.new()
+	mi.name = "Mesh"
 	var pm = PrismMesh.new()
 	var col: Color
 	if is_boss:
@@ -901,23 +1605,92 @@ func _create_alien_mesh(a: Node2D) -> Node3D:
 		col = Color(0.75, 0.18, 0.1)
 	pm.left_to_right = 0.5
 	mi.mesh = pm
-	mi.material_override = _unlit_mat(col)
+	var base_mat = _unlit_mat(col)
+	mi.material_override = base_mat
 	mi.rotation.x = -PI / 2
 	mi.position.y = pm.size.z * 0.5
 	body.add_child(mi)
 	root.add_child(body)
+	root.set_meta("base_mat", base_mat)
 	return root
+
+
+func _get_crystal_mat() -> ShaderMaterial:
+	var m = ShaderMaterial.new()
+	m.shader = _crystal_shader
+	m.set_shader_parameter("crystal_color", Color(0.2, 0.45, 0.95))
+	return m
+
+
+func _get_iron_mat() -> StandardMaterial3D:
+	if not _iron_material:
+		_iron_material = StandardMaterial3D.new()
+		_iron_material.albedo_color = Color(0.45, 0.18, 0.12)
+		_iron_material.metallic = 0.85
+		_iron_material.roughness = 0.35
+		_iron_material.metallic_specular = 0.7
+		_iron_material.emission_enabled = true
+		_iron_material.emission = Color(0.7, 0.2, 0.1)
+		_iron_material.emission_energy_multiplier = 0.4
+		_iron_material.shading_mode = BaseMaterial3D.SHADING_MODE_PER_PIXEL
+		_iron_material.diffuse_mode = BaseMaterial3D.DIFFUSE_BURLEY
+		_iron_material.specular_mode = BaseMaterial3D.SPECULAR_SCHLICK_GGX
+	return _iron_material
 
 
 func _create_resource_mesh(rtype: String, amount: int) -> Node3D:
 	var root = Node3D.new()
 	var sz = 10.0 + amount * 0.5
 	if rtype == "crystal":
-		root.add_child(_mesh_box(Vector3(sz * 0.5, sz, sz * 0.5), Color(0.3, 0.5, 0.9), Vector3(0, sz * 0.5, 0)))
-		root.add_child(_mesh_box(Vector3(sz * 0.35, sz * 0.7, sz * 0.35), Color(0.4, 0.6, 1.0), Vector3(sz * 0.25, sz * 0.35, sz * 0.15)))
+		var mat = _get_crystal_mat()
+		# Main crystal spire
+		var mi1 = MeshInstance3D.new()
+		var bm1 = BoxMesh.new()
+		bm1.size = Vector3(sz * 0.45, sz * 1.1, sz * 0.45)
+		mi1.mesh = bm1
+		mi1.material_override = mat
+		mi1.position = Vector3(0, sz * 0.55, 0)
+		mi1.rotation_degrees = Vector3(0, 15, 5)
+		root.add_child(mi1)
+		# Secondary crystal shard
+		var mi2 = MeshInstance3D.new()
+		var bm2 = BoxMesh.new()
+		bm2.size = Vector3(sz * 0.3, sz * 0.75, sz * 0.3)
+		mi2.mesh = bm2
+		var mat2 = _get_crystal_mat()
+		mat2.set_shader_parameter("crystal_color", Color(0.3, 0.55, 1.0))
+		mi2.material_override = mat2
+		mi2.position = Vector3(sz * 0.22, sz * 0.37, sz * 0.12)
+		mi2.rotation_degrees = Vector3(-8, -25, 12)
+		root.add_child(mi2)
+		# Small accent shard
+		var mi3 = MeshInstance3D.new()
+		var bm3 = BoxMesh.new()
+		bm3.size = Vector3(sz * 0.2, sz * 0.5, sz * 0.2)
+		mi3.mesh = bm3
+		mi3.material_override = mat
+		mi3.position = Vector3(-sz * 0.18, sz * 0.25, -sz * 0.1)
+		mi3.rotation_degrees = Vector3(5, 40, -10)
+		root.add_child(mi3)
 	else:
-		root.add_child(_mesh_box(Vector3(sz, sz * 0.6, sz * 0.8), Color(0.55, 0.5, 0.45), Vector3(0, sz * 0.3, 0)))
-		root.add_child(_mesh_box(Vector3(sz * 0.5, sz * 0.45, sz * 0.5), Color(0.5, 0.45, 0.4), Vector3(sz * 0.3, sz * 0.22, sz * 0.2)))
+		var mat = _get_iron_mat()
+		# Main ore chunk
+		var mi1 = MeshInstance3D.new()
+		var bm1 = BoxMesh.new()
+		bm1.size = Vector3(sz, sz * 0.6, sz * 0.8)
+		mi1.mesh = bm1
+		mi1.material_override = mat
+		mi1.position = Vector3(0, sz * 0.3, 0)
+		root.add_child(mi1)
+		# Secondary chunk
+		var mi2 = MeshInstance3D.new()
+		var bm2 = BoxMesh.new()
+		bm2.size = Vector3(sz * 0.55, sz * 0.5, sz * 0.55)
+		mi2.mesh = bm2
+		mi2.material_override = mat
+		mi2.position = Vector3(sz * 0.28, sz * 0.25, sz * 0.18)
+		mi2.rotation_degrees = Vector3(0, 20, 0)
+		root.add_child(mi2)
 	return root
 
 
@@ -951,11 +1724,47 @@ func _sync_3d_meshes():
 		# Turret / acid turret barrel rotation
 		var head = mr.get_node_or_null("Head")
 		if head and "target_angle" in b:
-			head.rotation.y = -b.target_angle
+			head.rotation.y = -b.target_angle - PI / 2
 		# Repair drone orbit
 		var drone_node = mr.get_node_or_null("Drone")
 		if drone_node and "drone_angle" in b:
 			drone_node.position = Vector3(cos(b.drone_angle) * 12, 16, sin(b.drone_angle) * 12)
+		# Flame turret particle toggle
+		var fire_fx = mr.get_node_or_null("FireFX")
+		if fire_fx and fire_fx is GPUParticles3D:
+			var b_powered = b.has_method("is_powered") and b.is_powered()
+			fire_fx.emitting = b_powered
+			if b_powered and "pulse_timer" in b:
+				var pulse = 0.6 + sin(b.pulse_timer * 4.0) * 0.4
+				fire_fx.process_material.emission_sphere_radius = 8.0 + pulse * 15.0
+		# Unpowered indicator (red sphere above building)
+		if b.has_method("is_powered"):
+			var powered = b.is_powered()
+			var poff = mr.get_node_or_null("PowerOff")
+			if not powered:
+				if not poff:
+					poff = MeshInstance3D.new()
+					poff.name = "PowerOff"
+					var sm = SphereMesh.new()
+					sm.radius = 3.0
+					sm.height = 6.0
+					poff.mesh = sm
+					var mat = StandardMaterial3D.new()
+					mat.albedo_color = Color(1.0, 0.1, 0.05)
+					mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+					mat.emission_enabled = true
+					mat.emission = Color(1.0, 0.15, 0.05)
+					mat.emission_energy_multiplier = 2.0
+					poff.material_override = mat
+					poff.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+					poff.position.y = 38
+					mr.add_child(poff)
+				poff.visible = true
+				# Blink effect
+				var blink = fmod(Time.get_ticks_msec() * 0.003, 1.0) < 0.5
+				poff.visible = blink
+			elif poff:
+				poff.visible = false
 
 	# ---- Players ----
 	_clean_mesh_dict(player_meshes)
@@ -974,6 +1783,50 @@ func _sync_3d_meshes():
 		var body = mr.get_node_or_null("Body")
 		if body and "facing_angle" in p:
 			body.rotation.y = -p.facing_angle - PI / 2
+		# Orbital lasers — sync 3D spheres + lights
+		var orb_count = p.upgrades.get("orbital_lasers", 0) if "upgrades" in p else 0
+		var orb_parent = mr.get_node_or_null("Orbitals")
+		if orb_count > 0:
+			if not orb_parent:
+				orb_parent = Node3D.new()
+				orb_parent.name = "Orbitals"
+				mr.add_child(orb_parent)
+			# Add/remove orbital nodes to match count
+			while orb_parent.get_child_count() < orb_count:
+				var orb_node = Node3D.new()
+				var orb_mi = MeshInstance3D.new()
+				var orb_sm = SphereMesh.new()
+				orb_sm.radius = 5.0
+				orb_sm.height = 10.0
+				orb_mi.mesh = orb_sm
+				var orb_mat = StandardMaterial3D.new()
+				orb_mat.albedo_color = Color(1.0, 0.3, 0.1)
+				orb_mat.emission_enabled = true
+				orb_mat.emission = Color(1.0, 0.5, 0.15)
+				orb_mat.emission_energy_multiplier = 2.0
+				orb_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				orb_mi.material_override = orb_mat
+				orb_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				orb_node.add_child(orb_mi)
+				var orb_light = OmniLight3D.new()
+				orb_light.light_color = Color(1.0, 0.4, 0.1)
+				orb_light.light_energy = 3.0
+				orb_light.omni_range = 35.0
+				orb_light.omni_attenuation = 1.2
+				orb_light.shadow_enabled = false
+				orb_node.add_child(orb_light)
+				orb_parent.add_child(orb_node)
+			while orb_parent.get_child_count() > orb_count:
+				orb_parent.get_child(orb_parent.get_child_count() - 1).queue_free()
+			# Position each orbital around the player
+			var orb_angle = p.orbital_angle if "orbital_angle" in p else 0.0
+			for i in range(mini(orb_count, orb_parent.get_child_count())):
+				var ang = orb_angle + TAU * i / orb_count
+				var orb_pos_2d = Vector2.from_angle(ang) * 80.0
+				orb_parent.get_child(i).position = Vector3(orb_pos_2d.x, 8, orb_pos_2d.y)
+			orb_parent.visible = mr.visible
+		elif orb_parent:
+			orb_parent.visible = false
 
 	# ---- Aliens ----
 	_clean_mesh_dict(alien_meshes)
@@ -988,21 +1841,57 @@ func _sync_3d_meshes():
 		var ap = a.global_position
 		mr.position = Vector3(ap.x, 0, ap.y)
 		var body = mr.get_node_or_null("Body")
-		if body and "velocity" in a and a.velocity.length_squared() > 1:
-			body.rotation.y = atan2(-a.velocity.x, -a.velocity.y)
+		if body and "move_direction" in a and a.move_direction.length_squared() > 0.01:
+			var target_rot = atan2(-a.move_direction.x, -a.move_direction.y)
+			body.rotation.y = lerp_angle(body.rotation.y, target_rot, minf(8.0 * get_process_delta_time(), 1.0))
+		# Hit flash
+		var mesh_node = body.get_node_or_null("Mesh") if body else null
+		if mesh_node and mesh_node is MeshInstance3D:
+			var flashing = "hit_flash_timer" in a and a.hit_flash_timer > 0
+			if flashing:
+				mesh_node.material_override = _unlit_mat(Color.WHITE)
+			else:
+				var bm = mr.get_meta("base_mat", null)
+				if bm:
+					mesh_node.material_override = bm
+		# Status effect FX
+		var has_burn = "burn_timer" in a and a.burn_timer > 0
+		var has_slow = ("slow_timer" in a and a.slow_timer > 0) or ("tower_slow" in a and a.tower_slow > 0) if "tower_slow" in a else ("slow_timer" in a and a.slow_timer > 0)
+		var has_poison = "poison_timer" in a and a.poison_timer > 0
+		var alien_sz = 28.0 if a.is_in_group("bosses") else 14.0
+		_ensure_burn_fx(mr, has_burn)
+		_ensure_frozen_fx(mr, has_slow, alien_sz)
+		_ensure_poison_fx(mr, has_poison)
 
-	# ---- Resources ----
+	# ---- Resources (shrink as they're mined) ----
 	_clean_mesh_dict(resource_meshes)
+	for key in resource_init_amt.keys():
+		if not is_instance_valid(key):
+			resource_init_amt.erase(key)
 	for r in get_tree().get_nodes_in_group("resources"):
 		if not is_instance_valid(r): continue
 		if r not in resource_meshes:
+			var _t0 = Time.get_ticks_usec()
 			var rtype = r.resource_type if "resource_type" in r else "iron"
 			var amt = r.amount if "amount" in r else 10
-			var mr = _create_resource_mesh(rtype, amt)
-			add_child(mr)
-			resource_meshes[r] = mr
+			var new_mesh = _create_resource_mesh(rtype, amt)
+			add_child(new_mesh)
+			resource_meshes[r] = new_mesh
+			resource_init_amt[r] = amt
 			r.visible = false
-		resource_meshes[r].position = Vector3(r.global_position.x, 0, r.global_position.y)
+			print("[RESOURCE] Created ", rtype, " mesh in ", (Time.get_ticks_usec() - _t0) / 1000.0, "ms")
+		var mr = resource_meshes[r]
+		mr.position = Vector3(r.global_position.x, 0, r.global_position.y)
+		# Scale down as resource is mined
+		var cur_amt = r.amount if "amount" in r else 1
+		var init_amt = resource_init_amt.get(r, cur_amt)
+		if init_amt > 0:
+			var s = clampf(float(cur_amt) / float(init_amt), 0.15, 1.0)
+			var prev_s = mr.scale.x
+			mr.scale = Vector3(s, s, s)
+			if abs(s - prev_s) > 0.001:
+				var _t1 = Time.get_ticks_usec()
+				print("[RESOURCE] Scaled ", r.resource_type if "resource_type" in r else "?", " to ", snapped(s, 0.01), " in ", (Time.get_ticks_usec() - _t1) / 1000.0, "ms")
 
 	# ---- XP Gems (billboard) ----
 	_clean_mesh_dict(gem_meshes)
@@ -1049,16 +1938,17 @@ func _sync_3d_meshes():
 			o.visible = false
 		orb_meshes[o].position = Vector3(o.global_position.x, 0, o.global_position.y)
 
-	# ---- Bullets (billboard, scan game_world_2d children) ----
+	# ---- Bullets (billboard + point light, scan game_world_2d children) ----
 	_clean_mesh_dict(bullet_meshes)
 	for child in game_world_2d.get_children():
 		if not is_instance_valid(child): continue
 		if not ("direction" in child and "lifetime" in child): continue
 		if child in bullet_meshes: continue
+		var is_enemy = child.get_script() == preload("res://scripts/enemy_bullet.gd")
 		var col = Color(1.0, 0.9, 0.2)
 		if "from_turret" in child and child.from_turret:
 			col = Color(0.3, 0.9, 1.0)
-		elif "visual_only" in child and child.get_script() == preload("res://scripts/enemy_bullet.gd"):
+		elif is_enemy:
 			col = Color(0.8, 0.2, 1.0)
 		var mr = Node3D.new()
 		var mi = MeshInstance3D.new()
@@ -1067,14 +1957,321 @@ func _sync_3d_meshes():
 		sm.height = 6
 		mi.mesh = sm
 		mi.material_override = _bb_mat(col)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mi.position.y = 8
 		mr.add_child(mi)
+		# Point light per bullet
+		var bl = OmniLight3D.new()
+		bl.light_color = col
+		bl.light_energy = 1.5 if is_enemy else 1.0
+		bl.omni_range = 25.0 if is_enemy else 20.0
+		bl.omni_attenuation = 1.5
+		bl.shadow_enabled = false
+		bl.position.y = 8
+		mr.add_child(bl)
 		add_child(mr)
 		bullet_meshes[child] = mr
 		child.visible = false
 	for b in bullet_meshes:
 		if is_instance_valid(b):
 			bullet_meshes[b].position = Vector3(b.global_position.x, 0, b.global_position.y)
+
+	# ---- Acid Puddles (ground disc) ----
+	_clean_mesh_dict(puddle_meshes)
+	for p in get_tree().get_nodes_in_group("acid_puddles"):
+		if not is_instance_valid(p): continue
+		if p not in puddle_meshes:
+			var mi = MeshInstance3D.new()
+			var pm = PlaneMesh.new()
+			var r = p.radius if "radius" in p else 40.0
+			pm.size = Vector2(r * 2, r * 2)
+			mi.mesh = pm
+			var mat = StandardMaterial3D.new()
+			mat.albedo_color = Color(0.2, 0.8, 0.15, 0.35)
+			mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+			mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			mat.emission_enabled = true
+			mat.emission = Color(0.3, 0.9, 0.1)
+			mat.emission_energy_multiplier = 0.6
+			mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+			mi.material_override = mat
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			mi.position.y = 0.12
+			add_child(mi)
+			puddle_meshes[p] = mi
+			p.visible = false
+		var pmi = puddle_meshes[p]
+		pmi.position.x = p.global_position.x
+		pmi.position.z = p.global_position.y
+		# Fade out in last second
+		var fade = clampf(p.lifetime / 1.0, 0.0, 1.0) if "lifetime" in p else 1.0
+		pmi.material_override.albedo_color.a = 0.35 * fade
+
+
+func _get_combat_aoe(b: Node2D) -> Dictionary:
+	if not b.has_method("get_building_name"): return {}
+	match b.get_building_name():
+		"Turret": return {"radius": CFG.turret_range, "color": Color(0.5, 0.8, 1.0, 0.35), "ring_width": 0.04}
+		"Lightning Tower": return {"radius": CFG.lightning_range, "color": Color(0.6, 0.4, 1.0, 0.4), "ring_width": 0.12}
+		"Slow Tower": return {"radius": CFG.slow_range, "color": Color(0.4, 0.7, 1.0, 0.4), "ring_width": 0.12}
+		"Flame Turret": return {"radius": CFG.flame_range, "color": Color(1.0, 0.5, 0.2, 0.4), "ring_width": 0.12}
+		"Acid Turret": return {"radius": CFG.acid_range, "color": Color(0.3, 0.9, 0.2, 0.4), "ring_width": 0.12}
+		"Repair Drone": return {"radius": CFG.repair_drone_range, "color": Color(0.3, 1.0, 0.4, 0.4), "ring_width": 0.12}
+		"Poison Turret": return {"radius": CFG.poison_range, "color": Color(0.3, 0.85, 0.15, 0.4), "ring_width": 0.12}
+	return {}
+
+
+func _get_energy_radius(b: Node2D) -> float:
+	if not b.has_method("get_building_name"): return 0.0
+	match b.get_building_name():
+		"HQ": return CFG.power_range_hq
+		"Power Plant": return CFG.power_range_plant
+		"Pylon": return CFG.power_range_pylon
+	return 0.0
+
+
+func _create_aoe_ring(radius: float, color: Color, ring_width: float = 0.2) -> MeshInstance3D:
+	var mi = MeshInstance3D.new()
+	var pm = PlaneMesh.new()
+	pm.size = Vector2(radius * 2, radius * 2)
+	mi.mesh = pm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var mat = ShaderMaterial.new()
+	mat.shader = _aoe_shader
+	mat.set_shader_parameter("ring_color", color)
+	mat.set_shader_parameter("ring_width", ring_width)
+	mi.material_override = mat
+	mi.position.y = 0.15
+	return mi
+
+
+func _sync_aoe_rings():
+	# Clean up rings for destroyed buildings
+	for key in aoe_meshes.keys():
+		if not is_instance_valid(key):
+			if is_instance_valid(aoe_meshes[key]):
+				aoe_meshes[key].queue_free()
+			aoe_meshes.erase(key)
+
+	# --- Combat range rings (only for selected building) ---
+	var sel_b = hud_node.selected_building if is_instance_valid(hud_node) and "selected_building" in hud_node else null
+	if is_instance_valid(sel_b):
+		var info = _get_combat_aoe(sel_b)
+		if not info.is_empty():
+			if sel_b not in aoe_meshes:
+				var ring = _create_aoe_ring(info["radius"], info["color"], info["ring_width"])
+				add_child(ring)
+				aoe_meshes[sel_b] = ring
+			aoe_meshes[sel_b].position = Vector3(sel_b.global_position.x, 0.15, sel_b.global_position.y)
+			aoe_meshes[sel_b].visible = true
+	# Hide rings for non-selected buildings
+	for key in aoe_meshes.keys():
+		if key != sel_b and is_instance_valid(aoe_meshes[key]):
+			aoe_meshes[key].visible = false
+
+	# --- Energy merged disc (only during build mode) ---
+	var in_build_mode = is_instance_valid(player_node) and "build_mode" in player_node and player_node.build_mode != ""
+	if in_build_mode:
+		var sources: Array = []
+		# HQ
+		if is_instance_valid(hq_node):
+			var p = hq_node.global_position
+			sources.append(Vector4(p.x, p.y, CFG.power_range_hq, 0))
+		# All power buildings
+		for b in get_tree().get_nodes_in_group("buildings"):
+			if not is_instance_valid(b): continue
+			var r = _get_energy_radius(b)
+			if r > 0 and not b.is_in_group("hq"):
+				var p = b.global_position
+				sources.append(Vector4(p.x, p.y, r, 0))
+			if sources.size() >= 32:
+				break
+		_energy_proj_mat.set_shader_parameter("source_count", sources.size())
+		# Pad array to 32 elements (Godot requires fixed-size uniform arrays)
+		while sources.size() < 32:
+			sources.append(Vector4(0, 0, 0, 0))
+		_energy_proj_mat.set_shader_parameter("sources", sources)
+		_energy_proj_mesh.visible = true
+	else:
+		_energy_proj_mesh.visible = false
+
+	# --- Player damage aura (always visible when active) ---
+	if is_instance_valid(player_node) and "upgrades" in player_node:
+		var aura_lv = player_node.upgrades.get("damage_aura", 0)
+		if aura_lv > 0:
+			var r = CFG.aura_radius_base + aura_lv * CFG.aura_radius_per_level
+			if not is_instance_valid(aoe_player_mesh):
+				aoe_player_mesh = _create_aoe_ring(r, Color(0.8, 0.2, 0.8, 0.45))
+				add_child(aoe_player_mesh)
+			var cur_size = aoe_player_mesh.mesh.size.x / 2.0
+			if absf(cur_size - r) > 1.0:
+				aoe_player_mesh.mesh.size = Vector2(r * 2, r * 2)
+			var pp = player_node.global_position
+			aoe_player_mesh.position = Vector3(pp.x, 0.15, pp.y)
+			aoe_player_mesh.visible = not (player_node.is_dead if "is_dead" in player_node else false)
+		else:
+			if is_instance_valid(aoe_player_mesh):
+				aoe_player_mesh.visible = false
+	else:
+		if is_instance_valid(aoe_player_mesh):
+			aoe_player_mesh.visible = false
+
+
+func _sync_pylon_wires():
+	# Track which wire keys are still active this frame
+	var active_keys: Dictionary = {}
+
+	# Pylon-to-pylon wires
+	var pylons = get_tree().get_nodes_in_group("pylons")
+	for i in range(pylons.size()):
+		var pa = pylons[i]
+		if not is_instance_valid(pa): continue
+		for j in range(i + 1, pylons.size()):
+			var pb = pylons[j]
+			if not is_instance_valid(pb): continue
+			var dist = pa.global_position.distance_to(pb.global_position)
+			if dist >= pa.POWER_RANGE * 2: continue
+			var key = "%d_%d" % [pa.get_instance_id(), pb.get_instance_id()]
+			active_keys[key] = true
+			var powered = pa.is_powered() and pb.is_powered()
+			if key not in wire_meshes:
+				var mi = MeshInstance3D.new()
+				mi.mesh = CylinderMesh.new()
+				mi.mesh.top_radius = 0.5
+				mi.mesh.bottom_radius = 0.5
+				mi.mesh.radial_segments = 4
+				mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				add_child(mi)
+				wire_meshes[key] = mi
+			var wmi = wire_meshes[key]
+			wmi.material_override = _wire_mat_powered if powered else _wire_mat_unpowered
+			var a_pos = Vector3(pa.global_position.x, 26, pa.global_position.y)
+			var b_pos = Vector3(pb.global_position.x, 26, pb.global_position.y)
+			var mid = (a_pos + b_pos) * 0.5
+			mid.y -= dist * 0.04  # slight sag
+			var diff = b_pos - a_pos
+			var wire_len = diff.length()
+			wmi.mesh.height = wire_len
+			wmi.position = mid
+			wmi.look_at_from_position(mid, b_pos, Vector3.UP)
+			wmi.rotation.x += PI / 2.0
+			wmi.visible = true
+
+	# Pylon-to-power-plant wires
+	for pa in pylons:
+		if not is_instance_valid(pa): continue
+		for plant in get_tree().get_nodes_in_group("power_plants"):
+			if not is_instance_valid(plant): continue
+			var dist = pa.global_position.distance_to(plant.global_position)
+			var max_dist = pa.POWER_RANGE + plant.POWER_RANGE
+			if dist >= max_dist: continue
+			var key = "pp_%d_%d" % [pa.get_instance_id(), plant.get_instance_id()]
+			active_keys[key] = true
+			if key not in wire_meshes:
+				var mi = MeshInstance3D.new()
+				mi.mesh = CylinderMesh.new()
+				mi.mesh.top_radius = 0.5
+				mi.mesh.bottom_radius = 0.5
+				mi.mesh.radial_segments = 4
+				mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+				add_child(mi)
+				wire_meshes[key] = mi
+			var wmi = wire_meshes[key]
+			wmi.material_override = _wire_mat_powered  # plant always provides power
+			var a_pos = Vector3(pa.global_position.x, 26, pa.global_position.y)
+			var b_pos = Vector3(plant.global_position.x, 22, plant.global_position.y)
+			var mid = (a_pos + b_pos) * 0.5
+			mid.y -= dist * 0.04
+			var diff = b_pos - a_pos
+			var wire_len = diff.length()
+			wmi.mesh.height = wire_len
+			wmi.position = mid
+			wmi.look_at_from_position(mid, b_pos, Vector3.UP)
+			wmi.rotation.x += PI / 2.0
+			wmi.visible = true
+
+	# Clean up wires for destroyed buildings
+	for key in wire_meshes.keys():
+		if key not in active_keys:
+			if is_instance_valid(wire_meshes[key]):
+				wire_meshes[key].queue_free()
+			wire_meshes.erase(key)
+
+
+func _sync_nuke_visual():
+	var active = false
+	if is_instance_valid(player_node) and "nuke_radius" in player_node:
+		var r = player_node.nuke_radius
+		if r > 0:
+			active = true
+			var origin = player_node.nuke_origin if "nuke_origin" in player_node else player_node.global_position
+			_nuke_ring_mesh.position = Vector3(origin.x, 0.2, origin.y)
+			_nuke_ring_mesh.scale = Vector3(r, 1, r)
+			_nuke_ring_mesh.visible = true
+			# Flash light — bright at start, fades as it expands
+			var progress = r / CFG.nuke_range
+			_nuke_flash_light.position = Vector3(origin.x, 30, origin.y)
+			_nuke_flash_light.light_energy = lerpf(20.0, 0.0, progress)
+			_nuke_flash_light.visible = true
+	if not active:
+		_nuke_ring_mesh.visible = false
+		_nuke_flash_light.visible = false
+		_nuke_flash_light.light_energy = 0.0
+
+
+func _sync_build_preview():
+	if not is_instance_valid(player_node):
+		if is_instance_valid(build_preview_mesh):
+			build_preview_mesh.visible = false
+		return
+	var bmode = player_node.build_mode if "build_mode" in player_node else ""
+	if bmode == "":
+		if is_instance_valid(build_preview_mesh):
+			build_preview_mesh.visible = false
+		build_preview_type = ""
+		return
+	# Recreate mesh if building type changed
+	if bmode != build_preview_type:
+		if is_instance_valid(build_preview_mesh):
+			build_preview_mesh.queue_free()
+		var name_map = {
+			"turret": "Turret", "factory": "Factory", "wall": "Wall",
+			"lightning": "Lightning Tower", "slow": "Slow Tower", "pylon": "Pylon",
+			"power_plant": "Power Plant", "battery": "Battery",
+			"flame_turret": "Flame Turret", "acid_turret": "Acid Turret",
+			"repair_drone": "Repair Drone", "poison_turret": "Poison Turret"
+		}
+		build_preview_mesh = _create_building_mesh(name_map.get(bmode, ""))
+		# Make semi-transparent ghost material for all mesh children
+		var ghost_mat = StandardMaterial3D.new()
+		ghost_mat.albedo_color = Color(0.3, 1.0, 0.5, 0.4)
+		ghost_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		ghost_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		for child in build_preview_mesh.get_children():
+			if child is MeshInstance3D:
+				child.material_override = ghost_mat
+			for sub in child.get_children():
+				if sub is MeshInstance3D:
+					sub.material_override = ghost_mat
+		add_child(build_preview_mesh)
+		build_preview_type = bmode
+	# Position at snapped mouse world pos
+	var bp: Vector2
+	if "is_mobile" in player_node and player_node.is_mobile and "pending_build_world_pos" in player_node and player_node.pending_build_world_pos != Vector2.ZERO:
+		bp = player_node.pending_build_world_pos
+	else:
+		bp = mouse_world_2d.snapped(Vector2(40, 40))
+	build_preview_mesh.position = Vector3(bp.x, 0, bp.y)
+	build_preview_mesh.visible = true
+	# Color based on validity
+	var valid = player_node.can_place_at(bp) and player_node.can_afford(bmode)
+	var ghost_col = Color(0.3, 1.0, 0.5, 0.4) if valid else Color(1.0, 0.3, 0.3, 0.4)
+	for child in build_preview_mesh.get_children():
+		if child is MeshInstance3D:
+			child.material_override.albedo_color = ghost_col
+		for sub in child.get_children():
+			if sub is MeshInstance3D:
+				sub.material_override.albedo_color = ghost_col
 
 
 func _spawn_wave():
@@ -1774,6 +2971,7 @@ const BUILDING_NAME_TO_TYPE = {
 	"Flame Turret": "flame_turret",
 	"Acid Turret": "acid_turret",
 	"Repair Drone": "repair_drone",
+	"Poison Turret": "poison_turret",
 }
 
 
@@ -1924,6 +3122,7 @@ func _sync_building_placed(type: String, pos_x: float, pos_y: float):
 		"flame_turret": building = preload("res://scenes/flame_turret.tscn").instantiate()
 		"acid_turret": building = preload("res://scenes/acid_turret.tscn").instantiate()
 		"repair_drone": building = preload("res://scenes/repair_drone.tscn").instantiate()
+		"poison_turret": building = preload("res://scenes/poison_turret.tscn").instantiate()
 	if building:
 		building.global_position = bp
 		buildings_node.add_child(building)
@@ -1969,6 +3168,7 @@ func _sync_enemies(enemy_data: Array):
 			alien.max_hp = enemy_max_hp
 			alien.global_position = pos
 			alien.target_pos = pos
+			alien.process_mode = Node.PROCESS_MODE_ALWAYS  # Keep interpolating during pause
 			aliens_node.add_child(alien)
 			alien_net_ids[nid] = alien
 
@@ -1983,6 +3183,13 @@ func _sync_enemies(enemy_data: Array):
 				gem.global_position = a.global_position
 				gem.xp_value = a.xp_value
 				game_world_2d.add_child(gem)
+				# Clean up 3D mesh and light before freeing
+				if alien_meshes.has(a):
+					alien_meshes[a].queue_free()
+					alien_meshes.erase(a)
+				if alien_lights.has(a):
+					alien_lights[a].queue_free()
+					alien_lights.erase(a)
 				a.queue_free()
 			to_remove.append(nid)
 	for nid in to_remove:
@@ -1996,7 +3203,7 @@ func spawn_synced_bullet(pos: Vector2, dir: Vector2, from_turret: bool, burn_dps
 		_rpc_spawn_bullet.rpc(pos.x, pos.y, dir.x, dir.y, from_turret, burn_dps, slow_amount)
 
 
-@rpc("any_peer", "call_remote", "unreliable")
+@rpc("any_peer", "call_remote", "reliable")
 func _rpc_spawn_bullet(px: float, py: float, dx: float, dy: float, from_turret: bool, burn: float, slow: float):
 	var b = preload("res://scenes/bullet.tscn").instantiate()
 	b.global_position = Vector2(px, py)
@@ -2013,7 +3220,7 @@ func spawn_synced_enemy_bullet(pos: Vector2, dir: Vector2):
 		_rpc_spawn_enemy_bullet.rpc(pos.x, pos.y, dir.x, dir.y)
 
 
-@rpc("any_peer", "call_remote", "unreliable")
+@rpc("any_peer", "call_remote", "reliable")
 func _rpc_spawn_enemy_bullet(px: float, py: float, dx: float, dy: float):
 	var b = preload("res://scenes/enemy_bullet.tscn").instantiate()
 	b.global_position = Vector2(px, py)

@@ -139,6 +139,12 @@ func _draw():
 				var arm_end = center + Vector2(0, -2) + Vector2.from_angle(pa) * 9
 				draw_line(center + Vector2(0, -2), arm_end, Color(0.5, 0.6, 0.5, icon_alpha), 1.0)
 				draw_circle(arm_end, 2, Color(0.3, 0.8, 0.4, icon_alpha * 0.6))
+		"poison_turret":
+			# Green vial with drip
+			draw_circle(center, 10, Color(0.25, 0.4, 0.2, icon_alpha))
+			draw_rect(Rect2(16, 12, 8, 16), Color(0.3, 0.5, 0.2, icon_alpha))
+			draw_circle(center + Vector2(0, -6), 5, Color(0.4, 0.85, 0.2, icon_alpha))
+			draw_circle(center + Vector2(0, 6), 2, Color(0.3, 0.85, 0.15, icon_alpha * 0.7))
 
 	# Lock overlay when locked
 	if locked:

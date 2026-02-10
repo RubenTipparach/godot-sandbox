@@ -52,6 +52,7 @@ var research: Dictionary = {
 	"unlock_repair_drone": 0,
 	"repair_drone_range": 0,
 	"repair_drone_speed": 0,
+	"turret_poison": 0,
 	"pickup_range": 0,
 }
 
@@ -85,6 +86,7 @@ const RESEARCH_DATA = {
 	"mining_range": {"name": "Long Reach", "desc": "+15 mining range", "max": 5, "cost": [10, 20, 35, 55, 80]},
 	"building_health": {"name": "Reinforcement", "desc": "+10% building HP", "max": 5, "cost": [12, 25, 45, 70, 100]},
 	"unlock_repair_drone": {"name": "Repair Drone", "desc": "Unlock Repair Drone", "max": 1, "cost": [25]},
+	"turret_poison": {"name": "Toxin Tech", "desc": "Unlock Poison Turret", "max": 1, "cost": [25]},
 	"repair_drone_range": {"name": "Drone Range", "desc": "+20 drone repair range", "max": 5, "cost": [10, 20, 35, 55, 80]},
 	"repair_drone_speed": {"name": "Drone Efficiency", "desc": "+1 HP/tick repair", "max": 5, "cost": [10, 20, 35, 55, 80]},
 	"pickup_range": {"name": "Magnetism", "desc": "+10 pickup range", "max": 5, "cost": [8, 15, 25, 40, 60]},
@@ -200,6 +202,7 @@ func get_research_bonus(key: String) -> float:
 		"mining_range": return level * 15.0
 		"building_health": return level * 0.10
 		"unlock_repair_drone": return level * 1.0
+		"turret_poison": return level * 1.0
 		"repair_drone_range": return level * 20.0
 		"repair_drone_speed": return level * 1.0
 		"pickup_range": return level * 10.0
