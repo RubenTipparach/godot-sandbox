@@ -84,6 +84,11 @@ var hq_health_label: Label
 var hq_bar_bg: ColorRect
 var hq_bar_fill: ColorRect
 var hq_panel: PanelContainer
+var settings_panel: Control = null
+var auto_fire_btn: Button = null
+var auto_aim_btn: Button = null
+var _settings_from_pause: bool = false  # Track where settings was opened from
+var start_wave_btn: Button = null
 
 const UPGRADE_DATA = {
 	"chain_lightning": {"name": "Chain Lightning", "color": Color(0.3, 0.7, 1.0), "max": 5},
@@ -188,6 +193,13 @@ func _ready():
 
 	wave_label = _lbl(wave_vbox, 16, Color.WHITE)
 	timer_label = _lbl(wave_vbox, 17, Color(1.0, 0.4, 0.4))
+	start_wave_btn = Button.new()
+	start_wave_btn.text = "Start Wave"
+	start_wave_btn.custom_minimum_size = Vector2(120, 28)
+	start_wave_btn.add_theme_font_size_override("font_size", 13)
+	start_wave_btn.visible = false
+	start_wave_btn.pressed.connect(_on_start_wave_pressed)
+	wave_vbox.add_child(start_wave_btn)
 	alien_count_label = _lbl(wave_vbox, 13, Color(1.0, 0.5, 0.4))
 
 	# --- HQ Health Panel ---
@@ -315,24 +327,36 @@ func _ready():
 	respawn_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(respawn_label)
 
-	# Room code label (top-right, below minimap, above partner panels)
+	# Room code container (top-right, below minimap, above partner panels)
+	var room_code_hbox = HBoxContainer.new()
+	room_code_hbox.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	room_code_hbox.offset_left = -220
+	room_code_hbox.offset_top = 172
+	room_code_hbox.offset_right = -10
+	room_code_hbox.alignment = BoxContainer.ALIGNMENT_END
+	room_code_hbox.add_theme_constant_override("separation", 4)
+	room_code_hbox.visible = false
+	room_code_hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(room_code_hbox)
 	room_code_label = Label.new()
 	room_code_label.add_theme_font_size_override("font_size", 13)
 	room_code_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3, 0.7))
-	room_code_label.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	room_code_label.offset_left = -170
-	room_code_label.offset_top = 172
-	room_code_label.offset_right = -10
 	room_code_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	room_code_label.visible = false
 	room_code_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(room_code_label)
+	room_code_hbox.add_child(room_code_label)
+	var copy_btn = Button.new()
+	copy_btn.text = "Copy"
+	copy_btn.custom_minimum_size = Vector2(50, 22)
+	copy_btn.add_theme_font_size_override("font_size", 11)
+	copy_btn.pressed.connect(_on_copy_room_code)
+	room_code_hbox.add_child(copy_btn)
 
 	_build_upgrade_panel(root)
 	_build_death_panel(root)
 	_build_start_menu(root)
 	_build_research_panel(root)
 	_build_pause_menu(root)
+	_build_settings_panel(root)
 	_build_lobby_panel(root)
 	_build_building_tooltip(root)
 	_build_building_info_panel(root)
@@ -610,6 +634,18 @@ func _build_start_menu(root: Control):
 	_style_button(join_btn, Color(0.15, 0.25, 0.45))
 	coop_container.add_child(join_btn)
 
+	var start_settings_btn = Button.new()
+	start_settings_btn.text = "Settings"
+	start_settings_btn.custom_minimum_size = Vector2(150, 45)
+	start_settings_btn.add_theme_font_size_override("font_size", 18)
+	start_settings_btn.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	start_settings_btn.offset_top = -55
+	start_settings_btn.offset_left = 10
+	start_settings_btn.offset_right = 160
+	start_settings_btn.offset_bottom = -10
+	start_settings_btn.pressed.connect(_on_open_settings_from_menu)
+	start_menu.add_child(start_settings_btn)
+
 	var debug_toggle_btn = Button.new()
 	debug_toggle_btn.text = "Debug"
 	debug_toggle_btn.custom_minimum_size = Vector2(80, 30)
@@ -774,6 +810,68 @@ func _build_pause_menu(root: Control):
 	prestige_btn.pressed.connect(_on_pause_prestige)
 	vbox.add_child(prestige_btn)
 
+	var settings_btn = Button.new()
+	settings_btn.text = "Settings"
+	settings_btn.custom_minimum_size = Vector2(200, 50)
+	settings_btn.add_theme_font_size_override("font_size", 20)
+	settings_btn.pressed.connect(_on_open_settings)
+	vbox.add_child(settings_btn)
+
+
+func _build_settings_panel(root: Control):
+	settings_panel = Control.new()
+	settings_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	settings_panel.visible = false
+	settings_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	root.add_child(settings_panel)
+
+	var bg = ColorRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0, 0, 0, 0.85)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	settings_panel.add_child(bg)
+
+	var title = Label.new()
+	title.text = "SETTINGS"
+	title.add_theme_font_size_override("font_size", 40)
+	title.add_theme_color_override("font_color", Color(0.9, 0.9, 0.9))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.set_anchors_preset(Control.PRESET_CENTER)
+	title.offset_top = -160
+	title.offset_left = -200
+	title.offset_right = 200
+	settings_panel.add_child(title)
+
+	var vbox = VBoxContainer.new()
+	vbox.set_anchors_preset(Control.PRESET_CENTER)
+	vbox.offset_top = -80
+	vbox.offset_left = -120
+	vbox.offset_right = 120
+	vbox.offset_bottom = 100
+	vbox.add_theme_constant_override("separation", 15)
+	settings_panel.add_child(vbox)
+
+	auto_fire_btn = Button.new()
+	auto_fire_btn.text = "Auto Fire: ON"
+	auto_fire_btn.custom_minimum_size = Vector2(240, 45)
+	auto_fire_btn.add_theme_font_size_override("font_size", 18)
+	auto_fire_btn.pressed.connect(_on_toggle_auto_fire)
+	vbox.add_child(auto_fire_btn)
+
+	auto_aim_btn = Button.new()
+	auto_aim_btn.text = "Auto Aim: ON"
+	auto_aim_btn.custom_minimum_size = Vector2(240, 45)
+	auto_aim_btn.add_theme_font_size_override("font_size", 18)
+	auto_aim_btn.pressed.connect(_on_toggle_auto_aim)
+	vbox.add_child(auto_aim_btn)
+
+	var back_btn = Button.new()
+	back_btn.text = "Back"
+	back_btn.custom_minimum_size = Vector2(240, 50)
+	back_btn.add_theme_font_size_override("font_size", 20)
+	back_btn.pressed.connect(_on_settings_back)
+	vbox.add_child(back_btn)
+
 
 func _build_lobby_panel(root: Control):
 	lobby_panel = Control.new()
@@ -863,10 +961,10 @@ func _build_lobby_panel(root: Control):
 	# Client section - code input
 	lobby_client_section = VBoxContainer.new()
 	lobby_client_section.set_anchors_preset(Control.PRESET_CENTER)
-	lobby_client_section.offset_top = -60
+	lobby_client_section.offset_top = -20
 	lobby_client_section.offset_left = -200
 	lobby_client_section.offset_right = 200
-	lobby_client_section.offset_bottom = 60
+	lobby_client_section.offset_bottom = 100
 	lobby_client_section.alignment = BoxContainer.ALIGNMENT_CENTER
 	lobby_client_section.add_theme_constant_override("separation", 14)
 	lobby_client_section.visible = false
@@ -1166,8 +1264,83 @@ func _on_pause_prestige():
 		main._end_run()
 
 
+func _on_open_settings():
+	_settings_from_pause = true
+	pause_menu.visible = false
+	settings_panel.visible = true
+	_sync_settings_buttons()
+
+
+func _on_open_settings_from_menu():
+	_settings_from_pause = false
+	start_menu.visible = false
+	settings_panel.visible = true
+	_sync_settings_buttons()
+
+
+func _on_settings_back():
+	settings_panel.visible = false
+	if _settings_from_pause:
+		pause_menu.visible = true
+	else:
+		start_menu.visible = true
+
+
+func _on_toggle_auto_fire():
+	var main = get_tree().current_scene
+	var player = main.player_node if "player_node" in main else null
+	if is_instance_valid(player):
+		player.auto_fire = not player.auto_fire
+	else:
+		# Toggle a default that will be applied when player spawns
+		auto_fire_btn.text = "Auto Fire: OFF" if auto_fire_btn.text == "Auto Fire: ON" else "Auto Fire: ON"
+		return
+	auto_fire_btn.text = "Auto Fire: ON" if player.auto_fire else "Auto Fire: OFF"
+
+
+func _on_toggle_auto_aim():
+	var main = get_tree().current_scene
+	var player = main.player_node if "player_node" in main else null
+	if is_instance_valid(player):
+		player.auto_aim = not player.auto_aim
+	else:
+		auto_aim_btn.text = "Auto Aim: OFF" if auto_aim_btn.text == "Auto Aim: ON" else "Auto Aim: ON"
+		return
+	auto_aim_btn.text = "Auto Aim: ON" if player.auto_aim else "Auto Aim: OFF"
+
+
+func _on_copy_room_code():
+	if NetworkManager.room_id != "":
+		DisplayServer.clipboard_set(NetworkManager.room_id)
+		room_code_label.text = "Copied!"
+		get_tree().create_timer(1.5).timeout.connect(func():
+			if is_instance_valid(room_code_label) and NetworkManager.room_id != "":
+				room_code_label.text = "Room: %s" % NetworkManager.room_id
+		)
+
+
+func _on_start_wave_pressed():
+	var main = get_tree().current_scene
+	if "wave_timer" in main:
+		main.wave_timer = 0.0
+	if start_wave_btn:
+		start_wave_btn.visible = false
+
+
+func _sync_settings_buttons():
+	var main = get_tree().current_scene
+	var player = main.player_node if "player_node" in main else null
+	if is_instance_valid(player) and is_instance_valid(auto_fire_btn):
+		auto_fire_btn.text = "Auto Fire: ON" if player.auto_fire else "Auto Fire: OFF"
+		auto_aim_btn.text = "Auto Aim: ON" if player.auto_aim else "Auto Aim: OFF"
+
+
 func toggle_pause():
 	if not _game_started or death_panel.visible or upgrade_panel.visible:
+		return
+	# If settings panel is open, go back instead of toggling pause
+	if settings_panel.visible:
+		_on_settings_back()
 		return
 	if pause_menu.visible:
 		pause_menu.visible = false
@@ -1763,11 +1936,16 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 	if wave_active:
 		timer_label.text = "WAVE IN PROGRESS"
 		timer_label.add_theme_color_override("font_color", Color(1.0, 0.6, 0.2))
+		if start_wave_btn:
+			start_wave_btn.visible = false
 	else:
 		var m = int(wave_timer) / 60
 		var sec = int(wave_timer) % 60
 		timer_label.text = "Next wave: %d:%02d" % [m, sec]
 		timer_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.4))
+		if start_wave_btn:
+			var main = get_tree().current_scene
+			start_wave_btn.visible = "is_first_wave" in main and main.is_first_wave
 
 	if player.xp_to_next > 0:
 		xp_bar_fill.size.x = 170.0 * float(player.xp) / float(player.xp_to_next)
@@ -1863,9 +2041,9 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 	# Room code display in MP
 	if NetworkManager.is_multiplayer_active() and NetworkManager.room_id != "":
 		room_code_label.text = "Room: %s" % NetworkManager.room_id
-		room_code_label.visible = true
+		room_code_label.get_parent().visible = true
 	else:
-		room_code_label.visible = false
+		room_code_label.get_parent().visible = false
 
 	# Update building costs dynamically
 	_update_build_costs(player)

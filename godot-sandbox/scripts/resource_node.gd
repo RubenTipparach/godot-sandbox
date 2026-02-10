@@ -2,6 +2,7 @@ extends Node2D
 
 var resource_type: String = "iron" # "iron" or "crystal"
 var amount: int = 10
+var net_id: int = -1
 
 
 func _ready():

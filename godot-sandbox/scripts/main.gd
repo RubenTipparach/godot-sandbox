@@ -60,10 +60,14 @@ var _energy_proj_mat: ShaderMaterial
 var _nuke_ring_mesh: MeshInstance3D
 var _nuke_ring_mat: ShaderMaterial
 var _nuke_flash_light: OmniLight3D
+var _dither_occlude_shader: Shader
+var _dither_occlude_mat: ShaderMaterial
+var _flash_white_mat: StandardMaterial3D
 
 var wave_number: int = 0
 var wave_timer: float = CFG.first_wave_delay
 var wave_active: bool = false
+var is_first_wave: bool = true  # Extra prep time on first wave of each run
 var game_over: bool = false
 var resource_regen_timer: float = CFG.resource_regen_interval
 var powerup_timer: float = 10.0
@@ -77,6 +81,7 @@ var state_sync_timer: float = 0.0
 const STATE_SYNC_INTERVAL: float = 0.05  # 20Hz
 var next_net_id: int = 1
 var alien_net_ids: Dictionary = {}  # net_id -> Node2D
+var resource_net_ids: Dictionary = {}  # net_id -> Node2D
 var player_names: Dictionary = {}  # peer_id -> String
 var run_prestige: int = 0  # Prestige collected this run (host-authoritative)
 var _client_own_research: Dictionary = {}  # Client's own research, saved before host override
@@ -460,8 +465,36 @@ void fragment() {
 	_nuke_flash_light.visible = false
 	add_child(_nuke_flash_light)
 
+	# --- Occlusion dither shader (AoE2-style see-through for units behind buildings) ---
+	_dither_occlude_shader = Shader.new()
+	_dither_occlude_shader.code = """
+shader_type spatial;
+render_mode unshaded, depth_draw_never, depth_test_disabled, cull_back, shadows_disabled;
+uniform vec4 silhouette_color : source_color = vec4(1.0, 1.0, 1.0, 0.7);
+uniform sampler2D depth_texture : hint_depth_texture, filter_nearest;
+void fragment() {
+	float depth_raw = texture(depth_texture, SCREEN_UV).r;
+	vec4 ndc = vec4(SCREEN_UV * 2.0 - 1.0, depth_raw, 1.0);
+	vec4 view_pos = INV_PROJECTION_MATRIX * ndc;
+	float scene_depth = -view_pos.z / view_pos.w;
+	float frag_depth = -VERTEX.z;
+	if (frag_depth <= scene_depth + 0.5) discard;
+	ivec2 px = ivec2(FRAGCOORD.xy);
+	if ((px.x + px.y) % 2 == 0) discard;
+	ALBEDO = silhouette_color.rgb;
+	ALPHA = silhouette_color.a;
+}
+"""
+	_dither_occlude_mat = ShaderMaterial.new()
+	_dither_occlude_mat.shader = _dither_occlude_shader
+	_dither_occlude_mat.set_shader_parameter("silhouette_color", Color(1.0, 1.0, 1.0, 0.7))
+	_flash_white_mat = StandardMaterial3D.new()
+	_flash_white_mat.albedo_color = Color.WHITE
+	_flash_white_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_flash_white_mat.next_pass = _dither_occlude_mat
+
 	# Tiny invisible meshes that force GPU shader compilation during loading
-	for shader in [_laser_shader, _aoe_shader, _crystal_shader, _energy_proj_shader]:
+	for shader in [_laser_shader, _aoe_shader, _crystal_shader, _energy_proj_shader, _dither_occlude_shader]:
 		var warmup = MeshInstance3D.new()
 		var cm = CylinderMesh.new()
 		cm.height = 0.01
@@ -614,7 +647,9 @@ void fragment() {
 	hud_node.upgrade_chosen.connect(_on_upgrade_chosen)
 	hud_node.game_started.connect(_on_game_started)
 
-	_spawn_resources()
+	# Only host spawns initial resources; clients receive them via state sync
+	if not NetworkManager.is_multiplayer_active() or NetworkManager.is_host():
+		_spawn_resources()
 
 
 func _spawn_resources():
@@ -626,12 +661,18 @@ func _spawn_resources():
 		res.position = Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(80, 700)
 		res.resource_type = "iron"
 		res.amount = rng.randi_range(8, 20)
+		res.net_id = next_net_id
+		resource_net_ids[next_net_id] = res
+		next_net_id += 1
 		resources_node.add_child(res)
 	for i in range(14):
 		var res = resource_scene.instantiate()
 		res.position = Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(250, 900)
 		res.resource_type = "crystal"
 		res.amount = rng.randi_range(5, 15)
+		res.net_id = next_net_id
+		resource_net_ids[next_net_id] = res
+		next_net_id += 1
 		resources_node.add_child(res)
 
 
@@ -686,6 +727,7 @@ func _process(delta):
 				_spawn_wave()
 				wave_timer = CFG.wave_interval
 				wave_active = true
+				is_first_wave = false
 
 		resource_regen_timer -= delta
 		if resource_regen_timer <= 0:
@@ -774,6 +816,9 @@ func _regenerate_resources():
 		res.position = Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(100, CFG.map_half_size * 0.85)
 		res.resource_type = "iron" if rng.randf() < 0.6 else "crystal"
 		res.amount = rng.randi_range(5 + wave_number, 15 + wave_number * 2)
+		res.net_id = next_net_id
+		resource_net_ids[next_net_id] = res
+		next_net_id += 1
 		resources_node.add_child(res)
 
 
@@ -917,62 +962,83 @@ func _sync_3d_lights():
 	var active_targets: Dictionary = {}
 	for p in get_tree().get_nodes_in_group("player"):
 		if not is_instance_valid(p): continue
-		if not "mine_targets" in p: continue
 		var ppos = p.global_position
-		for target in p.mine_targets:
-			if not is_instance_valid(target): continue
-			active_targets[target] = ppos
-			var tpos = target.global_position
-			var lc = Color(1.0, 0.8, 0.3)
-			if "resource_type" in target and target.resource_type == "crystal":
-				lc = Color(0.4, 0.7, 1.0)
-			var t_amt = target.amount if "amount" in target else 10
-			var t_sz = 10.0 + t_amt * 0.5
-			var t_rtype = target.resource_type if "resource_type" in target else "iron"
-			var t_center_y = t_sz * 0.3 if t_rtype == "iron" else t_sz * 0.5
-			var start = Vector3(ppos.x, 8, ppos.y)
-			var raw_end = Vector3(tpos.x, t_center_y, tpos.y)
-			var to_player = start - raw_end
-			var to_len = to_player.length()
-			var surface_offset = minf(t_sz * 0.4, to_len * 0.5)
-			var end_pt = raw_end + to_player.normalized() * surface_offset if to_len > 0.1 else raw_end
-			var dist = start.distance_to(end_pt)
-			if dist < 0.1: continue
-			var mid = (start + end_pt) / 2.0
-			var dir = (end_pt - start).normalized()
-			var side: Vector3
-			if abs(dir.dot(Vector3.UP)) < 0.999:
-				side = dir.cross(Vector3.UP).normalized()
-			else:
-				side = dir.cross(Vector3.FORWARD).normalized()
-			var fwd = side.cross(dir).normalized()
-			var scaled_basis = Basis(side, dir * dist, fwd)
-			if target in mining_laser_beams:
-				# UPDATE existing — just set transforms (no allocation)
-				var e = mining_laser_beams[target]
-				e["light"].position = Vector3(tpos.x, 6, tpos.y)
-				e["outer_mi"].global_transform = Transform3D(scaled_basis, mid)
-				e["inner_mi"].global_transform = Transform3D(scaled_basis, mid)
-				e["sparks"].global_position = end_pt
-				e["spark_mat"].direction = Vector3(to_player.x, 1, to_player.z).normalized()
-			else:
-				# ACTIVATE a pool entry (no node creation, just show + set uniforms)
-				var e = _acquire_laser_beam()
-				e["light"].light_color = lc
-				e["light"].position = Vector3(tpos.x, 6, tpos.y)
-				e["light"].visible = true
-				e["outer_mat"].set_shader_parameter("beam_color", Color(lc.r, lc.g, lc.b, 0.6))
-				e["outer_mat"].set_shader_parameter("time_offset", tpos.x * 0.01)
-				e["inner_mat"].set_shader_parameter("time_offset", tpos.x * 0.01 + 0.5)
-				e["outer_mi"].global_transform = Transform3D(scaled_basis, mid)
-				e["inner_mi"].global_transform = Transform3D(scaled_basis, mid)
-				e["spark_mat"].direction = Vector3(to_player.x, 1, to_player.z).normalized()
-				e["spark_mat"].color = lc
-				e["sparks"].global_position = end_pt
-				e["sparks"].emitting = true
-				e["group"].visible = true
-				e["active"] = true
-				mining_laser_beams[target] = e
+		# Local player: use mine_targets directly
+		if "mine_targets" in p:
+			for target in p.mine_targets:
+				if not is_instance_valid(target): continue
+				active_targets[target] = ppos
+		# Remote player: resolve synced positions to nearest resource node
+		if "remote_mine_positions" in p and p.remote_mine_positions.size() > 0 and (not "is_local" in p or not p.is_local):
+			var mt_arr = p.remote_mine_positions
+			for mi_idx in range(0, mt_arr.size(), 2):
+				var tpos2 = Vector2(mt_arr[mi_idx], mt_arr[mi_idx + 1])
+				# Find closest resource to this position
+				var best_r = null
+				var best_d = 20.0  # Max match distance
+				for r in get_tree().get_nodes_in_group("resources"):
+					if not is_instance_valid(r): continue
+					var d = r.global_position.distance_to(tpos2)
+					if d < best_d:
+						best_d = d
+						best_r = r
+				if best_r and best_r not in active_targets:
+					active_targets[best_r] = ppos
+	# Render beams for all active targets
+	for target in active_targets:
+		if not is_instance_valid(target): continue
+		var ppos = active_targets[target]
+		var tpos = target.global_position
+		var lc = Color(1.0, 0.8, 0.3)
+		if "resource_type" in target and target.resource_type == "crystal":
+			lc = Color(0.4, 0.7, 1.0)
+		var t_amt = target.amount if "amount" in target else 10
+		var t_sz = 10.0 + t_amt * 0.5
+		var t_rtype = target.resource_type if "resource_type" in target else "iron"
+		var t_center_y = t_sz * 0.3 if t_rtype == "iron" else t_sz * 0.5
+		var start = Vector3(ppos.x, 8, ppos.y)
+		var raw_end = Vector3(tpos.x, t_center_y, tpos.y)
+		var to_player = start - raw_end
+		var to_len = to_player.length()
+		var surface_offset = minf(t_sz * 0.4, to_len * 0.5)
+		var end_pt = raw_end + to_player.normalized() * surface_offset if to_len > 0.1 else raw_end
+		var dist = start.distance_to(end_pt)
+		if dist < 0.1: continue
+		var mid = (start + end_pt) / 2.0
+		var dir = (end_pt - start).normalized()
+		var side: Vector3
+		if abs(dir.dot(Vector3.UP)) < 0.999:
+			side = dir.cross(Vector3.UP).normalized()
+		else:
+			side = dir.cross(Vector3.FORWARD).normalized()
+		var fwd = side.cross(dir).normalized()
+		var scaled_basis = Basis(side, dir * dist, fwd)
+		if target in mining_laser_beams:
+			# UPDATE existing — just set transforms (no allocation)
+			var e = mining_laser_beams[target]
+			e["light"].position = Vector3(tpos.x, 6, tpos.y)
+			e["outer_mi"].global_transform = Transform3D(scaled_basis, mid)
+			e["inner_mi"].global_transform = Transform3D(scaled_basis, mid)
+			e["sparks"].global_position = end_pt
+			e["spark_mat"].direction = Vector3(to_player.x, 1, to_player.z).normalized()
+		else:
+			# ACTIVATE a pool entry (no node creation, just show + set uniforms)
+			var e = _acquire_laser_beam()
+			e["light"].light_color = lc
+			e["light"].position = Vector3(tpos.x, 6, tpos.y)
+			e["light"].visible = true
+			e["outer_mat"].set_shader_parameter("beam_color", Color(lc.r, lc.g, lc.b, 0.6))
+			e["outer_mat"].set_shader_parameter("time_offset", tpos.x * 0.01)
+			e["inner_mat"].set_shader_parameter("time_offset", tpos.x * 0.01 + 0.5)
+			e["outer_mi"].global_transform = Transform3D(scaled_basis, mid)
+			e["inner_mi"].global_transform = Transform3D(scaled_basis, mid)
+			e["spark_mat"].direction = Vector3(to_player.x, 1, to_player.z).normalized()
+			e["spark_mat"].color = lc
+			e["sparks"].global_position = end_pt
+			e["sparks"].emitting = true
+			e["group"].visible = true
+			e["active"] = true
+			mining_laser_beams[target] = e
 	# Return beams to pool for targets no longer being mined
 	for key in mining_laser_beams.keys():
 		if key not in active_targets or not is_instance_valid(key):
@@ -1573,7 +1639,9 @@ func _create_player_mesh(col: Color) -> Node3D:
 	pm.size = Vector3(12, 18, 10)
 	pm.left_to_right = 0.5
 	mi.mesh = pm
-	mi.material_override = _unlit_mat(col)
+	var pmat = _unlit_mat(col).duplicate()
+	pmat.next_pass = _dither_occlude_mat
+	mi.material_override = pmat
 	mi.rotation.x = -PI / 2
 	mi.position.y = 5
 	body.add_child(mi)
@@ -1605,7 +1673,8 @@ func _create_alien_mesh(a: Node2D) -> Node3D:
 		col = Color(0.75, 0.18, 0.1)
 	pm.left_to_right = 0.5
 	mi.mesh = pm
-	var base_mat = _unlit_mat(col)
+	var base_mat = _unlit_mat(col).duplicate()
+	base_mat.next_pass = _dither_occlude_mat
 	mi.material_override = base_mat
 	mi.rotation.x = -PI / 2
 	mi.position.y = pm.size.z * 0.5
@@ -1849,7 +1918,7 @@ func _sync_3d_meshes():
 		if mesh_node and mesh_node is MeshInstance3D:
 			var flashing = "hit_flash_timer" in a and a.hit_flash_timer > 0
 			if flashing:
-				mesh_node.material_override = _unlit_mat(Color.WHITE)
+				mesh_node.material_override = _flash_white_mat
 			else:
 				var bm = mr.get_meta("base_mat", null)
 				if bm:
@@ -2414,9 +2483,12 @@ func _on_game_started(start_wave: int):
 		player_node.research_mining_speed = GameData.get_research_bonus("mining_speed")
 		player_node.research_xp_gain = GameData.get_research_bonus("xp_gain")
 	# Start at selected wave
+	is_first_wave = true
 	if starting_wave > 1:
 		wave_number = starting_wave - 1
-		wave_timer = 5.0  # Short delay before first wave
+		wave_timer = 5.0 + 15.0  # Short delay + extra prep time for first wave
+	else:
+		wave_timer = CFG.first_wave_delay + 15.0  # Extra prep time for first wave
 
 	# Apply building health research to HQ
 	var health_bonus = GameData.get_research_bonus("building_health")
@@ -2465,6 +2537,99 @@ func _input(event):
 	if event.is_action_pressed("pause"):
 		if is_instance_valid(hud_node):
 			hud_node.toggle_pause()
+	# Debug dump: Ctrl+Shift+Home
+	if event is InputEventKey and event.pressed and event.keycode == KEY_HOME and event.ctrl_pressed and event.shift_pressed:
+		_debug_dump()
+
+
+func _debug_dump():
+	var is_host = not NetworkManager.is_multiplayer_active() or NetworkManager.is_host()
+	var role = "HOST" if is_host else "CLIENT"
+	var peer_id = multiplayer.get_unique_id() if NetworkManager.is_multiplayer_active() else 0
+	var lines: PackedStringArray = []
+	lines.append("=== DEBUG DUMP [%s] peer=%d ===" % [role, peer_id])
+	lines.append("wave=%d timer=%.1f active=%s first=%s" % [wave_number, wave_timer, wave_active, is_first_wave])
+
+	# Players
+	var player_count = get_tree().get_nodes_in_group("player").size()
+	lines.append("players_in_scene=%d players_dict=%d" % [player_count, players.size()])
+	for pid in players:
+		var p = players[pid]
+		if is_instance_valid(p):
+			var local = "LOCAL" if ("is_local" in p and p.is_local) else "REMOTE"
+			lines.append("  player pid=%d %s pos=(%.0f,%.0f) hp=%d/%d dead=%s color=%s mine_targets=%d" % [
+				pid, local, p.global_position.x, p.global_position.y,
+				p.health, p.max_health, p.is_dead,
+				p.player_color.to_html(), p.mine_targets.size()])
+
+	# Buildings
+	var buildings = get_tree().get_nodes_in_group("buildings")
+	var building_hash = 0
+	for b in buildings:
+		if is_instance_valid(b):
+			building_hash += int(b.global_position.x * 7 + b.global_position.y * 13)
+			if "hp" in b:
+				building_hash += b.hp
+	lines.append("buildings=%d hash=%d" % [buildings.size(), building_hash])
+
+	# Resources
+	var resources = get_tree().get_nodes_in_group("resources")
+	var res_hash = 0
+	var res_iron = 0
+	var res_crystal = 0
+	for r in resources:
+		if is_instance_valid(r):
+			res_hash += int(r.global_position.x * 7 + r.global_position.y * 13 + r.amount)
+			if r.resource_type == "iron":
+				res_iron += 1
+			else:
+				res_crystal += 1
+	lines.append("resources=%d (iron=%d crystal=%d) hash=%d" % [resources.size(), res_iron, res_crystal, res_hash])
+
+	# Aliens
+	var aliens = get_tree().get_nodes_in_group("aliens")
+	var alien_hash = 0
+	for a in aliens:
+		if is_instance_valid(a):
+			alien_hash += int(a.global_position.x * 3 + a.global_position.y * 7)
+			if "hp" in a:
+				alien_hash += a.hp
+	lines.append("aliens=%d hash=%d" % [aliens.size(), alien_hash])
+
+	# 3D mesh counts
+	lines.append("3d_meshes: players=%d buildings=%d aliens=%d resources=%d" % [
+		player_meshes.size(), building_meshes.size(), alien_meshes.size(), resource_meshes.size()])
+
+	# Lights
+	var pl_lights = 0
+	var bl_lights = 0
+	var al_lights = 0
+	var rl_lights = 0
+	for k in player_lights:
+		if is_instance_valid(player_lights[k]): pl_lights += 1
+	for k in building_lights:
+		if is_instance_valid(building_lights[k]): bl_lights += 1
+	for k in alien_lights:
+		if is_instance_valid(alien_lights[k]): al_lights += 1
+	for k in resource_lights:
+		if is_instance_valid(resource_lights[k]): rl_lights += 1
+	lines.append("3d_lights: players=%d buildings=%d aliens=%d resources=%d" % [pl_lights, bl_lights, al_lights, rl_lights])
+
+	# Mining lasers
+	lines.append("mining_lasers=%d" % mining_laser_beams.size())
+
+	# Power
+	lines.append("power: bank=%.0f/%.0f on=%s gen=%.1f consume=%.1f" % [
+		power_bank, max_power_bank, power_on, total_power_gen, total_power_consumption])
+
+	var dump = "\n".join(lines)
+	print(dump)
+	DisplayServer.clipboard_set(dump)
+	if is_instance_valid(hud_node) and is_instance_valid(hud_node.alert_label):
+		hud_node.alert_label.text = "Debug dump copied to clipboard"
+		hud_node.alert_label.add_theme_color_override("font_color", Color(0.5, 1.0, 0.5))
+		hud_node.alert_label.visible = true
+		hud_node.alert_timer = 3.0
 
 
 func on_player_died(dead_player: Node2D = null):
@@ -2598,7 +2763,14 @@ func _broadcast_state():
 	for pid in players:
 		var p = players[pid]
 		if is_instance_valid(p):
-			player_states.append([pid, p.global_position.x, p.global_position.y, p.facing_angle, p.health, p.max_health, p.is_dead, respawn_timers.get(pid, 0.0), p.upgrades.get("orbital_lasers", 0)])
+			# Encode mine target positions as flat array [x1,y1,x2,y2,...]
+			var mt = []
+			if "mine_targets" in p:
+				for t in p.mine_targets:
+					if is_instance_valid(t):
+						mt.append(t.global_position.x)
+						mt.append(t.global_position.y)
+			player_states.append([pid, p.global_position.x, p.global_position.y, p.facing_angle, p.health, p.max_health, p.is_dead, respawn_timers.get(pid, 0.0), p.upgrades.get("orbital_lasers", 0), mt])
 
 	# Clean dead aliens from tracking
 	var dead_ids = []
@@ -2627,6 +2799,26 @@ func _broadcast_state():
 		hq_hp = hq_node.hp
 		hq_max_hp = hq_node.max_hp
 
+	# Resource data: [net_id, type_id, pos_x, pos_y, amount]
+	var res_data = []
+	# Clean dead resources
+	var dead_res = []
+	for nid in resource_net_ids:
+		if not is_instance_valid(resource_net_ids[nid]):
+			dead_res.append(nid)
+	for nid in dead_res:
+		resource_net_ids.erase(nid)
+	for nid in resource_net_ids:
+		var r = resource_net_ids[nid]
+		res_data.append([nid, 0 if r.resource_type == "iron" else 1, r.global_position.x, r.global_position.y, r.amount])
+
+	# Building data: [pos_x, pos_y, hp, max_hp]
+	var building_data = []
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b): continue
+		if b.is_in_group("hq"): continue
+		building_data.append([b.global_position.x, b.global_position.y, b.hp if "hp" in b else 0, b.max_hp if "max_hp" in b else 0])
+
 	_receive_state.rpc([
 		player_states,
 		player_node.iron, player_node.crystal,
@@ -2636,7 +2828,9 @@ func _broadcast_state():
 		bosses_killed,
 		enemy_data,
 		hq_hp, hq_max_hp,
-		run_prestige
+		run_prestige,
+		res_data,
+		building_data
 	])
 
 
@@ -2700,9 +2894,65 @@ func _receive_state(state: Array):
 				rp.is_dead = ps[6]
 				if ps.size() > 8:
 					rp.upgrades["orbital_lasers"] = ps[8]
+				if ps.size() > 9:
+					rp.remote_mine_positions = ps[9]
 
 	# Sync enemies
 	_sync_enemies(enemy_data)
+
+	# Sync resources (index 16)
+	if state.size() > 16:
+		_sync_resources(state[16])
+
+	# Sync building HP (index 17)
+	if state.size() > 17:
+		_sync_building_hp(state[17])
+
+
+func _sync_resources(res_data: Array):
+	var live_ids = {}
+	var resource_scene = preload("res://scenes/resource_node.tscn")
+	for rd in res_data:
+		var nid: int = rd[0]
+		var rtype: int = rd[1]
+		var pos = Vector2(rd[2], rd[3])
+		var amt: int = rd[4]
+		live_ids[nid] = true
+		if resource_net_ids.has(nid) and is_instance_valid(resource_net_ids[nid]):
+			var r = resource_net_ids[nid]
+			r.global_position = pos
+			r.amount = amt
+		else:
+			var r = resource_scene.instantiate()
+			r.global_position = pos
+			r.resource_type = "iron" if rtype == 0 else "crystal"
+			r.amount = amt
+			r.net_id = nid
+			resources_node.add_child(r)
+			resource_net_ids[nid] = r
+	# Remove resources that no longer exist on host
+	var to_remove = []
+	for nid in resource_net_ids:
+		if not live_ids.has(nid):
+			var r = resource_net_ids[nid]
+			if is_instance_valid(r):
+				r.queue_free()
+			to_remove.append(nid)
+	for nid in to_remove:
+		resource_net_ids.erase(nid)
+
+
+func _sync_building_hp(building_data: Array):
+	for bd in building_data:
+		var pos = Vector2(bd[0], bd[1])
+		var bhp: int = bd[2]
+		var bmax: int = bd[3]
+		var b = _find_building_at(pos)
+		if b:
+			if "hp" in b:
+				b.hp = bhp
+			if "max_hp" in b:
+				b.max_hp = bmax
 
 
 func _send_client_state():

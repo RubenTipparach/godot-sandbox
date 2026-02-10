@@ -13,6 +13,7 @@ var facing_angle: float = 0.0
 var invuln_timer: float = 0.0
 var auto_mine_timer: float = 0.0
 var mine_targets: Array = []
+var remote_mine_positions: Array = []  # For remote players: [[x,y],[x,y],...] from host sync
 var repair_targets: Array = []
 var auto_repair_timer: float = 0.0
 var is_dead: bool = false
@@ -30,6 +31,8 @@ var mining_boost_timer: float = 0.0
 var build_mode: String = ""  # Empty = not building, otherwise building type
 var build_mode_cooldown: float = 0.0  # Prevents immediate placement after clicking build icon
 var is_mobile: bool = false
+var auto_fire: bool = true   # When false, hold mouse/click to fire
+var auto_aim: bool = true    # When true, auto-aim at nearest enemy
 var pending_build_world_pos: Vector2 = Vector2.ZERO  # Mobile: ghost position set by tap
 
 var upgrades = {
@@ -161,13 +164,15 @@ func _process(delta):
 		position += input.normalized() * CFG.player_speed * (1.0 + upgrades["move_speed"] * CFG.move_speed_per_level + research_move_speed) * delta
 	position = position.clamp(Vector2(-CFG.map_half_size, -CFG.map_half_size), Vector2(CFG.map_half_size, CFG.map_half_size))
 
-	if is_mobile:
+	if is_mobile or auto_aim:
 		if look_joystick_node and look_joystick_node.input_vector != Vector2.ZERO:
 			facing_angle = look_joystick_node.input_vector.angle()
 		else:
 			var nearest_alien = _find_nearest_alien()
 			if nearest_alien:
 				facing_angle = (nearest_alien.global_position - global_position).angle()
+			elif not is_mobile:
+				facing_angle = (get_tree().current_scene.mouse_world_2d - global_position).angle()
 	else:
 		facing_angle = (get_tree().current_scene.mouse_world_2d - global_position).angle()
 	shoot_timer = maxf(0.0, shoot_timer - delta)
@@ -175,7 +180,9 @@ func _process(delta):
 	magnet_timer = maxf(0.0, magnet_timer - delta)
 	mining_boost_timer = maxf(0.0, mining_boost_timer - delta)
 
-	if shoot_timer <= 0 and get_tree().get_nodes_in_group("aliens").size() > 0:
+	var manual_shooting = not auto_fire and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and build_mode == ""
+	var can_fire = auto_fire or manual_shooting
+	if shoot_timer <= 0 and can_fire and get_tree().get_nodes_in_group("aliens").size() > 0:
 		_shoot()
 		shoot_timer = CFG.shoot_cooldown / (1.0 + upgrades["attack_speed"] * CFG.attack_speed_per_level)
 
