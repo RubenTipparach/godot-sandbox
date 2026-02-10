@@ -1,0 +1,76 @@
+[gd_scene format=3 uid="uid://mfiidphgfkoe"]
+
+[ext_resource type="Material" uid="uid://ddfrdkgporc2b" path="res://new_standard_material_3d.tres" id="1_dplmw"]
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_oqoec"]
+
+[node name="SceneTest" type="Node3D" unique_id=1423876607]
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="." unique_id=1562285470]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.0020703077, 0.007905006, -0.0037896633)
+material_override = ExtResource("1_dplmw")
+mesh = SubResource("PlaneMesh_oqoec")
+
+[node name="MeshInstance3D2" type="MeshInstance3D" parent="." unique_id=206747714]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2, 0, 0)
+material_override = ExtResource("1_dplmw")
+mesh = SubResource("PlaneMesh_oqoec")
+
+[node name="MeshInstance3D4" type="MeshInstance3D" parent="." unique_id=1278681054]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.0134964, 0.007905006, 1.9962103)
+material_override = ExtResource("1_dplmw")
+mesh = SubResource("PlaneMesh_oqoec")
+
+[node name="MeshInstance3D5" type="MeshInstance3D" parent="." unique_id=1512974845]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.013496399, 0.007905006, -2.0037897)
+material_override = ExtResource("1_dplmw")
+mesh = SubResource("PlaneMesh_oqoec")
+
+[node name="MeshInstance3D6" type="MeshInstance3D" parent="." unique_id=1241524521]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.9865036, 0.007905006, -0.0037896633)
+material_override = ExtResource("1_dplmw")
+mesh = SubResource("PlaneMesh_oqoec")
+
+[node name="MeshInstance3D7" type="MeshInstance3D" parent="." unique_id=412523551]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.9865036, 0.007905006, -2.0037897)
+material_override = ExtResource("1_dplmw")
+mesh = SubResource("PlaneMesh_oqoec")
+
+[node name="MeshInstance3D8" type="MeshInstance3D" parent="." unique_id=485893500]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1.9865036, 0.007905006, -4.00379)
+material_override = ExtResource("1_dplmw")
+mesh = SubResource("PlaneMesh_oqoec")
+
+[node name="MeshInstance3D9" type="MeshInstance3D" parent="." unique_id=1485868121]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.013496399, 0.007905006, -4.00379)
+material_override = ExtResource("1_dplmw")
+mesh = SubResource("PlaneMesh_oqoec")
+
+[node name="MeshInstance3D10" type="MeshInstance3D" parent="." unique_id=1364089559]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.0134964, 0.007905006, -2.00379)
+material_override = ExtResource("1_dplmw")
+mesh = SubResource("PlaneMesh_oqoec")
+
+[node name="MeshInstance3D11" type="MeshInstance3D" parent="." unique_id=1763944339]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.0134964, 0.007905006, -4.00379)
+material_override = ExtResource("1_dplmw")
+mesh = SubResource("PlaneMesh_oqoec")
+
+[node name="MeshInstance3D12" type="MeshInstance3D" parent="." unique_id=1743197620]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 4.0134964, 0.007905006, 1.9962101)
+material_override = ExtResource("1_dplmw")
+mesh = SubResource("PlaneMesh_oqoec")
+
+[node name="MeshInstance3D3" type="MeshInstance3D" parent="." unique_id=569725272]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.013496399, 0.007905006, 1.9962103)
+material_override = ExtResource("1_dplmw")
+mesh = SubResource("PlaneMesh_oqoec")
+
+[node name="OmniLight3D" type="OmniLight3D" parent="." unique_id=1271729131]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.9699532, 0.9882878, 0.31432828)
+light_energy = 4.289
+omni_range = 2.76
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="." unique_id=516914886]
+transform = Transform3D(1, 0, 0, 0, 0.6890758, 0.72468925, 0, -0.72468925, 0.6890758, 0, 0.5869938, 0)
+visible = false

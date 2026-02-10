@@ -4,6 +4,16 @@ extends Resource
 # =============================================================================
 # WORLD
 # =============================================================================
+@export_group("Lighting")
+@export var ambient_light_color: Color = Color(0.15, 0.14, 0.12)
+@export var directional_light_energy: float = 1.2
+@export var player_light_energy: float = 3.0
+@export var player_light_range: float = 120.0
+@export var building_light_energy: float = 2.0
+@export var building_light_range: float = 80.0
+@export var hq_light_energy: float = 4.0
+@export var hq_light_range: float = 150.0
+
 @export_group("World")
 @export var map_half_size: float = 1000.0
 @export var wave_interval: float = 20.0

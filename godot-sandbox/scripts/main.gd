@@ -10,10 +10,26 @@ var game_world_2d: Node2D
 var world_overlay: Node2D
 var mouse_world_2d: Vector2 = Vector2.ZERO
 
-# 3D light tracking
+# 3D light tracking (OmniLight3D)
 var building_lights: Dictionary = {}   # Node2D -> OmniLight3D
 var player_lights: Dictionary = {}     # Node2D -> OmniLight3D
-var building_shadows: Dictionary = {}  # Node2D -> MeshInstance3D
+var alien_lights: Dictionary = {}      # Node2D -> OmniLight3D
+var mining_laser_lights: Array = []    # Array of OmniLight3D for active laser targets
+var mining_laser_meshes: Array = []    # Array of Node3D for active laser beams
+# HQ light
+var hq_light_3d: OmniLight3D
+# 3D mesh representations (replaces SubViewport mirrors)
+var building_meshes: Dictionary = {}    # Node2D -> Node3D
+var player_meshes: Dictionary = {}      # Node2D -> Node3D
+var alien_meshes: Dictionary = {}       # Node2D -> Node3D
+var resource_meshes: Dictionary = {}    # Node2D -> Node3D
+var bullet_meshes: Dictionary = {}      # Node2D -> Node3D
+var gem_meshes: Dictionary = {}         # Node2D -> Node3D
+var powerup_meshes: Dictionary = {}     # Node2D -> Node3D
+var orb_meshes: Dictionary = {}         # Node2D -> Node3D
+var _mat_cache: Dictionary = {}         # String -> StandardMaterial3D
+var hp_bar_layer: CanvasLayer            # Screen-space HP bar overlay
+var hp_bar_nodes: Dictionary = {}        # Node2D -> Control (HP bar UI)
 
 var wave_number: int = 0
 var wave_timer: float = CFG.first_wave_delay
@@ -168,13 +184,13 @@ func _create_world():
 	env.background_mode = Environment.BG_COLOR
 	env.background_color = Color(0.12, 0.11, 0.1, 1)
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.6, 0.6, 0.55)
+	env.ambient_light_color = CFG.ambient_light_color
 	env_node.environment = env
 	add_child(env_node)
 
 	var light = DirectionalLight3D.new()
 	light.rotation_degrees = Vector3(-60, 30, 0)
-	light.light_energy = 0.4
+	light.light_energy = CFG.directional_light_energy
 	light.shadow_enabled = true
 	light.directional_shadow_max_distance = 1500.0
 	add_child(light)
@@ -186,15 +202,19 @@ func _create_world():
 	camera_3d.rotation_degrees = Vector3(-60, 0, 0)
 	add_child(camera_3d)
 
-	# --- Ground plane with dirt/grass ---
+	# --- Ground plane with dirt/grass (subdivided for gouraud-style vertex lighting) ---
 	var ground = MeshInstance3D.new()
 	var plane_mesh = PlaneMesh.new()
 	plane_mesh.size = Vector2(2400, 2400)
+	plane_mesh.subdivide_width = 60
+	plane_mesh.subdivide_depth = 60
 	ground.mesh = plane_mesh
 	var mat = StandardMaterial3D.new()
 	mat.albedo_texture = preload("res://resources/dirt_grass.png")
 	mat.uv1_scale = Vector3(60, 60, 1)
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
+	mat.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT
 	ground.material_override = mat
 	add_child(ground)
 
@@ -235,7 +255,17 @@ func _create_world():
 	hq_node = preload("res://scenes/hq.tscn").instantiate()
 	hq_node.global_position = Vector2.ZERO
 	hq_node.destroyed.connect(_on_hq_destroyed)
+	hq_node.visible = false  # Hidden in 2D viewport; 3D standing sprite handles visuals
 	buildings_node.add_child(hq_node)
+
+	# HQ pointlight — illuminates surroundings
+	hq_light_3d = OmniLight3D.new()
+	hq_light_3d.light_energy = CFG.hq_light_energy
+	hq_light_3d.omni_range = CFG.hq_light_range
+	hq_light_3d.light_color = Color(1.0, 0.85, 0.4)
+	hq_light_3d.shadow_enabled = false
+	hq_light_3d.position = Vector3(0, 50, 0)
+	add_child(hq_light_3d)
 
 	var player_scene = preload("res://scenes/player.tscn")
 	player_node = player_scene.instantiate()
@@ -258,10 +288,15 @@ func _create_world():
 	game_sprite.rotation_degrees = Vector3(-90, 0, 0)
 	game_sprite.position = Vector3(0, 0.1, 0)
 	game_sprite.billboard = BaseMaterial3D.BILLBOARD_DISABLED
-	game_sprite.shaded = false
+	game_sprite.shaded = false  # Unlit — text, lasers, bullets not affected by 3D lighting
 	game_sprite.transparent = true
-	game_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_DISABLED
+	game_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_OPAQUE_PREPASS
 	add_child(game_sprite)
+
+	# --- HP bar overlay (screen-space, below HUD) ---
+	hp_bar_layer = CanvasLayer.new()
+	hp_bar_layer.layer = 1  # Below HUD which is usually layer 2+
+	add_child(hp_bar_layer)
 
 	# --- HUD (CanvasLayer, works on any parent) ---
 	var hud_scene = preload("res://scenes/hud.tscn")
@@ -387,6 +422,17 @@ func _process(delta):
 	# Sync 3D lights for buildings and player
 	_sync_3d_lights()
 
+	# Sync 3D meshes for all entities
+	_sync_3d_meshes()
+
+	# Sync screen-space HP bars
+	_sync_hp_bars()
+
+	# Sync HQ light position
+	if is_instance_valid(hq_node) and is_instance_valid(hq_light_3d):
+		var hpos = hq_node.global_position
+		hq_light_3d.position = Vector3(hpos.x, 50, hpos.y)
+
 
 func _regenerate_resources():
 	var current = get_tree().get_nodes_in_group("resources").size()
@@ -439,58 +485,143 @@ func world_to_screen(world_2d: Vector2) -> Vector2:
 
 
 func _sync_3d_lights():
-	# Clean up lights/shadows for destroyed entities
+	# Clean up lights for destroyed entities
 	for key in building_lights.keys():
 		if not is_instance_valid(key):
 			building_lights[key].queue_free()
 			building_lights.erase(key)
-			if key in building_shadows:
-				building_shadows[key].queue_free()
-				building_shadows.erase(key)
 	for key in player_lights.keys():
 		if not is_instance_valid(key):
 			player_lights[key].queue_free()
 			player_lights.erase(key)
+	for key in alien_lights.keys():
+		if not is_instance_valid(key):
+			alien_lights[key].queue_free()
+			alien_lights.erase(key)
 
-	# Building lights + shadow proxies
+	# Building lights (skip HQ — it has its own dedicated light)
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if not is_instance_valid(b): continue
-		var pos3d = Vector3(b.global_position.x, 15, b.global_position.y)
+		if b.is_in_group("hq"): continue
+		var bcolor = _get_building_light_color(b)
+		var pos3d = Vector3(b.global_position.x, 10, b.global_position.y)
 		if b not in building_lights:
 			var light = OmniLight3D.new()
-			light.light_energy = 0.5
-			light.omni_range = 50.0
-			light.omni_attenuation = 1.5
-			light.light_color = _get_building_light_color(b)
+			light.light_energy = CFG.building_light_energy
+			light.omni_range = CFG.building_light_range
+			light.omni_attenuation = 1.0
+			light.light_color = bcolor
 			light.shadow_enabled = false
 			add_child(light)
 			building_lights[b] = light
-			# Shadow proxy box (invisible, casts shadows only)
-			var proxy = MeshInstance3D.new()
-			var box = BoxMesh.new()
-			box.size = Vector3(24, 30, 24)
-			proxy.mesh = box
-			proxy.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
-			add_child(proxy)
-			building_shadows[b] = proxy
 		building_lights[b].position = pos3d
-		if b in building_shadows:
-			building_shadows[b].position = Vector3(b.global_position.x, 15, b.global_position.y)
 
 	# Player lights
 	for p in get_tree().get_nodes_in_group("player"):
 		if not is_instance_valid(p): continue
-		var pos3d = Vector3(p.global_position.x, 20, p.global_position.y)
+		var pcolor = p.player_color if "player_color" in p else Color(0.2, 0.9, 0.3)
+		var pos3d = Vector3(p.global_position.x, 12, p.global_position.y)
 		if p not in player_lights:
 			var light = OmniLight3D.new()
-			light.light_energy = 1.0
-			light.omni_range = 80.0
-			light.omni_attenuation = 1.5
-			light.light_color = p.player_color if "player_color" in p else Color(0.2, 0.9, 0.3)
+			light.light_energy = CFG.player_light_energy
+			light.omni_range = CFG.player_light_range
+			light.omni_attenuation = 1.0
+			light.light_color = pcolor
 			light.shadow_enabled = false
 			add_child(light)
 			player_lights[p] = light
 		player_lights[p].position = pos3d
+
+	# Alien lights (red/orange glow)
+	for a in get_tree().get_nodes_in_group("aliens"):
+		if not is_instance_valid(a): continue
+		var pos3d = Vector3(a.global_position.x, 8, a.global_position.y)
+		if a not in alien_lights:
+			var light = OmniLight3D.new()
+			light.light_energy = 0.6
+			light.omni_range = 30.0
+			light.omni_attenuation = 1.5
+			var acolor = Color(0.9, 0.2, 0.1)
+			if a.is_in_group("bosses"):
+				light.light_energy = 2.0
+				light.omni_range = 60.0
+				acolor = Color(1.0, 0.15, 0.1)
+			light.light_color = acolor
+			light.shadow_enabled = false
+			add_child(light)
+			alien_lights[a] = light
+		alien_lights[a].position = pos3d
+
+	# Mining laser lights + 3D beams — recreate each frame for active targets
+	for old_light in mining_laser_lights:
+		if is_instance_valid(old_light):
+			old_light.queue_free()
+	mining_laser_lights.clear()
+	for old_beam in mining_laser_meshes:
+		if is_instance_valid(old_beam):
+			old_beam.queue_free()
+	mining_laser_meshes.clear()
+	for p in get_tree().get_nodes_in_group("player"):
+		if not is_instance_valid(p): continue
+		if not "mine_targets" in p: continue
+		var ppos = p.global_position
+		for target in p.mine_targets:
+			if not is_instance_valid(target): continue
+			var tpos = target.global_position
+			var lc = Color(1.0, 0.8, 0.3)
+			if "resource_type" in target and target.resource_type == "crystal":
+				lc = Color(0.4, 0.7, 1.0)
+			# Light at target
+			var laser_light = OmniLight3D.new()
+			laser_light.light_energy = 1.5
+			laser_light.omni_range = 40.0
+			laser_light.omni_attenuation = 1.0
+			laser_light.light_color = lc
+			laser_light.shadow_enabled = false
+			laser_light.position = Vector3(tpos.x, 6, tpos.y)
+			add_child(laser_light)
+			mining_laser_lights.append(laser_light)
+			# 3D beam from player center to resource surface
+			var t_amt = target.amount if "amount" in target else 10
+			var t_sz = 10.0 + t_amt * 0.5
+			var t_rtype = target.resource_type if "resource_type" in target else "iron"
+			var t_center_y = t_sz * 0.3 if t_rtype == "iron" else t_sz * 0.5
+			var start = Vector3(ppos.x, 8, ppos.y)
+			var raw_end = Vector3(tpos.x, t_center_y, tpos.y)
+			# Offset end toward player to hit surface instead of center
+			var to_player = (start - raw_end)
+			var to_len = to_player.length()
+			var surface_offset = minf(t_sz * 0.4, to_len * 0.5)
+			var end_pt = raw_end + to_player.normalized() * surface_offset if to_len > 0.1 else raw_end
+			var dist = start.distance_to(end_pt)
+			if dist < 0.1: continue
+			var beam_root = Node3D.new()
+			beam_root.position = start
+			beam_root.look_at(end_pt, Vector3.UP)
+			# Outer glow cylinder
+			var mi_outer = MeshInstance3D.new()
+			var cm_outer = CylinderMesh.new()
+			cm_outer.top_radius = 1.5
+			cm_outer.bottom_radius = 1.5
+			cm_outer.height = dist
+			mi_outer.mesh = cm_outer
+			mi_outer.material_override = _unlit_mat(lc.darkened(0.5))
+			mi_outer.rotation.x = PI / 2
+			mi_outer.position.z = -dist / 2.0
+			beam_root.add_child(mi_outer)
+			# Inner core cylinder
+			var mi_inner = MeshInstance3D.new()
+			var cm_inner = CylinderMesh.new()
+			cm_inner.top_radius = 0.4
+			cm_inner.bottom_radius = 0.4
+			cm_inner.height = dist
+			mi_inner.mesh = cm_inner
+			mi_inner.material_override = _unlit_mat(Color(1, 1, 1))
+			mi_inner.rotation.x = PI / 2
+			mi_inner.position.z = -dist / 2.0
+			beam_root.add_child(mi_inner)
+			add_child(beam_root)
+			mining_laser_meshes.append(beam_root)
 
 
 func _get_building_light_color(building: Node2D) -> Color:
@@ -509,6 +640,441 @@ func _get_building_light_color(building: Node2D) -> Color:
 			"Repair Drone": return Color(0.3, 1.0, 0.5)
 			"HQ": return Color(1.0, 0.85, 0.4)
 	return Color(1.0, 0.85, 0.5)
+
+
+# ---- 3D Mesh Helpers ----
+
+func _vert_mat(color: Color) -> StandardMaterial3D:
+	var key = "v_" + color.to_html()
+	if _mat_cache.has(key): return _mat_cache[key]
+	var m = StandardMaterial3D.new()
+	m.albedo_color = color
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
+	m.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT
+	_mat_cache[key] = m
+	return m
+
+
+func _bb_mat(color: Color) -> StandardMaterial3D:
+	var key = "bb_" + color.to_html()
+	if _mat_cache.has(key): return _mat_cache[key]
+	var m = StandardMaterial3D.new()
+	m.albedo_color = color
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.emission_enabled = true
+	m.emission = color
+	m.emission_energy_multiplier = 0.5
+	_mat_cache[key] = m
+	return m
+
+
+func _unlit_mat(color: Color) -> StandardMaterial3D:
+	var key = "u_" + color.to_html()
+	if _mat_cache.has(key): return _mat_cache[key]
+	var m = StandardMaterial3D.new()
+	m.albedo_color = color
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_mat_cache[key] = m
+	return m
+
+
+func _mesh_box(sz: Vector3, col: Color, pos: Vector3 = Vector3.ZERO) -> MeshInstance3D:
+	var mi = MeshInstance3D.new()
+	var bm = BoxMesh.new()
+	bm.size = sz
+	mi.mesh = bm
+	mi.material_override = _vert_mat(col)
+	mi.position = pos
+	return mi
+
+
+func _mesh_cyl(r: float, h: float, col: Color, pos: Vector3 = Vector3.ZERO) -> MeshInstance3D:
+	var mi = MeshInstance3D.new()
+	var cm = CylinderMesh.new()
+	cm.top_radius = r
+	cm.bottom_radius = r
+	cm.height = h
+	mi.mesh = cm
+	mi.material_override = _vert_mat(col)
+	mi.position = pos
+	return mi
+
+
+func _mesh_sphere(r: float, col: Color, pos: Vector3 = Vector3.ZERO) -> MeshInstance3D:
+	var mi = MeshInstance3D.new()
+	var sm = SphereMesh.new()
+	sm.radius = r
+	sm.height = r * 2
+	mi.mesh = sm
+	mi.material_override = _vert_mat(col)
+	mi.position = pos
+	return mi
+
+
+func _create_hp_bar_ui() -> Control:
+	var container = Control.new()
+	container.size = Vector2(40, 6)
+	container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bg = ColorRect.new()
+	bg.name = "Bg"
+	bg.color = Color(0.1, 0.1, 0.1, 0.7)
+	bg.size = Vector2(40, 6)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	container.add_child(bg)
+	var fill = ColorRect.new()
+	fill.name = "Fill"
+	fill.color = Color(0.2, 0.8, 0.2)
+	fill.size = Vector2(40, 6)
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	container.add_child(fill)
+	return container
+
+
+func _sync_hp_bars():
+	if not is_instance_valid(camera_3d) or not is_instance_valid(hp_bar_layer):
+		return
+	# Collect all entities that should have HP bars: buildings + players + aliens
+	var entities: Array = []
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if is_instance_valid(b) and "hp" in b and "max_hp" in b:
+			var h = 30.0
+			if b in building_meshes:
+				h = 30.0
+			entities.append({"node": b, "hp": b.hp, "max_hp": b.max_hp, "y_offset": h, "bar_w": 40})
+	for p in get_tree().get_nodes_in_group("player"):
+		if is_instance_valid(p) and "health" in p and "max_health" in p:
+			var dead = p.is_dead if "is_dead" in p else false
+			if not dead:
+				entities.append({"node": p, "hp": p.health, "max_hp": p.max_health, "y_offset": 18, "bar_w": 32})
+	for a in get_tree().get_nodes_in_group("aliens"):
+		if is_instance_valid(a) and "hp" in a and "max_hp" in a:
+			entities.append({"node": a, "hp": a.hp, "max_hp": a.max_hp, "y_offset": 16, "bar_w": 28})
+	# Track which entities still exist
+	var active_set: Dictionary = {}
+	for e in entities:
+		var node = e["node"]
+		if e["max_hp"] <= 0: continue
+		if e["hp"] >= e["max_hp"]: continue  # Full health = no bar
+		active_set[node] = true
+		if node not in hp_bar_nodes:
+			var new_bar = _create_hp_bar_ui()
+			hp_bar_layer.add_child(new_bar)
+			hp_bar_nodes[node] = new_bar
+		var bar = hp_bar_nodes[node]
+		var pos2d = node.global_position
+		var world_pos = Vector3(pos2d.x, e["y_offset"], pos2d.y)
+		if camera_3d.is_position_behind(world_pos):
+			bar.visible = false
+			continue
+		var screen_pos = camera_3d.unproject_position(world_pos)
+		var bw = e["bar_w"]
+		bar.position = Vector2(screen_pos.x - bw / 2.0, screen_pos.y - 10)
+		bar.visible = true
+		var bg_rect = bar.get_node("Bg") as ColorRect
+		bg_rect.size.x = bw
+		var fill_rect = bar.get_node("Fill") as ColorRect
+		var ratio = clampf(float(e["hp"]) / float(e["max_hp"]), 0, 1)
+		fill_rect.size.x = bw * ratio
+		fill_rect.color = Color(1.0 - ratio, ratio, 0.1)
+	# Clean up bars for dead/removed entities or full-health entities
+	for node in hp_bar_nodes.keys():
+		if not is_instance_valid(node) or node not in active_set:
+			if is_instance_valid(hp_bar_nodes[node]):
+				hp_bar_nodes[node].queue_free()
+			hp_bar_nodes.erase(node)
+
+
+# ---- Building Mesh Factories ----
+
+func _create_building_mesh(bname: String) -> Node3D:
+	var root = Node3D.new()
+	match bname:
+		"HQ":
+			root.add_child(_mesh_box(Vector3(40, 20, 30), Color(0.35, 0.45, 0.65), Vector3(0, 10, 0)))
+			root.add_child(_mesh_box(Vector3(24, 10, 22), Color(0.4, 0.5, 0.7), Vector3(0, 25, 0)))
+			root.add_child(_mesh_cyl(2, 12, Color(0.6, 0.65, 0.75), Vector3(0, 36, 0)))
+			root.add_child(_mesh_sphere(3, Color(0.3, 0.8, 1.0), Vector3(0, 44, 0)))
+			root.add_child(_mesh_box(Vector3(12, 14, 20), Color(0.3, 0.4, 0.6), Vector3(-22, 7, 0)))
+			root.add_child(_mesh_box(Vector3(12, 14, 20), Color(0.3, 0.4, 0.6), Vector3(22, 7, 0)))
+		"Turret":
+			root.add_child(_mesh_box(Vector3(18, 10, 18), Color(0.3, 0.4, 0.6), Vector3(0, 5, 0)))
+			var head = Node3D.new()
+			head.name = "Head"
+			head.position = Vector3(0, 13, 0)
+			head.add_child(_mesh_box(Vector3(12, 7, 12), Color(0.35, 0.45, 0.65)))
+			var barrel = _mesh_cyl(2, 18, Color(0.5, 0.55, 0.7), Vector3(0, 0, -9))
+			barrel.rotation_degrees.x = 90
+			head.add_child(barrel)
+			root.add_child(head)
+		"Factory":
+			root.add_child(_mesh_box(Vector3(24, 16, 24), Color(0.7, 0.5, 0.2), Vector3(0, 8, 0)))
+			root.add_child(_mesh_cyl(5, 18, Color(0.6, 0.45, 0.2), Vector3(8, 18, 0)))
+			root.add_child(_mesh_box(Vector3(10, 3, 10), Color(0.8, 0.6, 0.25), Vector3(-4, 17, 0)))
+		"Wall":
+			root.add_child(_mesh_box(Vector3(30, 18, 10), Color(0.5, 0.5, 0.55), Vector3(0, 9, 0)))
+			root.add_child(_mesh_box(Vector3(6, 4, 11), Color(0.45, 0.45, 0.5), Vector3(-10, 20, 0)))
+			root.add_child(_mesh_box(Vector3(6, 4, 11), Color(0.45, 0.45, 0.5), Vector3(10, 20, 0)))
+		"Lightning Tower":
+			root.add_child(_mesh_cyl(6, 8, Color(0.35, 0.25, 0.6), Vector3(0, 4, 0)))
+			root.add_child(_mesh_cyl(4, 24, Color(0.4, 0.3, 0.65), Vector3(0, 16, 0)))
+			root.add_child(_mesh_sphere(5, Color(0.6, 0.4, 1.0), Vector3(0, 32, 0)))
+		"Slow Tower":
+			root.add_child(_mesh_box(Vector3(16, 10, 16), Color(0.25, 0.4, 0.6), Vector3(0, 5, 0)))
+			root.add_child(_mesh_cyl(3, 12, Color(0.3, 0.5, 0.7), Vector3(0, 13, 0)))
+			root.add_child(_mesh_sphere(5, Color(0.4, 0.7, 1.0), Vector3(0, 24, 0)))
+		"Pylon":
+			root.add_child(_mesh_cyl(3, 24, Color(0.55, 0.6, 0.25), Vector3(0, 12, 0)))
+			root.add_child(_mesh_box(Vector3(8, 3, 8), Color(0.65, 0.7, 0.3), Vector3(0, 26, 0)))
+			root.add_child(_mesh_sphere(2, Color(0.8, 0.9, 0.4), Vector3(0, 29, 0)))
+		"Power Plant":
+			root.add_child(_mesh_box(Vector3(28, 14, 28), Color(0.65, 0.55, 0.2), Vector3(0, 7, 0)))
+			root.add_child(_mesh_cyl(6, 8, Color(0.75, 0.65, 0.25), Vector3(0, 18, 0)))
+			root.add_child(_mesh_sphere(3, Color(1.0, 0.9, 0.3), Vector3(0, 24, 0)))
+		"Battery":
+			root.add_child(_mesh_box(Vector3(16, 22, 16), Color(0.3, 0.55, 0.25), Vector3(0, 11, 0)))
+			root.add_child(_mesh_box(Vector3(8, 4, 8), Color(0.4, 0.65, 0.3), Vector3(0, 24, 0)))
+		"Flame Turret":
+			root.add_child(_mesh_box(Vector3(18, 10, 18), Color(0.65, 0.35, 0.15), Vector3(0, 5, 0)))
+			root.add_child(_mesh_cyl(4, 8, Color(0.75, 0.4, 0.15), Vector3(0, 14, 0)))
+			root.add_child(_mesh_sphere(2, Color(1.0, 0.6, 0.2), Vector3(0, 20, 0)))
+		"Acid Turret":
+			root.add_child(_mesh_box(Vector3(18, 10, 18), Color(0.25, 0.55, 0.2), Vector3(0, 5, 0)))
+			var ahead = Node3D.new()
+			ahead.name = "Head"
+			ahead.position = Vector3(0, 13, 0)
+			ahead.add_child(_mesh_box(Vector3(10, 6, 10), Color(0.3, 0.6, 0.25)))
+			var abarrel = _mesh_cyl(2, 16, Color(0.35, 0.65, 0.3), Vector3(0, 0, -8))
+			abarrel.rotation_degrees.x = 90
+			ahead.add_child(abarrel)
+			root.add_child(ahead)
+		"Repair Drone":
+			root.add_child(_mesh_box(Vector3(16, 6, 16), Color(0.2, 0.5, 0.35), Vector3(0, 3, 0)))
+			var drone = Node3D.new()
+			drone.name = "Drone"
+			drone.position = Vector3(0, 16, 0)
+			drone.add_child(_mesh_box(Vector3(8, 4, 8), Color(0.25, 0.65, 0.4)))
+			drone.add_child(_mesh_cyl(5, 1, Color(0.3, 0.7, 0.45), Vector3(0, 3, 0)))
+			root.add_child(drone)
+	return root
+
+
+# ---- Other Mesh Factories ----
+
+func _create_player_mesh(col: Color) -> Node3D:
+	var root = Node3D.new()
+	var body = Node3D.new()
+	body.name = "Body"
+	var mi = MeshInstance3D.new()
+	var pm = PrismMesh.new()
+	pm.size = Vector3(12, 18, 10)
+	pm.left_to_right = 0.5
+	mi.mesh = pm
+	mi.material_override = _unlit_mat(col)
+	mi.rotation.x = -PI / 2
+	mi.position.y = 5
+	body.add_child(mi)
+	root.add_child(body)
+	return root
+
+
+func _create_alien_mesh(a: Node2D) -> Node3D:
+	var root = Node3D.new()
+	var body = Node3D.new()
+	body.name = "Body"
+	var is_boss = a.is_in_group("bosses")
+	var atype = a.alien_type if "alien_type" in a else "basic"
+	var mi = MeshInstance3D.new()
+	var pm = PrismMesh.new()
+	var col: Color
+	if is_boss:
+		pm.size = Vector3(20, 28, 18)
+		col = Color(0.7, 0.12, 0.08)
+	elif a.get_script() == preload("res://scripts/ranged_alien.gd"):
+		pm.size = Vector3(10, 14, 10)
+		col = Color(0.55, 0.2, 0.65)
+	elif atype == "fast":
+		pm.size = Vector3(7, 16, 8)
+		col = Color(0.85, 0.5, 0.15)
+	else:
+		pm.size = Vector3(10, 14, 10)
+		col = Color(0.75, 0.18, 0.1)
+	pm.left_to_right = 0.5
+	mi.mesh = pm
+	mi.material_override = _unlit_mat(col)
+	mi.rotation.x = -PI / 2
+	mi.position.y = pm.size.z * 0.5
+	body.add_child(mi)
+	root.add_child(body)
+	return root
+
+
+func _create_resource_mesh(rtype: String, amount: int) -> Node3D:
+	var root = Node3D.new()
+	var sz = 10.0 + amount * 0.5
+	if rtype == "crystal":
+		root.add_child(_mesh_box(Vector3(sz * 0.5, sz, sz * 0.5), Color(0.3, 0.5, 0.9), Vector3(0, sz * 0.5, 0)))
+		root.add_child(_mesh_box(Vector3(sz * 0.35, sz * 0.7, sz * 0.35), Color(0.4, 0.6, 1.0), Vector3(sz * 0.25, sz * 0.35, sz * 0.15)))
+	else:
+		root.add_child(_mesh_box(Vector3(sz, sz * 0.6, sz * 0.8), Color(0.55, 0.5, 0.45), Vector3(0, sz * 0.3, 0)))
+		root.add_child(_mesh_box(Vector3(sz * 0.5, sz * 0.45, sz * 0.5), Color(0.5, 0.45, 0.4), Vector3(sz * 0.3, sz * 0.22, sz * 0.2)))
+	return root
+
+
+# ---- Mesh Dict Cleanup ----
+
+func _clean_mesh_dict(dict: Dictionary):
+	for key in dict.keys():
+		if not is_instance_valid(key):
+			if is_instance_valid(dict[key]):
+				dict[key].queue_free()
+			dict.erase(key)
+
+
+# ---- Master 3D Mesh Sync ----
+
+func _sync_3d_meshes():
+	# ---- Buildings ----
+	_clean_mesh_dict(building_meshes)
+	for b in get_tree().get_nodes_in_group("buildings"):
+		if not is_instance_valid(b): continue
+		if b not in building_meshes:
+			var bname = b.get_building_name() if b.has_method("get_building_name") else ""
+			var new_mesh = _create_building_mesh(bname)
+			add_child(new_mesh)
+			building_meshes[b] = new_mesh
+			if not b.is_in_group("pylons"):
+				b.visible = false
+		var mr = building_meshes[b]
+		var bp = b.global_position
+		mr.position = Vector3(bp.x, 0, bp.y)
+		# Turret / acid turret barrel rotation
+		var head = mr.get_node_or_null("Head")
+		if head and "target_angle" in b:
+			head.rotation.y = -b.target_angle
+		# Repair drone orbit
+		var drone_node = mr.get_node_or_null("Drone")
+		if drone_node and "drone_angle" in b:
+			drone_node.position = Vector3(cos(b.drone_angle) * 12, 16, sin(b.drone_angle) * 12)
+
+	# ---- Players ----
+	_clean_mesh_dict(player_meshes)
+	for p in get_tree().get_nodes_in_group("player"):
+		if not is_instance_valid(p): continue
+		if p not in player_meshes:
+			var col = p.player_color if "player_color" in p else Color(0.2, 0.9, 0.3)
+			var new_mesh = _create_player_mesh(col)
+			add_child(new_mesh)
+			player_meshes[p] = new_mesh
+			p.visible = false
+		var mr = player_meshes[p]
+		var pp = p.global_position
+		mr.position = Vector3(pp.x, 0, pp.y)
+		mr.visible = not p.is_dead if "is_dead" in p else true
+		var body = mr.get_node_or_null("Body")
+		if body and "facing_angle" in p:
+			body.rotation.y = -p.facing_angle - PI / 2
+
+	# ---- Aliens ----
+	_clean_mesh_dict(alien_meshes)
+	for a in get_tree().get_nodes_in_group("aliens"):
+		if not is_instance_valid(a): continue
+		if a not in alien_meshes:
+			var new_mesh = _create_alien_mesh(a)
+			add_child(new_mesh)
+			alien_meshes[a] = new_mesh
+			a.visible = false
+		var mr = alien_meshes[a]
+		var ap = a.global_position
+		mr.position = Vector3(ap.x, 0, ap.y)
+		var body = mr.get_node_or_null("Body")
+		if body and "velocity" in a and a.velocity.length_squared() > 1:
+			body.rotation.y = atan2(-a.velocity.x, -a.velocity.y)
+
+	# ---- Resources ----
+	_clean_mesh_dict(resource_meshes)
+	for r in get_tree().get_nodes_in_group("resources"):
+		if not is_instance_valid(r): continue
+		if r not in resource_meshes:
+			var rtype = r.resource_type if "resource_type" in r else "iron"
+			var amt = r.amount if "amount" in r else 10
+			var mr = _create_resource_mesh(rtype, amt)
+			add_child(mr)
+			resource_meshes[r] = mr
+			r.visible = false
+		resource_meshes[r].position = Vector3(r.global_position.x, 0, r.global_position.y)
+
+	# ---- XP Gems (billboard) ----
+	_clean_mesh_dict(gem_meshes)
+	for g in get_tree().get_nodes_in_group("xp_gems"):
+		if not is_instance_valid(g): continue
+		if g not in gem_meshes:
+			var gsz = g.gem_size if "gem_size" in g else 1
+			var col = Color(0.3, 0.9, 0.4)
+			if gsz == 2: col = Color(0.3, 0.6, 1.0)
+			elif gsz >= 3: col = Color(0.9, 0.3, 0.9)
+			var mr = Node3D.new()
+			var mi = MeshInstance3D.new()
+			var sm = SphereMesh.new()
+			sm.radius = 3.0 + gsz * 1.5
+			sm.height = sm.radius * 2
+			mi.mesh = sm
+			mi.material_override = _bb_mat(col)
+			mi.position.y = 6
+			mr.add_child(mi)
+			add_child(mr)
+			gem_meshes[g] = mr
+			g.visible = false
+		gem_meshes[g].position = Vector3(g.global_position.x, 0, g.global_position.y)
+
+	# ---- Powerups (keep 2D icons visible on ground) ----
+	_clean_mesh_dict(powerup_meshes)
+
+	# ---- Prestige Orbs (billboard) ----
+	_clean_mesh_dict(orb_meshes)
+	for o in get_tree().get_nodes_in_group("prestige_orbs"):
+		if not is_instance_valid(o): continue
+		if o not in orb_meshes:
+			var mr = Node3D.new()
+			var mi = MeshInstance3D.new()
+			var sm = SphereMesh.new()
+			sm.radius = 5
+			sm.height = 10
+			mi.mesh = sm
+			mi.material_override = _bb_mat(Color(1.0, 0.85, 0.3))
+			mi.position.y = 6
+			mr.add_child(mi)
+			add_child(mr)
+			orb_meshes[o] = mr
+			o.visible = false
+		orb_meshes[o].position = Vector3(o.global_position.x, 0, o.global_position.y)
+
+	# ---- Bullets (billboard, scan game_world_2d children) ----
+	_clean_mesh_dict(bullet_meshes)
+	for child in game_world_2d.get_children():
+		if not is_instance_valid(child): continue
+		if not ("direction" in child and "lifetime" in child): continue
+		if child in bullet_meshes: continue
+		var col = Color(1.0, 0.9, 0.2)
+		if "from_turret" in child and child.from_turret:
+			col = Color(0.3, 0.9, 1.0)
+		elif "visual_only" in child and child.get_script() == preload("res://scripts/enemy_bullet.gd"):
+			col = Color(0.8, 0.2, 1.0)
+		var mr = Node3D.new()
+		var mi = MeshInstance3D.new()
+		var sm = SphereMesh.new()
+		sm.radius = 3
+		sm.height = 6
+		mi.mesh = sm
+		mi.material_override = _bb_mat(col)
+		mi.position.y = 8
+		mr.add_child(mi)
+		add_child(mr)
+		bullet_meshes[child] = mr
+		child.visible = false
+	for b in bullet_meshes:
+		if is_instance_valid(b):
+			bullet_meshes[b].position = Vector3(b.global_position.x, 0, b.global_position.y)
 
 
 func _spawn_wave():
@@ -743,6 +1309,9 @@ func _on_hq_destroyed():
 	# Notify clients to destroy their HQ too
 	if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
 		_rpc_hq_destroyed.rpc()
+	# Clean up HQ light (mesh cleanup happens in _sync_3d_meshes)
+	if is_instance_valid(hq_light_3d):
+		hq_light_3d.queue_free()
 	# HQ destruction also kills the player
 	if is_instance_valid(player_node) and not player_node.is_dead:
 		player_node.health = 0
