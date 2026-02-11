@@ -1774,24 +1774,8 @@ func _create_resource_mesh(rtype: String, amount: int) -> Node3D:
 		mi3.rotation_degrees = Vector3(5, 40, -10)
 		root.add_child(mi3)
 	else:
-		var mat = _get_iron_mat()
-		# Main ore chunk
-		var mi1 = MeshInstance3D.new()
-		var bm1 = BoxMesh.new()
-		bm1.size = Vector3(sz, sz * 0.6, sz * 0.8)
-		mi1.mesh = bm1
-		mi1.material_override = mat
-		mi1.position = Vector3(0, sz * 0.3, 0)
-		root.add_child(mi1)
-		# Secondary chunk
-		var mi2 = MeshInstance3D.new()
-		var bm2 = BoxMesh.new()
-		bm2.size = Vector3(sz * 0.55, sz * 0.5, sz * 0.55)
-		mi2.mesh = bm2
-		mi2.material_override = mat
-		mi2.position = Vector3(sz * 0.28, sz * 0.25, sz * 0.18)
-		mi2.rotation_degrees = Vector3(0, 20, 0)
-		root.add_child(mi2)
+		var iron_rock = load("res://scenes/iron_rock.tscn").instantiate()
+		root.add_child(iron_rock)
 	return root
 
 
