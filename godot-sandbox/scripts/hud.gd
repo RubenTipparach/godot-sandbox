@@ -52,10 +52,11 @@ var build_bar_tooltip_iron: Label
 var build_bar_tooltip_crystal: Label
 var build_bar_tooltip_power: Label
 var _hovered_build_icon = null
+var build_bar_tooltip_desc: Label
 var is_mobile: bool = false
 var joystick: Control = null
 var look_joystick: Control = null
-var selected_building: Node2D = null
+var selected_building: Node3D = null
 var build_confirm_panel: HBoxContainer = null
 var confirm_btn: Button = null
 var cancel_build_btn: Button = null
@@ -94,6 +95,10 @@ var loading_panel: Control = null
 var loading_bar_fill: ColorRect = null
 var loading_label: Label = null
 var _loading_step: int = -1
+var debug_overlay: Label = null
+var debug_btn: Button = null
+var debug_layer: CanvasLayer = null
+var disconnect_panel: Control = null
 
 const UPGRADE_DATA = {
 	"chain_lightning": {"name": "Chain Lightning", "color": Color(0.3, 0.7, 1.0), "max": 5},
@@ -119,6 +124,21 @@ const UPGRADE_DATA = {
 	"pickup_range": {"name": "Magnetic Field", "color": Color(1.0, 0.9, 0.3), "max": 5},
 }
 
+const BUILD_DESCRIPTIONS = {
+	"power_plant": "Generates power for nearby buildings",
+	"pylon": "Extends power range to distant buildings",
+	"factory": "Auto-generates iron and crystal",
+	"turret": "Shoots at nearby enemies",
+	"wall": "Blocks enemy movement, high HP",
+	"lightning": "Chain lightning hits multiple targets",
+	"slow": "Slows enemies in range",
+	"battery": "Stores excess power for outages",
+	"flame_turret": "Burns enemies, damage over time",
+	"acid_turret": "Leaves acid puddles on the ground",
+	"repair_drone": "Automatically repairs nearby buildings",
+	"poison_turret": "Poisons enemies, spreads on contact",
+}
+
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
@@ -130,6 +150,42 @@ func _ready():
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
+
+	# Debug layer (always on top of everything)
+	debug_layer = CanvasLayer.new()
+	debug_layer.layer = 100
+	add_child(debug_layer)
+	var debug_root = Control.new()
+	debug_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	debug_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	debug_layer.add_child(debug_root)
+
+	debug_btn = Button.new()
+	debug_btn.text = "Debug"
+	debug_btn.custom_minimum_size = Vector2(60, 24)
+	debug_btn.add_theme_font_size_override("font_size", 11)
+	debug_btn.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	debug_btn.offset_left = -30; debug_btn.offset_right = 30
+	debug_btn.offset_top = 4; debug_btn.offset_bottom = 28
+	debug_btn.modulate.a = 0.5
+	debug_btn.pressed.connect(_on_debug_overlay_toggle)
+	debug_root.add_child(debug_btn)
+
+	debug_overlay = Label.new()
+	debug_overlay.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	debug_overlay.offset_left = 10; debug_overlay.offset_top = 32
+	debug_overlay.offset_right = 400; debug_overlay.offset_bottom = 300
+	debug_overlay.add_theme_font_size_override("font_size", 12)
+	debug_overlay.add_theme_color_override("font_color", Color(0.0, 1.0, 0.4))
+	debug_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	debug_overlay.visible = CFG.debug_overlay_default
+	var debug_bg = ColorRect.new()
+	debug_bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	debug_bg.color = Color(0, 0, 0, 0.5)
+	debug_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	debug_overlay.add_child(debug_bg)
+	debug_overlay.move_child(debug_bg, 0)
+	debug_root.add_child(debug_overlay)
 
 	# All in-game HUD elements go inside gameplay_hud (hidden during menu)
 	gameplay_hud = Control.new()
@@ -274,9 +330,12 @@ func _ready():
 	build_bar_tooltip.add_theme_stylebox_override("panel", tt_style)
 	build_bar_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	build_bar_tooltip.visible = false
+	var tt_vbox = VBoxContainer.new()
+	tt_vbox.add_theme_constant_override("separation", 2)
+	build_bar_tooltip.add_child(tt_vbox)
 	var tt_hbox = HBoxContainer.new()
 	tt_hbox.add_theme_constant_override("separation", 6)
-	build_bar_tooltip.add_child(tt_hbox)
+	tt_vbox.add_child(tt_hbox)
 	build_bar_tooltip_name = Label.new()
 	build_bar_tooltip_name.add_theme_font_size_override("font_size", 14)
 	build_bar_tooltip_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
@@ -290,6 +349,10 @@ func _ready():
 	build_bar_tooltip_power = Label.new()
 	build_bar_tooltip_power.add_theme_font_size_override("font_size", 14)
 	tt_hbox.add_child(build_bar_tooltip_power)
+	build_bar_tooltip_desc = Label.new()
+	build_bar_tooltip_desc.add_theme_font_size_override("font_size", 12)
+	build_bar_tooltip_desc.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
+	tt_vbox.add_child(build_bar_tooltip_desc)
 	gameplay_hud.add_child(build_bar_tooltip)
 
 	alert_label = Label.new()
@@ -310,16 +373,20 @@ func _ready():
 	gameplay_hud.add_child(minimap_node)
 
 	# Partner health panels (MP only, top-right below minimap) - up to 3 partners
+	var partner_vbox = VBoxContainer.new()
+	partner_vbox.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	partner_vbox.offset_left = -170
+	partner_vbox.offset_top = 175
+	partner_vbox.offset_right = -10
+	partner_vbox.add_theme_constant_override("separation", 4)
+	partner_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gameplay_hud.add_child(partner_vbox)
 	for i in range(3):
 		var pp = PanelContainer.new()
 		pp.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		pp.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
-		pp.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		pp.offset_left = -170
-		pp.offset_top = 175 + i * 32
-		pp.offset_right = -10
 		pp.visible = false
-		gameplay_hud.add_child(pp)
+		partner_vbox.add_child(pp)
 		var plbl = Label.new()
 		plbl.add_theme_font_size_override("font_size", 14)
 		plbl.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
@@ -373,6 +440,7 @@ func _ready():
 	_build_building_tooltip(root)
 	_build_building_info_panel(root)
 	_build_loading_panel(root)
+	_build_disconnect_panel(root)
 
 	# Detect mobile and add virtual controls
 	is_mobile = _detect_mobile()
@@ -1175,6 +1243,54 @@ func hide_loading():
 		loading_panel.visible = false
 
 
+func _build_disconnect_panel(root: Control):
+	disconnect_panel = Control.new()
+	disconnect_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	disconnect_panel.visible = false
+	disconnect_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	root.add_child(disconnect_panel)
+
+	var bg = ColorRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0.05, 0.02, 0.02, 0.9)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	disconnect_panel.add_child(bg)
+
+	var center = VBoxContainer.new()
+	center.set_anchors_preset(Control.PRESET_CENTER)
+	center.offset_left = -180; center.offset_right = 180
+	center.offset_top = -80; center.offset_bottom = 80
+	center.add_theme_constant_override("separation", 16)
+	center.alignment = BoxContainer.ALIGNMENT_CENTER
+	disconnect_panel.add_child(center)
+
+	var title = Label.new()
+	title.text = "Connection Lost"
+	title.add_theme_font_size_override("font_size", 32)
+	title.add_theme_color_override("font_color", Color(1.0, 0.3, 0.2))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	center.add_child(title)
+
+	var msg = Label.new()
+	msg.text = "The host has disconnected."
+	msg.add_theme_font_size_override("font_size", 16)
+	msg.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8))
+	msg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	center.add_child(msg)
+
+	var quit_btn = Button.new()
+	quit_btn.text = "Quit to Menu"
+	quit_btn.custom_minimum_size = Vector2(180, 45)
+	quit_btn.add_theme_font_size_override("font_size", 18)
+	quit_btn.pressed.connect(func(): get_tree().reload_current_scene())
+	center.add_child(quit_btn)
+
+
+func show_disconnect_panel():
+	if disconnect_panel:
+		disconnect_panel.visible = true
+
+
 func _detect_mobile() -> bool:
 	if OS.has_feature("mobile"):
 		return true
@@ -1273,6 +1389,30 @@ func _on_start_menu_wave_pressed(wave: int):
 func _on_debug_toggle():
 	var panel = start_menu.get_node("DebugPanel")
 	panel.visible = not panel.visible
+
+
+func _on_debug_overlay_toggle():
+	debug_overlay.visible = not debug_overlay.visible
+
+
+func _update_debug_overlay():
+	var lines: Array = []
+	lines.append("FPS: %d" % Engine.get_frames_per_second())
+	lines.append("Aliens: %d" % get_tree().get_nodes_in_group("aliens").size())
+	lines.append("Buildings: %d" % get_tree().get_nodes_in_group("buildings").size())
+	lines.append("Resources: %d" % get_tree().get_nodes_in_group("resources").size())
+	lines.append("Bullets: %d" % get_tree().get_nodes_in_group("bullets").size())
+	var main = get_tree().current_scene
+	if main:
+		lines.append("Wave: %d | Active: %s" % [main.wave_number, str(main.wave_active)])
+		lines.append("Power: %s | Gen: %.0f | Use: %.0f" % ["ON" if main.power_on else "OFF", main.total_power_gen, main.total_power_consumption])
+		lines.append("Bank: %.0f / %.0f" % [main.power_bank, main.max_power_bank])
+	if NetworkManager.is_multiplayer_active():
+		lines.append("Network: Connected | Host: %s" % str(NetworkManager.is_host()))
+		lines.append("Players: %d" % NetworkManager.get_player_count())
+	else:
+		lines.append("Network: Offline")
+	debug_overlay.text = "\n".join(lines)
 
 
 func _on_debug_prestige(amount: int):
@@ -1469,7 +1609,7 @@ func _unhandled_input(event: InputEvent):
 			# Tap sets the pending build position on mobile
 			var world_pos = _screen_to_world(event.position)
 			if world_pos != null:
-				player.pending_build_world_pos = world_pos.snapped(Vector2(40, 40))
+				player.pending_build_world_pos = world_pos.snapped(Vector3(40, 0, 40))
 		else:
 			# Check for building selection (recycle / tooltip)
 			_handle_building_tap(event.position)
@@ -1493,14 +1633,14 @@ func _screen_to_world(screen_pos: Vector2):
 		var t = -from.y / dir.y
 		if t > 0:
 			var hit = from + dir * t
-			return Vector2(hit.x, hit.z)
+			return Vector3(hit.x, 0, hit.z)
 	return null
 
 
-func _world_to_screen(world_pos: Vector2) -> Vector2:
+func _world_to_screen(world_pos: Vector3) -> Vector2:
 	var main = get_tree().current_scene
 	if "camera_3d" in main and is_instance_valid(main.camera_3d):
-		return main.camera_3d.unproject_position(Vector3(world_pos.x, 0, world_pos.y))
+		return main.camera_3d.unproject_position(world_pos)
 	return Vector2.ZERO
 
 
@@ -1510,7 +1650,7 @@ func _handle_building_tap(screen_pos: Vector2):
 		selected_building = null
 		return
 
-	var closest_building: Node2D = null
+	var closest_building: Node3D = null
 	var closest_dist = 50.0  # Larger detection radius for touch
 
 	for b in get_tree().get_nodes_in_group("buildings"):
@@ -1524,7 +1664,7 @@ func _handle_building_tap(screen_pos: Vector2):
 	selected_building = closest_building
 
 
-func _get_player() -> Node2D:
+func _get_player() -> Node3D:
 	var players = get_tree().get_nodes_in_group("player")
 	if players.size() > 0 and is_instance_valid(players[0]):
 		return players[0]
@@ -1564,9 +1704,9 @@ func _on_toggle_power_pressed():
 		get_tree().current_scene.sync_building_toggle(selected_building)
 
 
-func _spawn_recycle_popup(pos: Vector2, value: Dictionary):
+func _spawn_recycle_popup(pos: Vector3, value: Dictionary):
 	var popup = preload("res://scenes/popup_text.tscn").instantiate()
-	popup.global_position = pos + Vector2(0, -30)
+	popup.global_position = pos + Vector3(0, 30, 0)
 	popup.text = "+%dI +%dC" % [value["iron"], value["crystal"]]
 	popup.color = Color(1.0, 0.6, 0.2)
 	get_tree().current_scene.game_world_2d.add_child(popup)
@@ -1657,7 +1797,7 @@ func _process(delta):
 		if in_build and player:
 			var valid = player.can_place_at(player.pending_build_world_pos) and player.can_afford(player.build_mode)
 			confirm_btn.disabled = not valid
-			if player.pending_build_world_pos != Vector2.ZERO:
+			if player.pending_build_world_pos != Vector3.ZERO:
 				var screen_pos = _world_to_screen(player.pending_build_world_pos)
 				var vp_size = get_viewport().get_visible_rect().size
 				var panel_w = build_confirm_panel.size.x
@@ -1671,6 +1811,10 @@ func _process(delta):
 
 	# Update building tooltip
 	_update_building_tooltip()
+
+	# Update debug overlay
+	if debug_overlay.visible:
+		_update_debug_overlay()
 
 
 func _update_building_tooltip():
@@ -1697,7 +1841,7 @@ func _update_building_tooltip_desktop():
 		return
 
 	# Find building under mouse
-	var closest_building: Node2D = null
+	var closest_building: Node3D = null
 	var closest_dist = 40.0
 
 	for b in get_tree().get_nodes_in_group("buildings"):
@@ -1747,7 +1891,7 @@ func _update_building_tooltip_mobile():
 	building_tooltip.position.y = clampf(building_tooltip.position.y, 5, vp_size.y - ts.y - 5)
 
 
-func _get_building_info_text(b: Node2D) -> String:
+func _get_building_info_text(b: Node3D) -> String:
 	if not b.has_method("get_building_name"):
 		return ""
 	var name = b.get_building_name()
@@ -1902,6 +2046,7 @@ func _on_build_icon_hovered(icon) -> void:
 	if not is_instance_valid(build_bar_tooltip):
 		return
 	build_bar_tooltip_name.text = icon.display_name
+	build_bar_tooltip_desc.text = BUILD_DESCRIPTIONS.get(icon.build_type, "")
 
 	# Get player resources for affordability coloring
 	var player_iron := 999999
@@ -2000,7 +2145,7 @@ func _style_button(btn: Button, color: Color):
 	btn.add_theme_stylebox_override("disabled", disabled_style)
 
 
-func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active: bool = false, power_gen: float = 0.0, power_cons: float = 0.0, _power_on: bool = true, rates: Dictionary = {}, power_bank: float = 0.0, max_power_bank: float = 0.0, prestige_earned: int = 0):
+func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active: bool = false, power_gen: float = 0.0, power_cons: float = 0.0, _power_on: bool = true, rates: Dictionary = {}, power_bank: float = 0.0, max_power_bank: float = 0.0, prestige_earned: int = 0):
 	if not is_instance_valid(player):
 		return
 	health_label.text = "HP: %d / %d" % [player.health, player.max_health]
@@ -2135,7 +2280,7 @@ func update_hud(player: Node2D, wave_timer: float, wave_number: int, wave_active
 	_update_build_costs(player)
 
 
-func _update_build_costs(player: Node2D):
+func _update_build_costs(player: Node3D):
 	if not player.has_method("get_building_cost"):
 		return
 	for info in build_cost_labels:

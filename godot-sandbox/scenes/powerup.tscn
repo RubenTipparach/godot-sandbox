@@ -2,5 +2,5 @@
 
 [ext_resource type="Script" path="res://scripts/powerup.gd" id="1"]
 
-[node name="Powerup" type="Node2D"]
+[node name="Powerup" type="Node3D"]
 script = ExtResource("1")

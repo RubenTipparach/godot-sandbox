@@ -1,11 +1,11 @@
-extends Node2D
+extends Node3D
 
 var hp: int = 20
 var max_hp: int = 20
 var speed: float = 50.0
 var damage: int = 5
 var xp_value: int = 2
-var move_direction: Vector2 = Vector2.ZERO
+var move_direction: Vector3 = Vector3.ZERO
 var shoot_timer: float = 0.0
 const SHOOT_INTERVAL = 2.0
 const PREFERRED_DIST = 180.0
@@ -25,15 +25,15 @@ var poison_timer: float = 0.0
 var poison_dps: float = 0.0
 
 # Stuck detection
-var _stuck_check_pos: Vector2 = Vector2.ZERO
+var _stuck_check_pos: Vector3 = Vector3.ZERO
 var _stuck_timer: float = 0.0
 var _unstuck_timer: float = 0.0
-var _unstuck_dir: Vector2 = Vector2.ZERO
+var _unstuck_dir: Vector3 = Vector3.ZERO
 
 # Multiplayer puppet
 var net_id: int = 0
 var is_puppet: bool = false
-var target_pos: Vector2 = Vector2.ZERO
+var target_pos: Vector3 = Vector3.ZERO
 
 
 func _ready():
@@ -65,9 +65,8 @@ func _process(delta):
 	acid_timer = maxf(0.0, acid_timer - delta)
 
 	if is_puppet:
-		if target_pos != Vector2.ZERO:
+		if target_pos != Vector3.ZERO:
 			global_position = global_position.lerp(target_pos, 10.0 * delta)
-		queue_redraw()
 		return
 
 	if burn_timer > 0:
@@ -97,9 +96,10 @@ func _process(delta):
 	# Stuck detection
 	_stuck_timer += delta
 	if _stuck_timer >= 0.5:
-		if _stuck_check_pos != Vector2.ZERO and global_position.distance_to(_stuck_check_pos) < 3.0:
+		if _stuck_check_pos != Vector3.ZERO and global_position.distance_to(_stuck_check_pos) < 3.0:
 			_unstuck_timer = randf_range(1.0, 2.0)
-			_unstuck_dir = Vector2.from_angle(randf() * TAU)
+			var escape_angle = randf() * TAU
+			_unstuck_dir = Vector3(cos(escape_angle), 0, sin(escape_angle))
 		_stuck_check_pos = global_position
 		_stuck_timer = 0.0
 
@@ -133,11 +133,9 @@ func _process(delta):
 				shoot_timer = 0.0
 				_shoot_at(target)
 
-	queue_redraw()
 
-
-func _find_target() -> Node2D:
-	var closest: Node2D = null
+func _find_target() -> Node3D:
+	var closest: Node3D = null
 	var closest_dist = 99999.0
 	for p in get_tree().get_nodes_in_group("player"):
 		if not is_instance_valid(p): continue
@@ -148,8 +146,8 @@ func _find_target() -> Node2D:
 	return closest
 
 
-func _get_separation_force() -> Vector2:
-	var separation = Vector2.ZERO
+func _get_separation_force() -> Vector3:
+	var separation = Vector3.ZERO
 	for other in get_tree().get_nodes_in_group("aliens"):
 		if other == self or not is_instance_valid(other):
 			continue
@@ -157,11 +155,11 @@ func _get_separation_force() -> Vector2:
 		var dist = diff.length()
 		if dist < SEPARATION_RADIUS and dist > 0.1:
 			separation += diff.normalized() * (1.0 - dist / SEPARATION_RADIUS)
-	return separation.normalized() if separation.length() > 0 else Vector2.ZERO
+	return separation.normalized() if separation.length() > 0 else Vector3.ZERO
 
 
-func _get_resource_avoidance() -> Vector2:
-	var avoidance = Vector2.ZERO
+func _get_resource_avoidance() -> Vector3:
+	var avoidance = Vector3.ZERO
 	for r in get_tree().get_nodes_in_group("resources"):
 		if not is_instance_valid(r): continue
 		var diff = global_position - r.global_position
@@ -170,10 +168,10 @@ func _get_resource_avoidance() -> Vector2:
 		var avoid_dist = r_size + 20.0
 		if dist < avoid_dist and dist > 0.1:
 			avoidance += diff.normalized() * (1.0 - dist / avoid_dist)
-	return avoidance.normalized() if avoidance.length() > 0 else Vector2.ZERO
+	return avoidance.normalized() if avoidance.length() > 0 else Vector3.ZERO
 
 
-func _shoot_at(target: Node2D):
+func _shoot_at(target: Node3D):
 	var b = preload("res://scenes/enemy_bullet.tscn").instantiate()
 	var dir = (target.global_position - global_position).normalized()
 	b.global_position = global_position + dir * 15
@@ -197,13 +195,11 @@ func _die():
 	gem.global_position = global_position
 	gem.xp_value = xp_value
 	get_tree().current_scene.game_world_2d.add_child(gem)
-	# 1 in 10 chance to drop a prestige orb
 	if randi() % 10 == 0:
 		var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
 		orb.global_position = global_position
 		get_tree().current_scene.game_world_2d.add_child(orb)
 		get_tree().current_scene.spawn_synced_prestige_orb(orb.global_position)
-	# Health-based heal drop
 	_try_drop_heal()
 	queue_free()
 
@@ -220,39 +216,3 @@ func _try_drop_heal():
 		powerup.powerup_type = "heal"
 		get_tree().current_scene.game_world_2d.add_child(powerup)
 		get_tree().current_scene.spawn_synced_powerup(powerup.global_position, powerup.powerup_type)
-
-
-func _draw():
-	var body_color = Color(0.6, 0.2, 0.8)
-	var size = 12.0
-
-	if hit_flash_timer > 0:
-		body_color = Color.WHITE
-	elif burn_timer > 0:
-		body_color = body_color.lerp(Color(1, 0.5, 0), 0.4)
-	if slow_timer > 0 and hit_flash_timer <= 0:
-		body_color = body_color.lerp(Color(0.5, 0.8, 1.0), 0.4)
-	if acid_timer > 0 and hit_flash_timer <= 0:
-		body_color = body_color.lerp(Color(0.2, 0.9, 0.1), 0.5)
-	if poison_timer > 0 and hit_flash_timer <= 0:
-		body_color = body_color.lerp(Color(0.3, 0.8, 0.1), 0.5)
-
-	var pts = PackedVector2Array([
-		Vector2(0, -size),
-		Vector2(size * 0.8, -size * 0.3),
-		Vector2(size * 0.5, size * 0.7),
-		Vector2(-size * 0.5, size * 0.7),
-		Vector2(-size * 0.8, -size * 0.3),
-	])
-	draw_colored_polygon(pts, body_color)
-	draw_polyline(pts + PackedVector2Array([pts[0]]), body_color.lightened(0.3), 1.5)
-
-	draw_circle(Vector2(0, -2), 4, Color(1, 0.3, 1))
-	draw_circle(Vector2(0, -2), 2, Color(0.2, 0, 0.2))
-
-	if acid_timer > 0:
-		draw_arc(Vector2.ZERO, size + 2, 0, TAU, 12, Color(0.2, 0.9, 0.1, 0.4), 1.5)
-
-	if hp < max_hp:
-		draw_rect(Rect2(-size, -size - 8, size * 2, 3), Color(0.3, 0, 0))
-		draw_rect(Rect2(-size, -size - 8, size * 2.0 * float(hp) / float(max_hp), 3), Color(0.6, 0.2, 0.8))

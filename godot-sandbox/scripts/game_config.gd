@@ -20,6 +20,9 @@ extends Resource
 @export var resource_crystal_light_energy: float = 4.0
 @export var resource_crystal_light_range: float = 50.0
 
+@export_group("Debug")
+@export var debug_overlay_default: bool = false
+
 @export_group("World")
 @export var map_half_size: float = 1000.0
 @export var wave_interval: float = 20.0

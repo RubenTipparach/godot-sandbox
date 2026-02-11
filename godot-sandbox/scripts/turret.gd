@@ -1,4 +1,4 @@
-extends Node2D
+extends Node3D
 
 const CFG = preload("res://resources/game_config.tres")
 
@@ -8,7 +8,6 @@ var shoot_timer: float = 0.0
 var target_angle: float = 0.0
 var damage_bonus: int = 0
 var fire_rate_bonus: float = 0.0
-var power_blink_timer: float = 0.0
 var manually_disabled: bool = false
 var bullet_count: int = 1
 var ice_rounds: bool = false
@@ -31,7 +30,6 @@ func is_powered() -> bool:
 	var main = get_tree().current_scene
 	if main and "power_on" in main and not main.power_on:
 		return false
-	# Check if connected to a powered pylon or directly to a power plant
 	for plant in get_tree().get_nodes_in_group("power_plants"):
 		if is_instance_valid(plant) and global_position.distance_to(plant.global_position) < plant.POWER_RANGE:
 			return true
@@ -43,7 +41,6 @@ func is_powered() -> bool:
 
 
 func _process(delta):
-	power_blink_timer += delta
 	var powered = is_powered()
 
 	if powered:
@@ -51,16 +48,15 @@ func _process(delta):
 		var shoot_interval = CFG.turret_shoot_interval / (1.0 + fire_rate_bonus)
 		var target = _find_nearest_alien()
 		if target:
-			target_angle = (target.global_position - global_position).angle()
+			var dir = target.global_position - global_position
+			target_angle = atan2(dir.z, dir.x)
 			if shoot_timer >= shoot_interval:
 				shoot_timer = 0.0
 				_shoot_at(target)
 
-	queue_redraw()
 
-
-func _find_nearest_alien() -> Node2D:
-	var closest: Node2D = null
+func _find_nearest_alien() -> Node3D:
+	var closest: Node3D = null
 	var closest_dist = CFG.turret_range
 	for alien in get_tree().get_nodes_in_group("aliens"):
 		if not is_instance_valid(alien):
@@ -72,7 +68,7 @@ func _find_nearest_alien() -> Node2D:
 	return closest
 
 
-func _shoot_at(target: Node2D):
+func _shoot_at(target: Node3D):
 	var dir = (target.global_position - global_position).normalized()
 	var count = bullet_count
 	var spread = 0.0
@@ -85,7 +81,8 @@ func _shoot_at(target: Node2D):
 		if count > 1:
 			off = lerpf(-spread / 2.0, spread / 2.0, float(i) / float(count - 1))
 		bullet.global_position = global_position + dir * 20
-		bullet.direction = Vector2.from_angle(dir.angle() + off)
+		var base_angle = atan2(dir.z, dir.x) + off
+		bullet.direction = Vector3(cos(base_angle), 0, sin(base_angle))
 		bullet.damage = CFG.turret_base_damage + damage_bonus + acid_damage_bonus
 		bullet.from_turret = true
 		if ice_rounds:
@@ -107,43 +104,9 @@ func _spawn_aliens_on_death():
 	var alien_scene = preload("res://scenes/alien.tscn")
 	for i in range(3):
 		var alien = alien_scene.instantiate()
-		alien.global_position = global_position + Vector2(randf_range(-25, 25), randf_range(-25, 25))
+		alien.global_position = global_position + Vector3(randf_range(-25, 25), 0, randf_range(-25, 25))
 		alien.hp = 25
 		alien.max_hp = 25
 		alien.damage = 6
 		alien.speed = 55.0
 		get_tree().current_scene.aliens_node.add_child(alien)
-
-
-func _draw():
-	var powered = is_powered()
-	var base_color = Color(0.4, 0.4, 0.5) if powered else Color(0.3, 0.3, 0.35)
-
-	# Base circle
-	draw_circle(Vector2.ZERO, 16, base_color)
-	draw_arc(Vector2.ZERO, 16, 0, TAU, 32, Color(0.3, 0.3, 0.4), 2.0)
-
-	# Inner ring
-	draw_arc(Vector2.ZERO, 10, 0, TAU, 24, Color(0.35, 0.35, 0.42), 1.0)
-
-	# Barrel
-	var barrel_end = Vector2.from_angle(target_angle) * 24
-	var barrel_start = Vector2.from_angle(target_angle) * 8
-	draw_line(barrel_start, barrel_end, Color(0.25, 0.25, 0.3), 4.0)
-	draw_circle(barrel_end, 3, Color(0.3, 0.3, 0.35))
-
-	# Range indicator (very faint)
-	draw_arc(Vector2.ZERO, CFG.turret_range, 0, TAU, 64, Color(0.5, 0.8, 1.0, 0.04), 1.0)
-
-	# HP bar
-	draw_rect(Rect2(-16, -24, 32, 3), Color(0.3, 0, 0))
-	draw_rect(Rect2(-16, -24, 32.0 * hp / max_hp, 3), Color(0, 0.8, 0))
-
-	# No power warning
-	if not powered:
-		var blink = fmod(power_blink_timer * 3.0, 1.0) < 0.5
-		var warn_color = Color(1.0, 0.9, 0.0) if blink else Color(0.1, 0.1, 0.1)
-		# Lightning bolt icon
-		draw_polyline(PackedVector2Array([
-			Vector2(1, -14), Vector2(-2, -7), Vector2(2, -6), Vector2(-1, 2)
-		]), warn_color, 2.5)

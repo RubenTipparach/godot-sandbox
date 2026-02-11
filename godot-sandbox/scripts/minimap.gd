@@ -25,7 +25,7 @@ func _draw():
 
 	# Resources
 	for r in get_tree().get_nodes_in_group("resources"):
-		var pos = r.global_position * SCALE + OFFSET
+		var pos = _map_pos(r.global_position)
 		if not _in_bounds(pos): continue
 		var c = Color(0.5, 0.5, 0.4) if r.resource_type == "iron" else Color(0.3, 0.5, 0.9)
 		draw_rect(Rect2(pos - Vector2(1, 1), Vector2(2, 2)), c)
@@ -33,7 +33,7 @@ func _draw():
 	# Buildings
 	var blink = fmod(Time.get_ticks_msec() / 1000.0 * 3.0, 1.0) < 0.5
 	for b in get_tree().get_nodes_in_group("buildings"):
-		var pos = b.global_position * SCALE + OFFSET
+		var pos = _map_pos(b.global_position)
 		if not _in_bounds(pos): continue
 
 		var building_color = Color(1, 0.8, 0.2)  # Default powered color
@@ -57,7 +57,7 @@ func _draw():
 
 	# Aliens
 	for a in get_tree().get_nodes_in_group("aliens"):
-		var pos = a.global_position * SCALE + OFFSET
+		var pos = _map_pos(a.global_position)
 		if not _in_bounds(pos): continue
 		var c = Color(1, 0.2, 0.1)
 		if a.is_in_group("bosses"):
@@ -68,19 +68,19 @@ func _draw():
 
 	# XP gems
 	for g in get_tree().get_nodes_in_group("xp_gems"):
-		var pos = g.global_position * SCALE + OFFSET
+		var pos = _map_pos(g.global_position)
 		if not _in_bounds(pos): continue
 		draw_rect(Rect2(pos - Vector2(0.5, 0.5), Vector2(1, 1)), Color(0.3, 0.9, 0.4, 0.5))
 
 	# Powerups
 	for p in get_tree().get_nodes_in_group("powerups"):
-		var pos = p.global_position * SCALE + OFFSET
+		var pos = _map_pos(p.global_position)
 		if not _in_bounds(pos): continue
 		draw_circle(pos, 3, Color(1.0, 0.9, 0.3))
 
 	# Player
 	for p in get_tree().get_nodes_in_group("player"):
-		var pos = p.global_position * SCALE + OFFSET
+		var pos = _map_pos(p.global_position)
 		draw_circle(pos, 3, Color(0.2, 1, 0.3))
 
 	# Wave direction indicator
@@ -102,6 +102,10 @@ func _draw():
 
 		draw_colored_polygon(PackedVector2Array([tip, back_left, back_right]), arrow_color)
 		draw_polyline(PackedVector2Array([tip, back_left, back_right, tip]), Color(1.0, 0.5, 0.3, pulse), 1.5)
+
+
+func _map_pos(gp: Vector3) -> Vector2:
+	return Vector2(gp.x, gp.z) * SCALE + OFFSET
 
 
 func _in_bounds(pos: Vector2) -> bool:

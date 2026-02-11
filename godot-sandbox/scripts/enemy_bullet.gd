@@ -1,6 +1,6 @@
-extends Node2D
+extends Node3D
 
-var direction: Vector2 = Vector2.RIGHT
+var direction: Vector3 = Vector3.RIGHT
 var speed: float = 200.0
 var damage: int = 5
 var lifetime: float = 5.0
@@ -29,11 +29,3 @@ func _process(delta):
 					b.take_damage(damage)
 				queue_free()
 				return
-
-	queue_redraw()
-
-
-func _draw():
-	draw_circle(Vector2.ZERO, 3.0, Color(0.8, 0.2, 1.0))
-	draw_circle(Vector2.ZERO, 1.5, Color(1, 0.6, 1.0, 0.7))
-	draw_line(Vector2.ZERO, -direction * 5.0, Color(0.8, 0.2, 1.0, 0.3), 2.0)

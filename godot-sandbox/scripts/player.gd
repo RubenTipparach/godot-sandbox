@@ -1,4 +1,4 @@
-extends Node2D
+extends Node3D
 
 signal level_up
 
@@ -13,7 +13,7 @@ var facing_angle: float = 0.0
 var invuln_timer: float = 0.0
 var auto_mine_timer: float = 0.0
 var mine_targets: Array = []
-var remote_mine_positions: Array = []  # For remote players: [[x,y],[x,y],...] from host sync
+var remote_mine_positions: Array = []  # For remote players: [[x,z],[x,z],...] from host sync
 var repair_targets: Array = []
 var auto_repair_timer: float = 0.0
 var is_dead: bool = false
@@ -33,7 +33,7 @@ var build_mode_cooldown: float = 0.0  # Prevents immediate placement after click
 var is_mobile: bool = false
 var auto_fire: bool = true   # When false, hold mouse/click to fire
 var auto_aim: bool = true    # When true, auto-aim at nearest enemy
-var pending_build_world_pos: Vector2 = Vector2.ZERO  # Mobile: ghost position set by tap
+var pending_build_world_pos: Vector3 = Vector3.ZERO  # Mobile: ghost position set by tap
 
 var upgrades = {
 	"chain_lightning": 0,
@@ -63,7 +63,7 @@ var aura_timer: float = 0.0
 var orbital_angle: float = 0.0
 var regen_timer: float = 0.0
 var nuke_radius: float = 0.0       # Current expanding radius (0 = inactive)
-var nuke_origin: Vector2 = Vector2.ZERO
+var nuke_origin: Vector3 = Vector3.ZERO
 var nuke_hit_ids: Dictionary = {}   # Track aliens already hit by this nuke
 
 # Research bonuses (set by main.gd on game start)
@@ -77,7 +77,7 @@ var peer_id: int = 1
 var is_local: bool = true
 var player_color: Color = Color(0.2, 0.9, 0.3)
 var player_name: String = ""
-var _remote_target_pos: Vector2 = Vector2.ZERO
+var _remote_target_pos: Vector3 = Vector3.ZERO
 
 
 func _ready():
@@ -88,12 +88,19 @@ func enter_build_mode(building_type: String):
 	build_mode = building_type
 	build_mode_cooldown = 0.15  # Brief cooldown to prevent immediate placement from the same click
 	if is_mobile:
-		pending_build_world_pos = global_position.snapped(Vector2(40, 40))
+		pending_build_world_pos = global_position.snapped(Vector3(40, 0, 40))
 
 
 func cancel_build_mode():
 	build_mode = ""
 	build_mode_cooldown = 0.0
+
+
+func _toggle_build_mode(type: String):
+	if build_mode == type:
+		cancel_build_mode()
+	else:
+		enter_build_mode(type)
 
 
 func is_in_build_mode() -> bool:
@@ -117,8 +124,7 @@ func get_rock_regen_multiplier() -> float:
 
 
 func get_gem_range() -> float:
-	if magnet_timer > 0:
-		return CFG.magnet_range
+	# Magnet pulls gems via xp_gem.gd, collection only happens at close range
 	return CFG.gem_collect_range + upgrades["pickup_range"] * CFG.pickup_range_per_level + GameData.get_research_bonus("pickup_range")
 
 
@@ -127,21 +133,19 @@ func _process(delta):
 
 	if is_dead:
 		_process_death(delta)
-		queue_redraw()
 		return
 
 	if not is_local:
 		# Interpolate remote player position
-		if _remote_target_pos != Vector2.ZERO:
+		if _remote_target_pos != Vector3.ZERO:
 			global_position = global_position.lerp(_remote_target_pos, minf(delta * 15.0, 1.0))
 		invuln_timer = maxf(0.0, invuln_timer - delta)
 		# Animate orbital lasers visually for remote players
 		if upgrades["orbital_lasers"] > 0:
 			orbital_angle += delta * (2.5 + upgrades["orbital_lasers"] * 0.5)
-		queue_redraw()
 		return
 
-	var input = Vector2.ZERO
+	var input = Vector3.ZERO
 	var joystick_node = null
 	var look_joystick_node = null
 	var joysticks = get_tree().get_nodes_in_group("mobile_joystick")
@@ -154,27 +158,33 @@ func _process(delta):
 		is_mobile = true
 
 	if joystick_node and joystick_node.input_vector != Vector2.ZERO:
-		input = joystick_node.input_vector
+		input = Vector3(joystick_node.input_vector.x, 0, joystick_node.input_vector.y)
 	else:
-		if Input.is_action_pressed("move_up"): input.y -= 1
-		if Input.is_action_pressed("move_down"): input.y += 1
+		if Input.is_action_pressed("move_up"): input.z -= 1
+		if Input.is_action_pressed("move_down"): input.z += 1
 		if Input.is_action_pressed("move_left"): input.x -= 1
 		if Input.is_action_pressed("move_right"): input.x += 1
-	if input != Vector2.ZERO:
+	if input != Vector3.ZERO:
 		position += input.normalized() * CFG.player_speed * (1.0 + upgrades["move_speed"] * CFG.move_speed_per_level + research_move_speed) * delta
-	position = position.clamp(Vector2(-CFG.map_half_size, -CFG.map_half_size), Vector2(CFG.map_half_size, CFG.map_half_size))
+	position.x = clampf(position.x, -CFG.map_half_size, CFG.map_half_size)
+	position.z = clampf(position.z, -CFG.map_half_size, CFG.map_half_size)
 
 	if is_mobile or auto_aim:
 		if look_joystick_node and look_joystick_node.input_vector != Vector2.ZERO:
-			facing_angle = look_joystick_node.input_vector.angle()
+			facing_angle = atan2(look_joystick_node.input_vector.y, look_joystick_node.input_vector.x)
 		else:
 			var nearest_alien = _find_nearest_alien()
 			if nearest_alien:
-				facing_angle = (nearest_alien.global_position - global_position).angle()
+				var dir = nearest_alien.global_position - global_position
+				facing_angle = atan2(dir.z, dir.x)
 			elif not is_mobile:
-				facing_angle = (get_tree().current_scene.mouse_world_2d - global_position).angle()
+				var mw = get_tree().current_scene.mouse_world_2d
+				var dir = mw - global_position
+				facing_angle = atan2(dir.z, dir.x)
 	else:
-		facing_angle = (get_tree().current_scene.mouse_world_2d - global_position).angle()
+		var mw = get_tree().current_scene.mouse_world_2d
+		var dir = mw - global_position
+		facing_angle = atan2(dir.z, dir.x)
 	shoot_timer = maxf(0.0, shoot_timer - delta)
 	invuln_timer = maxf(0.0, invuln_timer - delta)
 	magnet_timer = maxf(0.0, magnet_timer - delta)
@@ -206,38 +216,38 @@ func _process(delta):
 	else:
 		repair_targets.clear()
 
-	# Hotkey building (instant place at mouse)
+	# Hotkey building (select build mode, click to place)
 	if Input.is_action_just_pressed("build_power_plant"):
-		_try_build("power_plant")
+		_toggle_build_mode("power_plant")
 	if Input.is_action_just_pressed("build_pylon"):
-		_try_build("pylon")
+		_toggle_build_mode("pylon")
 	if Input.is_action_just_pressed("build_factory"):
-		_try_build("factory")
+		_toggle_build_mode("factory")
 	if Input.is_action_just_pressed("build_turret"):
-		_try_build("turret")
+		_toggle_build_mode("turret")
 	if Input.is_action_just_pressed("build_wall"):
-		_try_build("wall")
+		_toggle_build_mode("wall")
 	if Input.is_action_just_pressed("build_lightning"):
 		if GameData.get_research_bonus("unlock_lightning") >= 1.0:
-			_try_build("lightning")
+			_toggle_build_mode("lightning")
 	if Input.is_action_just_pressed("build_slow"):
 		if GameData.get_research_bonus("turret_ice") >= 1.0:
-			_try_build("slow")
+			_toggle_build_mode("slow")
 	if Input.is_action_just_pressed("build_battery"):
 		if GameData.get_research_bonus("unlock_battery") >= 1.0:
-			_try_build("battery")
+			_toggle_build_mode("battery")
 	if Input.is_action_just_pressed("build_flame_turret"):
 		if GameData.get_research_bonus("turret_fire") >= 1.0:
-			_try_build("flame_turret")
+			_toggle_build_mode("flame_turret")
 	if Input.is_action_just_pressed("build_acid_turret"):
 		if GameData.get_research_bonus("turret_acid") >= 1.0:
-			_try_build("acid_turret")
+			_toggle_build_mode("acid_turret")
 	if Input.is_action_just_pressed("build_repair_drone"):
 		if GameData.get_research_bonus("unlock_repair_drone") >= 1.0:
-			_try_build("repair_drone")
+			_toggle_build_mode("repair_drone")
 	if Input.is_action_just_pressed("build_poison_turret"):
 		if GameData.get_research_bonus("turret_poison") >= 1.0:
-			_try_build("poison_turret")
+			_toggle_build_mode("poison_turret")
 
 	# Build mode placement (click to place)
 	if build_mode != "":
@@ -263,8 +273,6 @@ func _process(delta):
 		_process_regen(delta)
 	if nuke_radius > 0:
 		_process_nuke(delta)
-
-	queue_redraw()
 
 
 func _process_nuke(delta):
@@ -312,8 +320,8 @@ func _shoot():
 		var off = 0.0
 		if count > 1:
 			off = lerpf(-spread / 2.0, spread / 2.0, float(i) / float(count - 1))
-		b.direction = Vector2.from_angle(facing_angle + off)
-		b.global_position = global_position + Vector2.from_angle(facing_angle) * 20.0
+		b.direction = Vector3(cos(facing_angle + off), 0, sin(facing_angle + off))
+		b.global_position = global_position + Vector3(cos(facing_angle), 0, sin(facing_angle)) * 20.0
 		b.damage = CFG.bullet_damage + research_damage
 		b.crit_chance = upgrades["crit_chance"] * CFG.crit_per_level
 		b.chain_count = upgrades["chain_lightning"] + int(GameData.get_research_bonus("chain_count"))
@@ -409,9 +417,9 @@ func _collect_powerups():
 			p.queue_free()
 
 
-func _find_nearest_alien() -> Node2D:
+func _find_nearest_alien() -> Node3D:
 	var aliens = get_tree().get_nodes_in_group("aliens")
-	var nearest: Node2D = null
+	var nearest: Node3D = null
 	var nearest_dist = INF
 	for a in aliens:
 		if not is_instance_valid(a): continue
@@ -458,7 +466,7 @@ func _apply_powerup(type: String):
 
 func _spawn_popup(text: String, color: Color):
 	var popup = preload("res://scenes/popup_text.tscn").instantiate()
-	popup.global_position = global_position + Vector2(0, -30)
+	popup.global_position = global_position + Vector3(0, 30, 0)
 	popup.text = text
 	popup.color = color
 	get_tree().current_scene.game_world_2d.add_child(popup)
@@ -507,20 +515,20 @@ func get_building_cost(type: String) -> Dictionary:
 
 
 func _try_build(type: String) -> bool:
-	var bp = get_tree().current_scene.mouse_world_2d.snapped(Vector2(40, 40))
+	var bp = get_tree().current_scene.mouse_world_2d.snapped(Vector3(40, 0, 40))
 	return _try_build_at(type, bp)
 
 
 func confirm_build() -> bool:
-	if build_mode == "" or pending_build_world_pos == Vector2.ZERO:
+	if build_mode == "" or pending_build_world_pos == Vector3.ZERO:
 		return false
 	return _try_build_at(build_mode, pending_build_world_pos)
 
 
-func _try_build_at(type: String, bp: Vector2) -> bool:
+func _try_build_at(type: String, bp: Vector3) -> bool:
 	# MP client: route build request to host
 	if NetworkManager.is_multiplayer_active() and not NetworkManager.is_host():
-		get_tree().current_scene._request_build.rpc_id(1, type, bp.x, bp.y)
+		get_tree().current_scene._request_build.rpc_id(1, type, bp.x, bp.z)
 		return true
 
 	# Check research locks
@@ -551,7 +559,7 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 	iron -= cost["iron"]
 	crystal -= cost["crystal"]
 
-	var building: Node2D
+	var building: Node3D
 	match type:
 		"turret":
 			building = preload("res://scenes/turret.tscn").instantiate()
@@ -593,12 +601,12 @@ func _try_build_at(type: String, bp: Vector2) -> bool:
 			building.max_hp += bonus_hp
 		# Sync to client in MP
 		if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
-			get_tree().current_scene._sync_building_placed.rpc(type, bp.x, bp.y)
+			get_tree().current_scene._sync_building_placed.rpc(type, bp.x, bp.z)
 		return true
 	return false
 
 
-func can_place_at(pos: Vector2) -> bool:
+func can_place_at(pos: Vector3) -> bool:
 	if global_position.distance_to(pos) > CFG.build_range:
 		return false
 	for b in get_tree().get_nodes_in_group("buildings"):
@@ -612,7 +620,7 @@ func can_afford(type: String) -> bool:
 	return iron >= cost["iron"] and crystal >= cost["crystal"]
 
 
-func get_building_type_string(building: Node2D) -> String:
+func get_building_type_string(building: Node3D) -> String:
 	if not building.has_method("get_building_name"):
 		return ""
 	match building.get_building_name():
@@ -630,7 +638,7 @@ func get_building_type_string(building: Node2D) -> String:
 	return ""
 
 
-func get_recycle_value(building: Node2D) -> Dictionary:
+func get_recycle_value(building: Node3D) -> Dictionary:
 	var type_str = get_building_type_string(building)
 	if type_str == "":
 		return {"iron": 0, "crystal": 0}
@@ -644,7 +652,7 @@ func get_recycle_value(building: Node2D) -> Dictionary:
 	}
 
 
-func recycle_building(building: Node2D) -> Dictionary:
+func recycle_building(building: Node3D) -> Dictionary:
 	var value = get_recycle_value(building)
 	iron += value["iron"]
 	crystal += value["crystal"]
@@ -669,7 +677,7 @@ func _process_orbitals(delta):
 	var can_deal_damage = not NetworkManager.is_multiplayer_active() or NetworkManager.is_host()
 	for i in range(cnt):
 		var ang = orbital_angle + TAU * i / cnt
-		var op = global_position + Vector2.from_angle(ang) * 80.0
+		var op = global_position + Vector3(cos(ang), 0, sin(ang)) * 80.0
 		if not can_deal_damage:
 			continue
 		for a in get_tree().get_nodes_in_group("aliens"):
@@ -709,164 +717,9 @@ func _spawn_death_particles():
 		var angle = randf() * TAU
 		var speed = randf_range(80, 200)
 		death_particles.append({
-			"pos": Vector2.ZERO,
-			"vel": Vector2.from_angle(angle) * speed,
+			"pos": Vector3.ZERO,
+			"vel": Vector3(cos(angle) * speed, 0, sin(angle) * speed),
 			"life": randf_range(0.8, 1.5),
 			"color": [Color(0.2, 0.9, 0.3), Color(1.0, 0.8, 0.2), Color(1.0, 0.4, 0.1)][randi() % 3],
 			"size": randf_range(3, 8)
 		})
-
-
-func _draw():
-	if is_dead:
-		# Draw explosion particles
-		for p in death_particles:
-			var alpha = p["life"]
-			draw_circle(p["pos"], p["size"], Color(p["color"].r, p["color"].g, p["color"].b, alpha))
-		return
-
-	if upgrades["damage_aura"] > 0:
-		var r = CFG.aura_radius_base + upgrades["damage_aura"] * CFG.aura_radius_per_level
-		var a = 0.06 + sin(Time.get_ticks_msec() * 0.005) * 0.03
-		draw_circle(Vector2.ZERO, r, Color(0.8, 0.2, 0.8, a))
-		draw_arc(Vector2.ZERO, r, 0, TAU, 48, Color(0.8, 0.2, 0.8, 0.15), 1.5)
-
-	if upgrades["orbital_lasers"] > 0:
-		var cnt = upgrades["orbital_lasers"]
-		for i in range(cnt):
-			var ang = orbital_angle + TAU * i / cnt
-			var op = Vector2.from_angle(ang) * 80.0
-			draw_circle(op, 8, Color(1.0, 0.2, 0.1, 0.7))
-			draw_circle(op, 4, Color(1.0, 0.8, 0.3))
-			draw_arc(op, 10, 0, TAU, 16, Color(1.0, 0.3, 0.1, 0.3), 2.0)
-
-	# Mining lasers
-	for target in mine_targets:
-		if is_instance_valid(target):
-			var target_local = target.global_position - global_position
-			var laser_color: Color
-			if target.resource_type == "iron":
-				laser_color = Color(1.0, 0.8, 0.3)
-			else:
-				laser_color = Color(0.4, 0.7, 1.0)
-			var flicker = 0.7 + sin(Time.get_ticks_msec() * 0.02) * 0.3
-			draw_line(Vector2.ZERO, target_local, Color(laser_color.r, laser_color.g, laser_color.b, 0.15 * flicker), 6.0)
-			draw_line(Vector2.ZERO, target_local, Color(laser_color.r, laser_color.g, laser_color.b, 0.5 * flicker), 2.0)
-			draw_line(Vector2.ZERO, target_local, Color(1, 1, 1, 0.4 * flicker), 1.0)
-			draw_circle(target_local, 5.0 * flicker, Color(laser_color.r, laser_color.g, laser_color.b, 0.3))
-
-	# Repair beams
-	for target in repair_targets:
-		if is_instance_valid(target):
-			var target_local = target.global_position - global_position
-			var repair_color = Color(0.3, 1.0, 0.5)
-			var flicker = 0.7 + sin(Time.get_ticks_msec() * 0.02 + 1.0) * 0.3
-			draw_line(Vector2.ZERO, target_local, Color(repair_color.r, repair_color.g, repair_color.b, 0.15 * flicker), 6.0)
-			draw_line(Vector2.ZERO, target_local, Color(repair_color.r, repair_color.g, repair_color.b, 0.5 * flicker), 2.0)
-			draw_line(Vector2.ZERO, target_local, Color(1, 1, 1, 0.4 * flicker), 1.0)
-			draw_circle(target_local, 5.0 * flicker, Color(repair_color.r, repair_color.g, repair_color.b, 0.3))
-
-	# Magnet effect
-	if magnet_timer > 0:
-		var mag_alpha = 0.1 + sin(Time.get_ticks_msec() * 0.008) * 0.05
-		draw_arc(Vector2.ZERO, CFG.magnet_range, 0, TAU, 64, Color(0.3, 1.0, 0.5, mag_alpha), 2.0)
-
-	# Mining boost effect
-	if mining_boost_timer > 0:
-		var boost_alpha = 0.15 + sin(Time.get_ticks_msec() * 0.01) * 0.1
-		draw_arc(Vector2.ZERO, get_mine_range(), 0, TAU, 32, Color(1.0, 0.8, 0.3, boost_alpha), 3.0)
-
-	# Player body with hit flash
-	var pts = PackedVector2Array()
-	pts.append(Vector2.from_angle(facing_angle) * 16)
-	pts.append(Vector2.from_angle(facing_angle + 2.5) * 12)
-	pts.append(Vector2.from_angle(facing_angle - 2.5) * 12)
-
-	var c: Color
-	if hit_flash_timer > 0:
-		# Blink red when hit
-		c = Color(1.0, 0.2, 0.2)
-	elif invuln_timer > 0:
-		c = player_color.lightened(0.3)
-	else:
-		c = player_color
-
-	draw_colored_polygon(pts, c)
-	draw_polyline(pts + PackedVector2Array([pts[0]]), player_color.lightened(0.3), 1.5)
-
-	var bw = 30.0
-	draw_rect(Rect2(-bw / 2, -24, bw, 4), Color(0.3, 0, 0))
-	draw_rect(Rect2(-bw / 2, -24, bw * float(health) / float(max_health), 4), Color(0, 0.9, 0))
-	draw_arc(Vector2.ZERO, get_mine_range(), 0, TAU, 32, Color(1, 1, 1, 0.08), 1.0)
-
-	# Player name above health bar
-	if player_name != "":
-		var name_color = player_color.lightened(0.3)
-		name_color.a = 0.9
-		draw_string(ThemeDB.fallback_font, Vector2(-player_name.length() * 3.5, -32), player_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, name_color)
-
-	# Build mode ghost preview
-	if build_mode != "":
-		var bp: Vector2
-		if is_mobile and pending_build_world_pos != Vector2.ZERO:
-			bp = pending_build_world_pos
-		else:
-			bp = get_tree().current_scene.mouse_world_2d.snapped(Vector2(40, 40))
-		var ghost_pos = bp - global_position
-		var valid = can_place_at(bp) and can_afford(build_mode)
-		var ghost_color = Color(0.3, 1.0, 0.4, 0.5) if valid else Color(1.0, 0.3, 0.3, 0.5)
-
-		# Draw build range
-		draw_arc(Vector2.ZERO, CFG.build_range, 0, TAU, 64, Color(0.5, 0.8, 1.0, 0.15), 2.0)
-
-		# Draw ghost based on building type
-		match build_mode:
-			"turret":
-				draw_circle(ghost_pos, 16, ghost_color)
-				draw_arc(ghost_pos, 16, 0, TAU, 32, ghost_color.lightened(0.3), 2.0)
-			"factory":
-				draw_rect(Rect2(ghost_pos.x - 20, ghost_pos.y - 20, 40, 40), ghost_color)
-			"wall":
-				draw_rect(Rect2(ghost_pos.x - 18, ghost_pos.y - 12, 36, 24), ghost_color)
-			"lightning":
-				draw_rect(Rect2(ghost_pos.x - 12, ghost_pos.y - 8, 24, 20), ghost_color)
-				draw_rect(Rect2(ghost_pos.x - 8, ghost_pos.y - 20, 16, 14), ghost_color)
-			"slow":
-				var ghost_pts = PackedVector2Array()
-				ghost_pts.append(ghost_pos + Vector2(0, -22))
-				ghost_pts.append(ghost_pos + Vector2(10, -5))
-				ghost_pts.append(ghost_pos + Vector2(6, 0))
-				ghost_pts.append(ghost_pos + Vector2(-6, 0))
-				ghost_pts.append(ghost_pos + Vector2(-10, -5))
-				draw_colored_polygon(ghost_pts, ghost_color)
-			"pylon":
-				# Pylon tower shape
-				var pylon_pts = PackedVector2Array()
-				pylon_pts.append(ghost_pos + Vector2(-6, 4))
-				pylon_pts.append(ghost_pos + Vector2(-3, -18))
-				pylon_pts.append(ghost_pos + Vector2(3, -18))
-				pylon_pts.append(ghost_pos + Vector2(6, 4))
-				draw_colored_polygon(pylon_pts, ghost_color)
-				draw_rect(Rect2(ghost_pos.x - 10, ghost_pos.y - 20, 20, 4), ghost_color)
-			"power_plant":
-				draw_rect(Rect2(ghost_pos.x - 22, ghost_pos.y - 15, 44, 30), ghost_color)
-				draw_circle(ghost_pos + Vector2(0, -8), 8, ghost_color.lightened(0.3))
-			"battery":
-				draw_rect(Rect2(ghost_pos.x - 14, ghost_pos.y - 18, 28, 36), ghost_color)
-				draw_rect(Rect2(ghost_pos.x - 6, ghost_pos.y - 22, 12, 6), ghost_color.lightened(0.3))
-			"flame_turret":
-				draw_circle(ghost_pos, 16, ghost_color)
-				draw_arc(ghost_pos, 16, 0, TAU, 32, ghost_color.lightened(0.3), 2.0)
-				draw_arc(ghost_pos, CFG.flame_range, 0, TAU, 48, Color(1.0, 0.5, 0.1, 0.15), 1.5)
-			"acid_turret":
-				draw_circle(ghost_pos, 16, ghost_color)
-				draw_arc(ghost_pos, 16, 0, TAU, 32, ghost_color.lightened(0.3), 2.0)
-				draw_arc(ghost_pos, CFG.acid_range, 0, TAU, 48, Color(0.3, 0.9, 0.15, 0.15), 1.5)
-			"repair_drone":
-				draw_rect(Rect2(ghost_pos.x - 14, ghost_pos.y - 4, 28, 12), ghost_color)
-				draw_circle(ghost_pos + Vector2(0, -14), 8, ghost_color.lightened(0.2))
-				draw_arc(ghost_pos, CFG.repair_drone_range + GameData.get_research_bonus("repair_drone_range"), 0, TAU, 48, Color(0.3, 1.0, 0.4, 0.15), 1.5)
-			"poison_turret":
-				draw_circle(ghost_pos, 16, ghost_color)
-				draw_arc(ghost_pos, 16, 0, TAU, 32, ghost_color.lightened(0.3), 2.0)
-				draw_arc(ghost_pos, CFG.poison_range, 0, TAU, 48, Color(0.3, 0.85, 0.15, 0.15), 1.5)
