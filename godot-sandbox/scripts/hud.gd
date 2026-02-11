@@ -88,6 +88,7 @@ var settings_panel: Control = null
 var auto_fire_btn: Button = null
 var auto_aim_btn: Button = null
 var _settings_from_pause: bool = false  # Track where settings was opened from
+var gameplay_hud: Control = null  # Container for all in-game HUD elements (hidden during menu)
 var start_wave_btn: Button = null
 var loading_panel: Control = null
 var loading_bar_fill: ColorRect = null
@@ -130,12 +131,19 @@ func _ready():
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(root)
 
+	# All in-game HUD elements go inside gameplay_hud (hidden during menu)
+	gameplay_hud = Control.new()
+	gameplay_hud.set_anchors_preset(Control.PRESET_FULL_RECT)
+	gameplay_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gameplay_hud.visible = false
+	root.add_child(gameplay_hud)
+
 	# Left column for stacked panels
 	var left_col = VBoxContainer.new()
 	left_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	left_col.position = Vector2(10, 10)
 	left_col.add_theme_constant_override("separation", 6)
-	root.add_child(left_col)
+	gameplay_hud.add_child(left_col)
 
 	# --- Player Panel: Health, XP, Level, Prestige ---
 	var player_panel = PanelContainer.new()
@@ -234,7 +242,7 @@ func _ready():
 	build_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	build_bar.offset_top = -56; build_bar.offset_bottom = -10
 	build_bar.offset_left = -260; build_bar.offset_right = 260
-	root.add_child(build_bar)
+	gameplay_hud.add_child(build_bar)
 
 	var build_hbox = HBoxContainer.new()
 	build_hbox.add_theme_constant_override("separation", 4)
@@ -282,7 +290,7 @@ func _ready():
 	build_bar_tooltip_power = Label.new()
 	build_bar_tooltip_power.add_theme_font_size_override("font_size", 14)
 	tt_hbox.add_child(build_bar_tooltip_power)
-	root.add_child(build_bar_tooltip)
+	gameplay_hud.add_child(build_bar_tooltip)
 
 	alert_label = Label.new()
 	alert_label.add_theme_font_size_override("font_size", 36)
@@ -292,14 +300,14 @@ func _ready():
 	alert_label.offset_top = 100; alert_label.offset_left = -300; alert_label.offset_right = 300
 	alert_label.visible = false
 	alert_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(alert_label)
+	gameplay_hud.add_child(alert_label)
 
 	minimap_node = Control.new()
 	minimap_node.set_script(preload("res://scripts/minimap.gd"))
 	minimap_node.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	minimap_node.offset_left = -170; minimap_node.offset_top = 10; minimap_node.offset_right = -10; minimap_node.offset_bottom = 170
 	minimap_node.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(minimap_node)
+	gameplay_hud.add_child(minimap_node)
 
 	# Partner health panels (MP only, top-right below minimap) - up to 3 partners
 	for i in range(3):
@@ -311,7 +319,7 @@ func _ready():
 		pp.offset_top = 175 + i * 32
 		pp.offset_right = -10
 		pp.visible = false
-		root.add_child(pp)
+		gameplay_hud.add_child(pp)
 		var plbl = Label.new()
 		plbl.add_theme_font_size_override("font_size", 14)
 		plbl.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
@@ -329,7 +337,7 @@ func _ready():
 	respawn_label.offset_right = 200
 	respawn_label.visible = false
 	respawn_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(respawn_label)
+	gameplay_hud.add_child(respawn_label)
 
 	# Room code container (top-right, below minimap, above partner panels)
 	var room_code_hbox = HBoxContainer.new()
@@ -341,7 +349,7 @@ func _ready():
 	room_code_hbox.add_theme_constant_override("separation", 4)
 	room_code_hbox.visible = false
 	room_code_hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(room_code_hbox)
+	gameplay_hud.add_child(room_code_hbox)
 	room_code_label = Label.new()
 	room_code_label.add_theme_font_size_override("font_size", 13)
 	room_code_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3, 0.7))
@@ -1256,6 +1264,8 @@ func _on_tech_node_purchased(_key: String):
 func _on_start_menu_wave_pressed(wave: int):
 	start_menu.visible = false
 	_game_started = true
+	if gameplay_hud:
+		gameplay_hud.visible = true
 	get_tree().paused = false
 	game_started.emit(wave)
 
@@ -1367,7 +1377,9 @@ func _on_toggle_auto_aim():
 
 func _copy_to_clipboard(text: String):
 	if OS.has_feature("web"):
-		JavaScriptBridge.eval("navigator.clipboard.writeText('%s')" % text.replace("'", "\\'"))
+		# Use temporary textarea + execCommand for maximum browser compatibility
+		var safe = text.replace("\\", "\\\\").replace("'", "\\'")
+		JavaScriptBridge.eval("(function(){var t=document.createElement('textarea');t.value='%s';t.style.position='fixed';t.style.left='-9999px';document.body.appendChild(t);t.select();document.execCommand('copy');document.body.removeChild(t)})()" % safe)
 	else:
 		DisplayServer.clipboard_set(text)
 
@@ -2274,6 +2286,8 @@ func start_mp_game():
 	_disconnect_network_signals()
 	lobby_panel.visible = false
 	_game_started = true
+	if gameplay_hud:
+		gameplay_hud.visible = true
 
 
 func _on_host_coop_pressed():
@@ -2361,6 +2375,8 @@ func _on_lobby_start_pressed():
 	_disconnect_network_signals()
 	lobby_panel.visible = false
 	_game_started = true
+	if gameplay_hud:
+		gameplay_hud.visible = true
 	get_tree().paused = false
 	game_started.emit(1)  # MP games start at wave 1
 
