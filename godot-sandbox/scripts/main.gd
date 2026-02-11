@@ -65,7 +65,6 @@ var _nuke_flash_light: OmniLight3D
 var _dither_occlude_shader: Shader
 var _dither_occlude_mat: ShaderMaterial
 var _flash_white_mat: StandardMaterial3D
-var _is_mobile: bool = false  # Detected at game start; enables mobile-optimized shaders & rendering
 var _debug_label: Label = null  # On-screen debug overlay for mobile web diagnostics
 
 var wave_number: int = 0
@@ -267,16 +266,6 @@ func _init_game_world():
 	# Creates all gameplay objects, pools, shaders, etc. with loading progress.
 	_debug_log("_init_game_world() started")
 
-	# Detect mobile platform for rendering optimizations
-	# Web builds use GL Compatibility renderer, so they need the mobile shader path too
-	if is_instance_valid(hud_node) and "is_mobile" in hud_node:
-		_is_mobile = hud_node.is_mobile
-	if not _is_mobile and (OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()):
-		_is_mobile = true
-	if not _is_mobile and OS.has_feature("web"):
-		_is_mobile = true
-	_debug_log("  _is_mobile=%s" % str(_is_mobile))
-
 	# Step 1: Lighting & ground
 	if is_instance_valid(hud_node):
 		hud_node.show_loading("Creating world...", 0.0)
@@ -293,9 +282,8 @@ func _init_game_world():
 	var ground = _ground_mesh
 	var plane_mesh = PlaneMesh.new()
 	plane_mesh.size = Vector2(2400, 2400)
-	var ground_subdivs = 20 if _is_mobile else 60
-	plane_mesh.subdivide_width = ground_subdivs
-	plane_mesh.subdivide_depth = ground_subdivs
+	plane_mesh.subdivide_width = 60
+	plane_mesh.subdivide_depth = 60
 	ground.mesh = plane_mesh
 	var mat = StandardMaterial3D.new()
 	mat.albedo_texture = load("res://resources/dirt_grass.png")
@@ -313,10 +301,9 @@ func _init_game_world():
 
 	game_viewport = SubViewport.new()
 	game_viewport.transparent_bg = true
-	var vp_size = 1024 if _is_mobile else 2048
-	game_viewport.size = Vector2i(vp_size, vp_size)
+	game_viewport.size = Vector2i(2048, 2048)
 	game_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	game_viewport.canvas_transform = Transform2D(0, Vector2(vp_size / 2, vp_size / 2))
+	game_viewport.canvas_transform = Transform2D(0, Vector2(1024, 1024))
 	add_child(game_viewport)
 
 	# World overlay (map boundary + selection highlight)
@@ -384,11 +371,7 @@ func _init_game_world():
 	game_sprite.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 	game_sprite.shaded = false
 	game_sprite.transparent = true
-	# ALPHA_CUT_OPAQUE_PREPASS requires depth prepass (not available on GL Compatibility)
-	if _is_mobile:
-		game_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
-	else:
-		game_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_OPAQUE_PREPASS
+	game_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_OPAQUE_PREPASS
 	add_child(game_sprite)
 
 	# Step 3: Compile shaders
@@ -397,26 +380,7 @@ func _init_game_world():
 	await get_tree().process_frame
 
 	_laser_shader = Shader.new()
-	if _is_mobile:
-		_laser_shader.code = """
-shader_type spatial;
-render_mode unshaded, cull_disabled;
-uniform vec4 beam_color : source_color = vec4(1.0, 0.8, 0.3, 1.0);
-uniform float time_offset = 0.0;
-void fragment() {
-	float t = TIME + time_offset;
-	float pulse = 0.7 + 0.3 * sin(t * 8.0);
-	float scroll = fract(UV.y * 3.0 - t * 2.0);
-	float band = smoothstep(0.0, 0.15, scroll) * smoothstep(1.0, 0.85, scroll);
-	float edge_glow = 1.0 - abs(UV.x - 0.5) * 2.0;
-	edge_glow = pow(edge_glow, 0.5);
-	float brightness = pulse * (0.6 + 0.4 * band) * edge_glow;
-	ALBEDO = beam_color.rgb * brightness * 3.0;
-	ALPHA = clamp(brightness * beam_color.a, 0.0, 1.0);
-}
-"""
-	else:
-		_laser_shader.code = """
+	_laser_shader.code = """
 shader_type spatial;
 render_mode unshaded, cull_disabled;
 uniform vec4 beam_color : source_color = vec4(1.0, 0.8, 0.3, 1.0);
@@ -460,26 +424,7 @@ void fragment() {
 }
 """
 	_crystal_shader = Shader.new()
-	if _is_mobile:
-		_crystal_shader.code = """
-shader_type spatial;
-render_mode unshaded, cull_disabled;
-uniform vec4 crystal_color : source_color = vec4(0.2, 0.4, 0.95, 1.0);
-uniform float refraction_strength = 0.08;
-void fragment() {
-	float t = TIME;
-	float facet = abs(sin(VERTEX.x * 2.0 + VERTEX.y * 3.0 + t * 0.5));
-	float shimmer = sin(t * 2.0 + VERTEX.y * 4.0) * 0.5 + 0.5;
-	float edge = 1.0 - abs(dot(NORMAL, VIEW));
-	float fresnel = pow(edge, 2.5);
-	vec3 base = crystal_color.rgb * (0.3 + 0.2 * facet);
-	vec3 glow = crystal_color.rgb * (fresnel * 1.5 + shimmer * 0.3 + facet * 0.2);
-	ALBEDO = base + glow;
-	ALPHA = 0.85 + fresnel * 0.15;
-}
-"""
-	else:
-		_crystal_shader.code = """
+	_crystal_shader.code = """
 shader_type spatial;
 render_mode cull_disabled;
 uniform vec4 crystal_color : source_color = vec4(0.2, 0.4, 0.95, 1.0);
@@ -501,37 +446,7 @@ void fragment() {
 }
 """
 	_energy_proj_shader = Shader.new()
-	if _is_mobile:
-		_energy_proj_shader.code = """
-shader_type spatial;
-render_mode unshaded, cull_disabled, shadows_disabled, depth_draw_never;
-uniform vec4 disc_color : source_color = vec4(0.2, 0.5, 1.0, 0.35);
-uniform int source_count = 0;
-uniform vec4 sources[16];
-varying vec3 world_vertex;
-void vertex() {
-	world_vertex = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
-}
-void fragment() {
-	float max_cov = 0.0;
-	for (int i = 0; i < source_count; i++) {
-		float d = length(world_vertex.xz - sources[i].xy);
-		float r = sources[i].z;
-		max_cov = max(max_cov, 1.0 - smoothstep(r * 0.92, r, d));
-	}
-	if (max_cov < 0.01) discard;
-	vec2 sp = floor(FRAGCOORD.xy);
-	float m1 = mod(sp.x + sp.y, 2.0);
-	float m2 = mod(floor(sp.x * 0.5) + floor(sp.y * 0.5), 2.0);
-	float threshold = (m1 * 2.0 + m2 + 0.5) / 4.0;
-	float alpha = max_cov * disc_color.a;
-	if (alpha < threshold) discard;
-	ALBEDO = disc_color.rgb;
-	ALPHA = 1.0;
-}
-"""
-	else:
-		_energy_proj_shader.code = """
+	_energy_proj_shader.code = """
 shader_type spatial;
 render_mode unshaded, cull_disabled, shadows_disabled, depth_draw_never;
 uniform vec4 disc_color : source_color = vec4(0.2, 0.5, 1.0, 0.35);
@@ -596,21 +511,7 @@ void fragment() {
 	add_child(_nuke_flash_light)
 
 	_dither_occlude_shader = Shader.new()
-	if _is_mobile:
-		# Mobile: simple dithered overlay without depth texture sampling
-		_dither_occlude_shader.code = """
-shader_type spatial;
-render_mode unshaded, depth_draw_never, cull_back, shadows_disabled;
-uniform vec4 silhouette_color : source_color = vec4(1.0, 1.0, 1.0, 0.7);
-void fragment() {
-	ivec2 px = ivec2(FRAGCOORD.xy);
-	if ((px.x + px.y) % 2 == 0) discard;
-	ALBEDO = silhouette_color.rgb;
-	ALPHA = silhouette_color.a * 0.5;
-}
-"""
-	else:
-		_dither_occlude_shader.code = """
+	_dither_occlude_shader.code = """
 shader_type spatial;
 render_mode unshaded, depth_draw_never, depth_test_disabled, cull_back, shadows_disabled;
 uniform vec4 silhouette_color : source_color = vec4(1.0, 1.0, 1.0, 0.7);
@@ -634,8 +535,7 @@ void fragment() {
 	_flash_white_mat = StandardMaterial3D.new()
 	_flash_white_mat.albedo_color = Color.WHITE
 	_flash_white_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	if not _is_mobile:
-		_flash_white_mat.next_pass = _dither_occlude_mat
+	_flash_white_mat.next_pass = _dither_occlude_mat
 
 	# Tiny invisible meshes that force GPU shader compilation
 	for shader in [_laser_shader, _aoe_shader, _crystal_shader, _energy_proj_shader, _dither_occlude_shader]:
@@ -659,15 +559,14 @@ void fragment() {
 
 	for i in range(LASER_POOL_SIZE):
 		var e = {}
-		if not _is_mobile:
-			var laser_light = OmniLight3D.new()
-			laser_light.light_energy = 2.0
-			laser_light.omni_range = 45.0
-			laser_light.omni_attenuation = 1.0
-			laser_light.shadow_enabled = false
-			laser_light.visible = false
-			add_child(laser_light)
-			e["light"] = laser_light
+		var laser_light = OmniLight3D.new()
+		laser_light.light_energy = 2.0
+		laser_light.omni_range = 45.0
+		laser_light.omni_attenuation = 1.0
+		laser_light.shadow_enabled = false
+		laser_light.visible = false
+		add_child(laser_light)
+		e["light"] = laser_light
 		var beam_group = Node3D.new()
 		beam_group.visible = false
 		add_child(beam_group)
@@ -677,7 +576,7 @@ void fragment() {
 		cm_outer.top_radius = 2.0
 		cm_outer.bottom_radius = 2.0
 		cm_outer.height = 1.0
-		cm_outer.radial_segments = 8 if not _is_mobile else 4
+		cm_outer.radial_segments = 8
 		mi_outer.mesh = cm_outer
 		mi_outer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var outer_mat = ShaderMaterial.new()
@@ -693,7 +592,7 @@ void fragment() {
 		cm_inner.top_radius = 0.6
 		cm_inner.bottom_radius = 0.6
 		cm_inner.height = 1.0
-		cm_inner.radial_segments = 6 if not _is_mobile else 4
+		cm_inner.radial_segments = 6
 		mi_inner.mesh = cm_inner
 		mi_inner.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var inner_mat = ShaderMaterial.new()
@@ -705,7 +604,7 @@ void fragment() {
 		e["inner_mi"] = mi_inner
 		e["inner_mat"] = inner_mat
 		var sparks = GPUParticles3D.new()
-		sparks.amount = 6 if _is_mobile else 12
+		sparks.amount = 12
 		sparks.lifetime = 0.4
 		sparks.one_shot = false
 		sparks.explosiveness = 0.8
@@ -747,24 +646,22 @@ void fragment() {
 		var bolt_mat = StandardMaterial3D.new()
 		bolt_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		bolt_mat.albedo_color = Color(0.7, 0.85, 1.0)
-		if not _is_mobile:
-			bolt_mat.emission_enabled = true
-			bolt_mat.emission = Color(0.6, 0.8, 1.0)
-			bolt_mat.emission_energy_multiplier = 4.0
+		bolt_mat.emission_enabled = true
+		bolt_mat.emission = Color(0.6, 0.8, 1.0)
+		bolt_mat.emission_energy_multiplier = 4.0
 		bolt_mi.material_override = bolt_mat
 		bolt_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		bolt_group.add_child(bolt_mi)
 		le["mi"] = bolt_mi
-		if not _is_mobile:
-			var bolt_light = OmniLight3D.new()
-			bolt_light.light_color = Color(0.6, 0.8, 1.0)
-			bolt_light.light_energy = 3.0
-			bolt_light.omni_range = 30.0
-			bolt_light.omni_attenuation = 1.2
-			bolt_light.shadow_enabled = false
-			bolt_light.visible = false
-			add_child(bolt_light)
-			le["light"] = bolt_light
+		var bolt_light = OmniLight3D.new()
+		bolt_light.light_color = Color(0.6, 0.8, 1.0)
+		bolt_light.light_energy = 3.0
+		bolt_light.omni_range = 30.0
+		bolt_light.omni_attenuation = 1.2
+		bolt_light.shadow_enabled = false
+		bolt_light.visible = false
+		add_child(bolt_light)
+		le["light"] = bolt_light
 		le["active"] = false
 		_lightning_pool.append(le)
 
@@ -1075,8 +972,6 @@ func _sync_3d_lights():
 	for a in get_tree().get_nodes_in_group("aliens"):
 		if not is_instance_valid(a): continue
 		var is_boss = a.is_in_group("bosses")
-		if _is_mobile and not is_boss:
-			continue
 		var pos3d = Vector3(a.global_position.x, 30 if is_boss else 8, a.global_position.y)
 		if a not in alien_lights:
 			var light = OmniLight3D.new()
@@ -1174,8 +1069,7 @@ func _sync_3d_lights():
 		if target in mining_laser_beams:
 			# UPDATE existing — just set transforms (no allocation)
 			var e = mining_laser_beams[target]
-			if e.has("light"):
-				e["light"].position = Vector3(tpos.x, 6, tpos.y)
+			e["light"].position = Vector3(tpos.x, 6, tpos.y)
 			e["outer_mi"].global_transform = Transform3D(scaled_basis, mid)
 			e["inner_mi"].global_transform = Transform3D(scaled_basis, mid)
 			e["sparks"].global_position = end_pt
@@ -1183,10 +1077,9 @@ func _sync_3d_lights():
 		else:
 			# ACTIVATE a pool entry (no node creation, just show + set uniforms)
 			var e = _acquire_laser_beam()
-			if e.has("light"):
-				e["light"].light_color = lc
-				e["light"].position = Vector3(tpos.x, 6, tpos.y)
-				e["light"].visible = true
+			e["light"].light_color = lc
+			e["light"].position = Vector3(tpos.x, 6, tpos.y)
+			e["light"].visible = true
 			e["outer_mat"].set_shader_parameter("beam_color", Color(lc.r, lc.g, lc.b, 0.6))
 			e["outer_mat"].set_shader_parameter("time_offset", tpos.x * 0.01)
 			e["inner_mat"].set_shader_parameter("time_offset", tpos.x * 0.01 + 0.5)
@@ -1203,8 +1096,7 @@ func _sync_3d_lights():
 	for key in mining_laser_beams.keys():
 		if key not in active_targets or not is_instance_valid(key):
 			var e = mining_laser_beams[key]
-			if e.has("light"):
-				e["light"].visible = false
+			e["light"].visible = false
 			e["group"].visible = false
 			e["sparks"].emitting = false
 			e["active"] = false
@@ -1242,18 +1134,16 @@ func _sync_3d_lights():
 			var scaled_basis2 = Basis(side2, dir2 * dist2, fwd2)
 			if rkey in repair_beam_active:
 				var re = repair_beam_active[rkey]
-				if re.has("light"):
-					re["light"].position = end_pt
+				re["light"].position = end_pt
 				re["outer_mi"].global_transform = Transform3D(scaled_basis2, mid2)
 				re["inner_mi"].global_transform = Transform3D(scaled_basis2, mid2)
 				re["sparks"].global_position = end_pt
 			else:
 				var re = _acquire_laser_beam()
 				var gc = Color(0.3, 1.0, 0.5)
-				if re.has("light"):
-					re["light"].light_color = gc
-					re["light"].position = end_pt
-					re["light"].visible = true
+				re["light"].light_color = gc
+				re["light"].position = end_pt
+				re["light"].visible = true
 				re["outer_mat"].set_shader_parameter("beam_color", Color(gc.r, gc.g, gc.b, 0.5))
 				re["outer_mat"].set_shader_parameter("time_offset", tpos.x * 0.01)
 				re["inner_mat"].set_shader_parameter("beam_color", Color(1, 1, 1, 0.8))
@@ -1269,8 +1159,7 @@ func _sync_3d_lights():
 	for rkey in repair_beam_active.keys():
 		if rkey not in active_repair_keys:
 			var re = repair_beam_active[rkey]
-			if re.has("light"):
-				re["light"].visible = false
+			re["light"].visible = false
 			re["group"].visible = false
 			re["sparks"].emitting = false
 			re["active"] = false
@@ -1281,8 +1170,7 @@ func _sync_3d_lights():
 	for entries in lightning_beam_active.values():
 		for le in entries:
 			le["group"].visible = false
-			if le.has("light"):
-				le["light"].visible = false
+			le["light"].visible = false
 			le["active"] = false
 	lightning_beam_active.clear()
 	for b in get_tree().get_nodes_in_group("lightnings"):
@@ -1308,9 +1196,8 @@ func _sync_3d_lights():
 			var bolt_basis = Basis(bolt_side, bolt_dir * bolt_dist, bolt_fwd)
 			le["mi"].global_transform = Transform3D(bolt_basis, bolt_mid)
 			le["group"].visible = true
-			if le.has("light"):
-				le["light"].position = bolt_mid
-				le["light"].visible = true
+			le["light"].position = bolt_mid
+			le["light"].visible = true
 			le["active"] = true
 			bolt_entries.append(le)
 		if not bolt_entries.is_empty():
@@ -1324,15 +1211,14 @@ func _acquire_laser_beam() -> Dictionary:
 			return e
 	# Pool exhausted — expand (shouldn't normally happen)
 	var e = {}
-	if not _is_mobile:
-		var laser_light = OmniLight3D.new()
-		laser_light.light_energy = 2.0
-		laser_light.omni_range = 45.0
-		laser_light.omni_attenuation = 1.0
-		laser_light.shadow_enabled = false
-		laser_light.visible = false
-		add_child(laser_light)
-		e["light"] = laser_light
+	var laser_light = OmniLight3D.new()
+	laser_light.light_energy = 2.0
+	laser_light.omni_range = 45.0
+	laser_light.omni_attenuation = 1.0
+	laser_light.shadow_enabled = false
+	laser_light.visible = false
+	add_child(laser_light)
+	e["light"] = laser_light
 	var beam_group = Node3D.new()
 	beam_group.visible = false
 	add_child(beam_group)
@@ -1414,24 +1300,22 @@ func _acquire_lightning_bolt() -> Dictionary:
 	var bolt_mat = StandardMaterial3D.new()
 	bolt_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	bolt_mat.albedo_color = Color(0.7, 0.85, 1.0)
-	if not _is_mobile:
-		bolt_mat.emission_enabled = true
-		bolt_mat.emission = Color(0.6, 0.8, 1.0)
-		bolt_mat.emission_energy_multiplier = 4.0
+	bolt_mat.emission_enabled = true
+	bolt_mat.emission = Color(0.6, 0.8, 1.0)
+	bolt_mat.emission_energy_multiplier = 4.0
 	bolt_mi.material_override = bolt_mat
 	bolt_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	bolt_group.add_child(bolt_mi)
 	le["mi"] = bolt_mi
-	if not _is_mobile:
-		var bolt_light = OmniLight3D.new()
-		bolt_light.light_color = Color(0.6, 0.8, 1.0)
-		bolt_light.light_energy = 3.0
-		bolt_light.omni_range = 30.0
-		bolt_light.omni_attenuation = 1.2
-		bolt_light.shadow_enabled = false
-		bolt_light.visible = false
-		add_child(bolt_light)
-		le["light"] = bolt_light
+	var bolt_light = OmniLight3D.new()
+	bolt_light.light_color = Color(0.6, 0.8, 1.0)
+	bolt_light.light_energy = 3.0
+	bolt_light.omni_range = 30.0
+	bolt_light.omni_attenuation = 1.2
+	bolt_light.shadow_enabled = false
+	bolt_light.visible = false
+	add_child(bolt_light)
+	le["light"] = bolt_light
 	le["active"] = false
 	_lightning_pool.append(le)
 	return le
@@ -1534,7 +1418,7 @@ func _ensure_burn_fx(alien_root: Node3D, active: bool):
 		if not fx:
 			fx = GPUParticles3D.new()
 			fx.name = "BurnFX"
-			fx.amount = 4 if _is_mobile else 8
+			fx.amount = 8
 			fx.lifetime = 0.6
 			fx.explosiveness = 0.3
 			var pm = ParticleProcessMaterial.new()
@@ -1593,7 +1477,7 @@ func _ensure_poison_fx(alien_root: Node3D, active: bool):
 		if not fx:
 			fx = GPUParticles3D.new()
 			fx.name = "PoisonFX"
-			fx.amount = 3 if _is_mobile else 6
+			fx.amount = 6
 			fx.lifetime = 0.8
 			fx.explosiveness = 0.2
 			var pm = ParticleProcessMaterial.new()
@@ -1749,7 +1633,7 @@ func _create_building_mesh(bname: String) -> Node3D:
 			# Fire particles (toggled by power state in _sync_3d_meshes)
 			var fire_fx = GPUParticles3D.new()
 			fire_fx.name = "FireFX"
-			fire_fx.amount = 12 if _is_mobile else 24
+			fire_fx.amount = 24
 			fire_fx.lifetime = 0.8
 			fire_fx.explosiveness = 0.1
 			fire_fx.emitting = false
@@ -1809,8 +1693,7 @@ func _create_player_mesh(col: Color) -> Node3D:
 	pm.left_to_right = 0.5
 	mi.mesh = pm
 	var pmat = _unlit_mat(col).duplicate()
-	if not _is_mobile:
-		pmat.next_pass = _dither_occlude_mat
+	pmat.next_pass = _dither_occlude_mat
 	mi.material_override = pmat
 	mi.rotation.x = -PI / 2
 	mi.position.y = 5
@@ -1844,8 +1727,7 @@ func _create_alien_mesh(a: Node2D) -> Node3D:
 	pm.left_to_right = 0.5
 	mi.mesh = pm
 	var base_mat = _unlit_mat(col).duplicate()
-	if not _is_mobile:
-		base_mat.next_pass = _dither_occlude_mat
+	base_mat.next_pass = _dither_occlude_mat
 	mi.material_override = base_mat
 	mi.rotation.x = -PI / 2
 	mi.position.y = pm.size.z * 0.5
@@ -2313,7 +2195,7 @@ func _sync_aoe_rings():
 	var in_build_mode = is_instance_valid(player_node) and "build_mode" in player_node and player_node.build_mode != ""
 	if in_build_mode:
 		var sources: Array = []
-		var max_sources = 16 if _is_mobile else 32
+		var max_sources = 32
 		# HQ
 		if is_instance_valid(hq_node):
 			var p = hq_node.global_position
