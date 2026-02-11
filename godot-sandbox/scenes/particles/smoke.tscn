@@ -1,0 +1,37 @@
+[gd_scene format=3]
+
+[sub_resource type="Gradient" id="smoke_gradient"]
+colors = PackedColorArray(0.6, 0.6, 0.6, 0.6, 0.3, 0.3, 0.3, 0)
+
+[sub_resource type="GradientTexture1D" id="smoke_grad_tex"]
+gradient = SubResource("smoke_gradient")
+
+[sub_resource type="ParticleProcessMaterial" id="smoke_mat"]
+direction = Vector3(0, 1, 0)
+spread = 15.0
+initial_velocity_min = 8.0
+initial_velocity_max = 16.0
+gravity = Vector3(0, 2, 0)
+damping_min = 2.0
+damping_max = 5.0
+scale_min = 1.0
+scale_max = 4.0
+color = Color(0.45, 0.42, 0.4, 0.5)
+color_ramp = SubResource("smoke_grad_tex")
+
+[sub_resource type="StandardMaterial3D" id="smoke_billboard_mat"]
+transparency = 1
+albedo_color = Color(0.5, 0.48, 0.45, 1)
+billboard_mode = 1
+
+[sub_resource type="QuadMesh" id="smoke_quad"]
+material = SubResource("smoke_billboard_mat")
+size = Vector2(4, 4)
+
+[node name="SmokeFX" type="GPUParticles3D"]
+cast_shadow = 0
+amount = 20
+lifetime = 1.5
+explosiveness = 0.0
+process_material = SubResource("smoke_mat")
+draw_pass_1 = SubResource("smoke_quad")

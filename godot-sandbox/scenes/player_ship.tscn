@@ -1,6 +1,31 @@
 [gd_scene format=3 uid="uid://dvmlfavda273n"]
 
 [ext_resource type="PackedScene" uid="uid://rplhu7lpknyn" path="res://resources/models/cross_lander.glb" id="1"]
+[ext_resource type="PackedScene" uid="uid://bdapr52xf4o34" path="res://scenes/particles/thruster.tscn" id="2_7t0u0"]
+[ext_resource type="Material" uid="uid://cbrcwmnncaiwm" path="res://resources/materials/flame.tres" id="2_ye4q7"]
+
+[sub_resource type="Gradient" id="thruster_gradient"]
+colors = PackedColorArray(1, 0.9, 0.3, 1, 1, 0.3, 0, 0)
+
+[sub_resource type="GradientTexture1D" id="thruster_grad_tex"]
+gradient = SubResource("thruster_gradient")
+
+[sub_resource type="ParticleProcessMaterial" id="thruster_mat"]
+direction = Vector3(0, -1, 0)
+spread = 8.0
+initial_velocity_min = 30.0
+initial_velocity_max = 60.0
+gravity = Vector3(0, 0, 0)
+damping_min = 5.0
+damping_max = 10.0
+scale_min = 0.6
+scale_max = 1.8
+color = Color(1, 0.7, 0.2, 1)
+color_ramp = SubResource("thruster_grad_tex")
+
+[sub_resource type="QuadMesh" id="QuadMesh_ys4te"]
+material = ExtResource("2_ye4q7")
+size = Vector2(3, 3)
 
 [node name="PlayerShip" type="Node3D" unique_id=1593469570]
 
@@ -9,6 +34,7 @@ transform = Transform3D(5, 0, 0, 0, 5, 0, 0, 0, 5, 0, 50, 0)
 
 [node name="SpotLight3D" type="SpotLight3D" parent="." unique_id=1800258020]
 transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 133.16992, 0)
+light_color = Color(0.6779307, 0.75176793, 1, 1)
 spot_range = 153.157
 spot_attenuation = -0.1
 spot_angle = 36.9
@@ -27,3 +53,65 @@ spot_angle = 36.9
 
 [node name="LaserOrigin" type="Marker3D" parent="." unique_id=1330647160]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 41, 0)
+
+[node name="Thruster1" type="Marker3D" parent="." unique_id=1364093862]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 39, 0)
+
+[node name="ThrusterFX1" parent="Thruster1" unique_id=1835250590 instance=ExtResource("2_7t0u0")]
+
+[node name="ThrusterLight1" type="OmniLight3D" parent="Thruster1" unique_id=1397151061]
+light_color = Color(1, 0.6, 0.2, 1)
+light_energy = 1.5
+omni_range = 15.0
+omni_attenuation = 1.5
+
+[node name="Thruster2" type="Marker3D" parent="." unique_id=793060507]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 39, -30)
+
+[node name="ThrusterLight2" type="OmniLight3D" parent="Thruster2" unique_id=16487976]
+light_color = Color(1, 0.6, 0.2, 1)
+light_energy = 1.5
+omni_range = 15.0
+omni_attenuation = 1.5
+
+[node name="ThrusterFX1" type="GPUParticles3D" parent="Thruster2" unique_id=1948467559]
+cast_shadow = 0
+amount = 16
+lifetime = 0.4
+explosiveness = 0.05
+process_material = SubResource("thruster_mat")
+draw_pass_1 = SubResource("QuadMesh_ys4te")
+
+[node name="Thruster3" type="Marker3D" parent="." unique_id=1676087388]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 39, 30)
+
+[node name="ThrusterLight3" type="OmniLight3D" parent="Thruster3" unique_id=373031034]
+light_color = Color(1, 0.6, 0.2, 1)
+light_energy = 1.5
+omni_range = 15.0
+omni_attenuation = 1.5
+
+[node name="ThrusterFX1" type="GPUParticles3D" parent="Thruster3" unique_id=1234166113]
+cast_shadow = 0
+amount = 16
+lifetime = 0.4
+explosiveness = 0.05
+process_material = SubResource("thruster_mat")
+draw_pass_1 = SubResource("QuadMesh_ys4te")
+
+[node name="Thruster4" type="Marker3D" parent="." unique_id=1748573634]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 38, 0)
+
+[node name="ThrusterLight4" type="OmniLight3D" parent="Thruster4" unique_id=986600137]
+light_color = Color(1, 0.6, 0.2, 1)
+light_energy = 1.5
+omni_range = 15.0
+omni_attenuation = 1.5
+
+[node name="ThrusterFX1" type="GPUParticles3D" parent="Thruster4" unique_id=1207892412]
+cast_shadow = 0
+amount = 16
+lifetime = 0.4
+explosiveness = 0.05
+process_material = SubResource("thruster_mat")
+draw_pass_1 = SubResource("QuadMesh_ys4te")

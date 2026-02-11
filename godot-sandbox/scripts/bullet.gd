@@ -17,9 +17,35 @@ var chain_damage_bonus: int = 0
 var chain_retention: float = CFG.chain_base_retention
 var visual_only: bool = false  # Remote bullets: just move + draw, no hit detection
 
+@onready var sprite: Sprite2D = $Sprite2D
+@onready var trail: GPUParticles2D = $Trail
+
+
+func _ready():
+	_update_color()
+
+	if trail:
+		trail.emitting = true
+
+
+func _update_color():
+	var color = Color(1, 0.9, 0.2)
+	if from_turret:
+		color = Color(0.3, 0.9, 1.0)
+	if burn_dps > 0:
+		color = Color(1.0, 0.5, 0.1)
+	if slow_amount > 0:
+		color = Color(0.4, 0.8, 1.0)
+
+	if sprite:
+		sprite.modulate = color
+	if trail:
+		trail.modulate = Color(color.r, color.g, color.b, 0.5)
+
 
 func _process(delta):
 	position += direction * speed * delta
+	rotation = direction.angle()
 	lifetime -= delta
 	if lifetime <= 0:
 		queue_free()
@@ -32,8 +58,6 @@ func _process(delta):
 				_on_hit(alien)
 				queue_free()
 				return
-
-	queue_redraw()
 
 
 func _on_hit(alien: Node2D):
@@ -98,17 +122,3 @@ func _chain_lightning(start: Node2D):
 		fx.set_script(preload("res://scripts/lightning_effect.gd"))
 		fx.points = chain_positions
 		get_tree().current_scene.game_world_2d.add_child(fx)
-
-
-func _draw():
-	var color = Color(1, 0.9, 0.2)
-	if from_turret:
-		color = Color(0.3, 0.9, 1.0)
-	if burn_dps > 0:
-		color = Color(1.0, 0.5, 0.1)
-	if slow_amount > 0:
-		color = Color(0.4, 0.8, 1.0)
-
-	draw_circle(Vector2.ZERO, 3.0, color)
-	draw_circle(Vector2.ZERO, 1.5, Color(1, 1, 1, 0.8))
-	draw_line(Vector2.ZERO, -direction * 6.0, Color(color.r, color.g, color.b, 0.3), 2.0)

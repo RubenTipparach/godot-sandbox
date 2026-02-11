@@ -1,0 +1,24 @@
+[gd_scene format=3 uid="uid://bhigihv6g7w5j"]
+
+[ext_resource type="PackedScene" uid="uid://ceo61h8ed4il6" path="res://resources/models/factory.glb" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/particles/smoke.tscn" id="2_7sv1j"]
+
+[node name="FactoryBuilding" type="Node3D" unique_id=1065369913]
+
+[node name="Model" parent="." unique_id=317736571 instance=ExtResource("1")]
+transform = Transform3D(3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0)
+
+[node name="SpotLight3D" type="SpotLight3D" parent="." unique_id=1586783818]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 70, 0)
+spot_range = 100.057
+spot_attenuation = -0.26
+spot_angle = 54.85
+
+[node name="SmokeFX" parent="." unique_id=1694503404 instance=ExtResource("2_7sv1j")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13, 51, 5)
+
+[node name="SmokeFX2" parent="." unique_id=1500616756 instance=ExtResource("2_7sv1j")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13, 51, 14)
+
+[node name="SmokeFX3" parent="." unique_id=1293982558 instance=ExtResource("2_7sv1j")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -13, 38, -8)

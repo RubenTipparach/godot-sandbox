@@ -2531,5 +2531,3 @@ func hide_vote_panel(_chosen_key: String):
 	for ci in card_info:
 		ci["vote_count_lbl"].visible = false
 		ci["voters_lbl"].visible = false
-
-

@@ -1588,9 +1588,8 @@ func _create_building_mesh(bname: String) -> Node3D:
 			head.add_child(barrel)
 			root.add_child(head)
 		"Factory":
-			root.add_child(_mesh_box(Vector3(24, 16, 24), Color(0.7, 0.5, 0.2), Vector3(0, 8, 0)))
-			root.add_child(_mesh_cyl(5, 18, Color(0.6, 0.45, 0.2), Vector3(8, 18, 0)))
-			root.add_child(_mesh_box(Vector3(10, 3, 10), Color(0.8, 0.6, 0.25), Vector3(-4, 17, 0)))
+			var factory_scene = load("res://scenes/factory_building.tscn").instantiate()
+			root.add_child(factory_scene)
 		"Wall":
 			root.add_child(_mesh_box(Vector3(30, 18, 10), Color(0.5, 0.5, 0.55), Vector3(0, 9, 0)))
 			root.add_child(_mesh_box(Vector3(6, 4, 11), Color(0.45, 0.45, 0.5), Vector3(-10, 20, 0)))

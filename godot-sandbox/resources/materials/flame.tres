@@ -1,0 +1,11 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://cbrcwmnncaiwm"]
+
+[ext_resource type="Texture2D" uid="uid://duumglnke3plm" path="res://resources/sprites/flame.png" id="1_p54dt"]
+
+[resource]
+transparency = 1
+albedo_color = Color(1, 0.8509804, 0.34117648, 1)
+albedo_texture = ExtResource("1_p54dt")
+emission_energy_multiplier = 5.95
+texture_filter = 0
+billboard_mode = 1
