@@ -128,6 +128,15 @@ func get_regen_interval() -> float:
 	return base
 
 
+func _count_active(group: String) -> int:
+	var count = 0
+	for b in get_tree().get_nodes_in_group(group):
+		if "manually_disabled" in b and b.manually_disabled:
+			continue
+		count += 1
+	return count
+
+
 func _update_power_system(delta):
 	# Calculate generation (HQ=10, Power Plant=40)
 	var hq_count = get_tree().get_nodes_in_group("hq").size()
@@ -135,16 +144,16 @@ func _update_power_system(delta):
 	var plant_count = all_plants - hq_count  # HQ is also in power_plants group
 	total_power_gen = hq_count * CFG.hq_power_gen + plant_count * CFG.power_plant_gen
 
-	# Calculate consumption
-	var turret_count = get_tree().get_nodes_in_group("turrets").size()
-	var factory_count = get_tree().get_nodes_in_group("factories").size()
-	var lightning_count = get_tree().get_nodes_in_group("lightnings").size()
-	var slow_count = get_tree().get_nodes_in_group("slows").size()
+	# Calculate consumption (skip manually disabled buildings)
+	var turret_count = _count_active("turrets")
+	var factory_count = _count_active("factories")
+	var lightning_count = _count_active("lightnings")
+	var slow_count = _count_active("slows")
 	var pylon_count = get_tree().get_nodes_in_group("pylons").size()
-	var flame_count = get_tree().get_nodes_in_group("flame_turrets").size()
-	var acid_count = get_tree().get_nodes_in_group("acid_turrets").size()
-	var drone_count = get_tree().get_nodes_in_group("repair_drones").size()
-	var poison_count = get_tree().get_nodes_in_group("poison_turrets").size()
+	var flame_count = _count_active("flame_turrets")
+	var acid_count = _count_active("acid_turrets")
+	var drone_count = _count_active("repair_drones")
+	var poison_count = _count_active("poison_turrets")
 	total_power_consumption = turret_count * CFG.power_turret + factory_count * CFG.power_factory + lightning_count * CFG.power_lightning + slow_count * CFG.power_slow + pylon_count * CFG.power_pylon + flame_count * CFG.power_flame_turret + acid_count * CFG.power_acid_turret + drone_count * CFG.power_repair_drone + poison_count * CFG.power_poison_turret
 
 	# Calculate energy storage capacity (HQ = 200 base, each battery = 50)
@@ -324,7 +333,7 @@ func _init_game_world():
 
 	# Spawn HQ at center - if destroyed, game over
 	hq_node = load("res://scenes/hq.tscn").instantiate()
-	hq_node.global_position = Vector3.ZERO
+	hq_node.position = Vector3.ZERO
 	hq_node.destroyed.connect(_on_hq_destroyed)
 	hq_node.visible = false  # Hidden; 3D standing sprite handles visuals
 	buildings_node.add_child(hq_node)
@@ -2117,8 +2126,47 @@ func _sync_3d_meshes():
 			g.visible = false
 		gem_meshes[g].position = Vector3(g.global_position.x, 0, g.global_position.z)
 
-	# ---- Powerups (keep 2D icons visible on ground) ----
+	# ---- Powerups (3D Label3D billboard) ----
 	_clean_mesh_dict(powerup_meshes)
+	for pu in get_tree().get_nodes_in_group("powerups"):
+		if not is_instance_valid(pu): continue
+		if pu not in powerup_meshes:
+			var col = Color(0.3, 1.0, 0.5)
+			var symbol = "?"
+			var ptype = pu.powerup_type if "powerup_type" in pu else "magnet"
+			match ptype:
+				"magnet":
+					col = Color(0.3, 1.0, 0.5)
+					symbol = "M"
+				"weapon_scroll":
+					col = Color(1.0, 0.8, 0.2)
+					symbol = "W"
+				"heal":
+					col = Color(1.0, 0.3, 0.4)
+					symbol = "+"
+				"nuke":
+					col = Color(1.0, 0.5, 0.1)
+					symbol = "N"
+				"mining_boost":
+					col = Color(0.4, 0.7, 1.0)
+					symbol = "B"
+			var mr = Node3D.new()
+			var lbl = Label3D.new()
+			lbl.text = symbol
+			lbl.font_size = 64
+			lbl.modulate = col
+			lbl.outline_size = 12
+			lbl.outline_modulate = Color(0, 0, 0, 0.9)
+			lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			lbl.no_depth_test = true
+			lbl.pixel_size = 0.3
+			lbl.position.y = 10
+			mr.add_child(lbl)
+			add_child(mr)
+			powerup_meshes[pu] = mr
+			pu.visible = false
+		var bob = sin(pu.bob_offset) * 4.0 if "bob_offset" in pu else 0.0
+		powerup_meshes[pu].position = Vector3(pu.global_position.x, bob, pu.global_position.z)
 
 	# ---- Prestige Orbs (billboard) ----
 	_clean_mesh_dict(orb_meshes)
@@ -2278,14 +2326,14 @@ func _sync_aoe_rings():
 		# HQ
 		if is_instance_valid(hq_node):
 			var p = hq_node.global_position
-			sources.append(Vector4(p.x, p.y, CFG.power_range_hq, 0))
+			sources.append(Vector4(p.x, p.z, CFG.power_range_hq, 0))
 		# All power buildings
 		for b in get_tree().get_nodes_in_group("buildings"):
 			if not is_instance_valid(b): continue
 			var r = _get_energy_radius(b)
 			if r > 0 and not b.is_in_group("hq"):
 				var p = b.global_position
-				sources.append(Vector4(p.x, p.y, r, 0))
+				sources.append(Vector4(p.x, p.z, r, 0))
 			if sources.size() >= max_sources:
 				break
 		_energy_proj_mat.set_shader_parameter("source_count", sources.size())
