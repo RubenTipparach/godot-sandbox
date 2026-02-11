@@ -52,6 +52,7 @@ var build_preview_mesh: Node3D = null    # 3D ghost for build placement
 var build_preview_type: String = ""      # Current preview building type
 var aoe_meshes: Dictionary = {}          # Node3D -> MeshInstance3D (combat range rings, selected-only)
 var aoe_player_mesh: MeshInstance3D = null  # Player damage aura mesh
+var shoot_range_mesh: MeshInstance3D = null  # Player shoot range ring (on hover)
 var _aoe_shader: Shader                  # Cached dithered AoE shader (with ring_width uniform)
 # Energy grid merged-disc system (shader-based union of circles)
 var _energy_proj_mesh: MeshInstance3D     # Large ground plane with energy disc shader
@@ -718,26 +719,47 @@ func _spawn_resources():
 	var resource_scene = load("res://scenes/resource_node.tscn")
 	var rng = RandomNumberGenerator.new()
 	rng.randomize()
-	for i in range(22):
+
+	# Iron veins: 10 veins, 4-5 nodes each, closer to center
+	_spawn_veins(resource_scene, rng, "iron", 10, 4, 5, 80, 700, 30, 60, 8, 20)
+
+	# Crystal veins: 8 veins, 3-4 nodes each, further out
+	_spawn_veins(resource_scene, rng, "crystal", 8, 3, 4, 200, 900, 25, 50, 5, 15)
+
+	# Scattered singles so the map doesn't feel empty
+	for i in range(8):
 		var res = resource_scene.instantiate()
-		var a1 = rng.randf() * TAU
-		res.position = Vector3(cos(a1), 0, sin(a1)) * rng.randf_range(80, 700)
-		res.resource_type = "iron"
-		res.amount = rng.randi_range(8, 20)
+		var a = rng.randf() * TAU
+		res.position = Vector3(cos(a), 0, sin(a)) * rng.randf_range(100, 800)
+		res.resource_type = "iron" if rng.randf() < 0.6 else "crystal"
+		res.amount = rng.randi_range(4, 10)
 		res.net_id = next_net_id
 		resource_net_ids[next_net_id] = res
 		next_net_id += 1
 		resources_node.add_child(res)
-	for i in range(14):
-		var res = resource_scene.instantiate()
-		var a2 = rng.randf() * TAU
-		res.position = Vector3(cos(a2), 0, sin(a2)) * rng.randf_range(250, 900)
-		res.resource_type = "crystal"
-		res.amount = rng.randi_range(5, 15)
-		res.net_id = next_net_id
-		resource_net_ids[next_net_id] = res
-		next_net_id += 1
-		resources_node.add_child(res)
+
+
+func _spawn_veins(scene: PackedScene, rng: RandomNumberGenerator, type: String,
+		vein_count: int, min_per_vein: int, max_per_vein: int,
+		min_dist: float, max_dist: float, min_spread: float, max_spread: float,
+		min_amt: int, max_amt: int):
+	for _v in range(vein_count):
+		var angle = rng.randf() * TAU
+		var dist = rng.randf_range(min_dist, max_dist)
+		var center = Vector3(cos(angle), 0, sin(angle)) * dist
+		var count = rng.randi_range(min_per_vein, max_per_vein)
+		var spread = rng.randf_range(min_spread, max_spread)
+		for _n in range(count):
+			var res = scene.instantiate()
+			var offset_a = rng.randf() * TAU
+			var offset_d = rng.randf_range(0, spread)
+			res.position = center + Vector3(cos(offset_a), 0, sin(offset_a)) * offset_d
+			res.resource_type = type
+			res.amount = rng.randi_range(min_amt, max_amt)
+			res.net_id = next_net_id
+			resource_net_ids[next_net_id] = res
+			next_net_id += 1
+			resources_node.add_child(res)
 
 
 func _process(delta):
@@ -2409,6 +2431,28 @@ func _sync_aoe_rings():
 	else:
 		if is_instance_valid(aoe_player_mesh):
 			aoe_player_mesh.visible = false
+
+	# --- Player shoot range ring (visible when mouse hovers player) ---
+	if is_instance_valid(player_node) and player_node.has_method("get_shoot_range"):
+		var pp = player_node.global_position
+		var mouse_dist = mouse_world_2d.distance_to(pp)
+		var show_range = mouse_dist < 40.0 and not player_node.is_dead
+		if show_range:
+			var r = player_node.get_shoot_range()
+			if not is_instance_valid(shoot_range_mesh):
+				shoot_range_mesh = _create_aoe_ring(r, Color(0.9, 0.9, 0.3, 0.3), 0.08)
+				add_child(shoot_range_mesh)
+			var cur_size = shoot_range_mesh.mesh.size.x / 2.0
+			if absf(cur_size - r) > 1.0:
+				shoot_range_mesh.mesh.size = Vector2(r * 2, r * 2)
+			shoot_range_mesh.position = Vector3(pp.x, 0.15, pp.z)
+			shoot_range_mesh.visible = true
+		else:
+			if is_instance_valid(shoot_range_mesh):
+				shoot_range_mesh.visible = false
+	else:
+		if is_instance_valid(shoot_range_mesh):
+			shoot_range_mesh.visible = false
 
 
 func _sync_pylon_wires():

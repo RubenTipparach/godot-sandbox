@@ -1,6 +1,8 @@
 class_name GameConfig
 extends Resource
 
+@export var game_version: String = "dev"
+
 # =============================================================================
 # WORLD
 # =============================================================================
@@ -65,6 +67,7 @@ extends Resource
 # BULLET
 # =============================================================================
 @export_group("Bullet")
+@export var shoot_range: float = 300.0
 @export var bullet_speed: float = 450.0
 @export var bullet_lifetime: float = 2.0
 @export var bullet_hit_radius: float = 14.0
@@ -282,6 +285,7 @@ extends Resource
 @export var burn_dps_per_level: float = 4.0
 @export var slow_per_level: float = 0.15
 @export var pickup_range_per_level: float = 15.0
+@export var shoot_range_per_level: float = 40.0
 
 
 func get_base_cost(type: String) -> Dictionary:

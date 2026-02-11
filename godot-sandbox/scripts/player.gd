@@ -57,7 +57,9 @@ var upgrades = {
 	"armor": 0,
 	"crit_chance": 0,
 	"pickup_range": 0,
+	"shoot_range": 0,
 }
+
 
 var aura_timer: float = 0.0
 var orbital_angle: float = 0.0
@@ -329,6 +331,7 @@ func _shoot():
 		b.chain_retention = CFG.chain_base_retention + GameData.get_research_bonus("chain_retention")
 		b.burn_dps = upgrades["burning"] * CFG.burn_dps_per_level
 		b.slow_amount = upgrades["ice"] * CFG.slow_per_level
+		b.lifetime = minf(CFG.bullet_lifetime, get_shoot_range() / b.speed)
 		get_tree().current_scene.game_world_2d.add_child(b)
 		get_tree().current_scene.spawn_synced_bullet(b.global_position, b.direction, false, b.burn_dps, b.slow_amount)
 
@@ -417,10 +420,15 @@ func _collect_powerups():
 			p.queue_free()
 
 
+func get_shoot_range() -> float:
+	return CFG.shoot_range + upgrades["shoot_range"] * CFG.shoot_range_per_level
+
+
 func _find_nearest_alien() -> Node3D:
 	var aliens = get_tree().get_nodes_in_group("aliens")
 	var nearest: Node3D = null
-	var nearest_dist = INF
+	var max_range = get_shoot_range()
+	var nearest_dist = max_range
 	for a in aliens:
 		if not is_instance_valid(a): continue
 		var d = global_position.distance_to(a.global_position)

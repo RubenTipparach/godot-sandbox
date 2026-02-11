@@ -122,6 +122,7 @@ const UPGRADE_DATA = {
 	"armor": {"name": "Plating", "color": Color(0.5, 0.5, 0.6), "max": 5},
 	"crit_chance": {"name": "Critical Hit", "color": Color(1.0, 0.4, 0.2), "max": 5},
 	"pickup_range": {"name": "Magnetic Field", "color": Color(1.0, 0.9, 0.3), "max": 5},
+	"shoot_range": {"name": "Eagle Eye", "color": Color(0.4, 0.8, 0.6), "max": 5},
 }
 
 const BUILD_DESCRIPTIONS = {
@@ -1398,7 +1399,7 @@ func _on_debug_overlay_toggle():
 
 func _update_debug_overlay():
 	var lines: Array = []
-	lines.append("FPS: %d" % Engine.get_frames_per_second())
+	lines.append("Mining Defense %s | FPS: %d" % [CFG.game_version, Engine.get_frames_per_second()])
 	lines.append("Aliens: %d" % get_tree().get_nodes_in_group("aliens").size())
 	lines.append("Buildings: %d" % get_tree().get_nodes_in_group("buildings").size())
 	lines.append("Resources: %d" % get_tree().get_nodes_in_group("resources").size())
