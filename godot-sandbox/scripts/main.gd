@@ -39,6 +39,7 @@ var resource_meshes: Dictionary = {}    # Node3D -> Node3D
 var bullet_meshes: Dictionary = {}      # Node3D -> Node3D
 var gem_meshes: Dictionary = {}         # Node3D -> Node3D
 var powerup_meshes: Dictionary = {}     # Node3D -> Node3D
+var _powerup_textures: Dictionary = {}  # String -> ImageTexture
 var orb_meshes: Dictionary = {}         # Node3D -> Node3D
 var _mat_cache: Dictionary = {}         # String -> StandardMaterial3D
 var resource_init_amt: Dictionary = {}   # Node3D -> int (initial amount for scale calc)
@@ -710,6 +711,8 @@ void fragment() {
 	hp_bar_layer = CanvasLayer.new()
 	hp_bar_layer.layer = 1
 	add_child(hp_bar_layer)
+
+	_generate_powerup_textures()
 
 	# Step 6: Spawn resources
 	if is_instance_valid(hud_node):
@@ -1437,6 +1440,100 @@ func _vert_mat(color: Color) -> StandardMaterial3D:
 	return m
 
 
+func _generate_powerup_textures():
+	for type in ["magnet", "weapon_scroll", "heal", "nuke", "mining_boost"]:
+		_powerup_textures[type] = _make_powerup_icon(type)
+
+
+func _make_powerup_icon(type: String) -> ImageTexture:
+	var s = 64
+	var img = Image.create(s, s, false, Image.FORMAT_RGBA8)
+	var cx = s / 2.0
+	var cy = s / 2.0
+	var r = 22.0
+
+	var bg: Color
+	match type:
+		"magnet": bg = Color(0.3, 1.0, 0.5)
+		"weapon_scroll": bg = Color(1.0, 0.8, 0.2)
+		"heal": bg = Color(1.0, 0.3, 0.4)
+		"nuke": bg = Color(1.0, 0.5, 0.1)
+		"mining_boost": bg = Color(1.0, 0.8, 0.3)
+		_: bg = Color(0.5, 0.5, 0.5)
+
+	# Background circle with ring edge
+	_img_circle(img, cx, cy, r + 2, bg)
+	_img_circle(img, cx, cy, r, bg.darkened(0.3))
+
+	# Icon overlay per type
+	match type:
+		"magnet":
+			# U-shape magnet
+			for a in range(180):
+				var angle = PI + deg_to_rad(a)
+				for t in range(3):
+					var pr = 10.0 + t
+					var px = cx + cos(angle) * pr
+					var py = cy + 4 + sin(angle) * pr
+					if px >= 0 and px < s and py >= 0 and py < s:
+						img.set_pixel(int(px), int(py), Color.WHITE)
+			_img_rect(img, 20, 24, 4, 10, Color(1, 0.2, 0.2))
+			_img_rect(img, 40, 24, 4, 10, Color(0.2, 0.2, 1.0))
+		"weapon_scroll":
+			_img_rect(img, 22, 20, 20, 24, Color(0.9, 0.85, 0.7))
+			_img_rect(img, 25, 25, 14, 2, Color(0.3, 0.3, 0.3))
+			_img_rect(img, 25, 30, 14, 2, Color(0.3, 0.3, 0.3))
+			_img_rect(img, 25, 35, 10, 2, Color(0.3, 0.3, 0.3))
+		"heal":
+			_img_rect(img, 29, 20, 6, 24, Color.WHITE)
+			_img_rect(img, 20, 29, 24, 6, Color.WHITE)
+		"nuke":
+			_img_circle(img, cx, cy, 5, Color(0.1, 0.1, 0.1))
+			for i in range(3):
+				var angle = TAU * i / 3.0 - PI / 2.0
+				_img_circle(img, cx + cos(angle) * 11, cy + sin(angle) * 11, 5, Color.WHITE)
+		"mining_boost":
+			_img_line(img, 22, 42, 42, 22, Color(0.6, 0.4, 0.2), 3)
+			_img_line(img, 38, 22, 42, 26, Color(0.8, 0.8, 0.9), 3)
+			_img_line(img, 42, 22, 38, 26, Color(0.8, 0.8, 0.9), 3)
+
+	return ImageTexture.create_from_image(img)
+
+
+func _img_circle(img: Image, cx: float, cy: float, radius: float, color: Color):
+	var r2 = radius * radius
+	var y0 = maxi(0, int(cy - radius - 1))
+	var y1 = mini(img.get_height(), int(cy + radius + 2))
+	var x0 = maxi(0, int(cx - radius - 1))
+	var x1 = mini(img.get_width(), int(cx + radius + 2))
+	for y in range(y0, y1):
+		for x in range(x0, x1):
+			if (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r2:
+				img.set_pixel(x, y, color)
+
+
+func _img_rect(img: Image, x: int, y: int, w: int, h: int, color: Color):
+	for py in range(maxi(0, y), mini(img.get_height(), y + h)):
+		for px in range(maxi(0, x), mini(img.get_width(), x + w)):
+			img.set_pixel(px, py, color)
+
+
+func _img_line(img: Image, x0: int, y0: int, x1: int, y1: int, color: Color, width: int = 1):
+	var steps = maxi(absi(x1 - x0), absi(y1 - y0))
+	if steps == 0: return
+	var hw = width / 2
+	for i in range(steps + 1):
+		var t = float(i) / float(steps)
+		var px = int(lerpf(float(x0), float(x1), t))
+		var py = int(lerpf(float(y0), float(y1), t))
+		for wy in range(-hw, hw + 1):
+			for wx in range(-hw, hw + 1):
+				var fx = px + wx
+				var fy = py + wy
+				if fx >= 0 and fx < img.get_width() and fy >= 0 and fy < img.get_height():
+					img.set_pixel(fx, fy, color)
+
+
 func _bb_mat(color: Color) -> StandardMaterial3D:
 	var key = "bb_" + color.to_html()
 	if _mat_cache.has(key): return _mat_cache[key]
@@ -2126,42 +2223,23 @@ func _sync_3d_meshes():
 			g.visible = false
 		gem_meshes[g].position = Vector3(g.global_position.x, 0, g.global_position.z)
 
-	# ---- Powerups (3D Label3D billboard) ----
+	# ---- Powerups (3D Sprite3D billboard with icons) ----
 	_clean_mesh_dict(powerup_meshes)
 	for pu in get_tree().get_nodes_in_group("powerups"):
 		if not is_instance_valid(pu): continue
 		if pu not in powerup_meshes:
-			var col = Color(0.3, 1.0, 0.5)
-			var symbol = "?"
 			var ptype = pu.powerup_type if "powerup_type" in pu else "magnet"
-			match ptype:
-				"magnet":
-					col = Color(0.3, 1.0, 0.5)
-					symbol = "M"
-				"weapon_scroll":
-					col = Color(1.0, 0.8, 0.2)
-					symbol = "W"
-				"heal":
-					col = Color(1.0, 0.3, 0.4)
-					symbol = "+"
-				"nuke":
-					col = Color(1.0, 0.5, 0.1)
-					symbol = "N"
-				"mining_boost":
-					col = Color(0.4, 0.7, 1.0)
-					symbol = "B"
+			var tex = _powerup_textures.get(ptype)
 			var mr = Node3D.new()
-			var lbl = Label3D.new()
-			lbl.text = symbol
-			lbl.font_size = 64
-			lbl.modulate = col
-			lbl.outline_size = 12
-			lbl.outline_modulate = Color(0, 0, 0, 0.9)
-			lbl.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-			lbl.no_depth_test = true
-			lbl.pixel_size = 0.3
-			lbl.position.y = 10
-			mr.add_child(lbl)
+			var spr = Sprite3D.new()
+			spr.texture = tex
+			spr.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			spr.no_depth_test = true
+			spr.shaded = false
+			spr.transparent = true
+			spr.pixel_size = 0.5
+			spr.position.y = 10
+			mr.add_child(spr)
 			add_child(mr)
 			powerup_meshes[pu] = mr
 			pu.visible = false
