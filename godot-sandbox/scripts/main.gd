@@ -249,9 +249,12 @@ func _init_game_world():
 	# Creates all gameplay objects, pools, shaders, etc. with loading progress.
 
 	# Detect mobile platform for rendering optimizations
+	# Web builds use GL Compatibility renderer, so they need the mobile shader path too
 	if is_instance_valid(hud_node) and "is_mobile" in hud_node:
 		_is_mobile = hud_node.is_mobile
-	elif OS.has_feature("mobile") or DisplayServer.is_touchscreen_available():
+	if not _is_mobile and (OS.has_feature("mobile") or DisplayServer.is_touchscreen_available()):
+		_is_mobile = true
+	if not _is_mobile and OS.has_feature("web"):
 		_is_mobile = true
 
 	# Step 1: Lighting & ground
@@ -361,7 +364,11 @@ func _init_game_world():
 	game_sprite.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 	game_sprite.shaded = false
 	game_sprite.transparent = true
-	game_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_OPAQUE_PREPASS
+	# ALPHA_CUT_OPAQUE_PREPASS requires depth prepass (not available on GL Compatibility)
+	if _is_mobile:
+		game_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
+	else:
+		game_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_OPAQUE_PREPASS
 	add_child(game_sprite)
 
 	# Step 3: Compile shaders
