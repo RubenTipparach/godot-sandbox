@@ -1,0 +1,29 @@
+[gd_scene format=3 uid="uid://dvmlfavda273n"]
+
+[ext_resource type="PackedScene" uid="uid://rplhu7lpknyn" path="res://resources/models/cross_lander.glb" id="1"]
+
+[node name="PlayerShip" type="Node3D" unique_id=1593469570]
+
+[node name="Model" parent="." unique_id=1381847474 instance=ExtResource("1")]
+transform = Transform3D(5, 0, 0, 0, 5, 0, 0, 0, 5, 0, 50, 0)
+
+[node name="SpotLight3D" type="SpotLight3D" parent="." unique_id=1800258020]
+transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 133.16992, 0)
+spot_range = 153.157
+spot_attenuation = -0.1
+spot_angle = 36.9
+
+[node name="SpotLight3D2" type="SpotLight3D" parent="." unique_id=19703345]
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, -114, 38.16992, -2)
+spot_range = 153.157
+spot_attenuation = -0.1
+spot_angle = 36.9
+
+[node name="SpotLight3D3" type="SpotLight3D" parent="." unique_id=2129442703]
+transform = Transform3D(4.3711385e-08, -8.940697e-08, 1, -1.7147615e-15, -1, -8.940697e-08, 1, 2.193341e-15, -4.3711385e-08, 108, 38.16992, -2)
+spot_range = 153.157
+spot_attenuation = -0.1
+spot_angle = 36.9
+
+[node name="LaserOrigin" type="Marker3D" parent="." unique_id=1330647160]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 41, 0)

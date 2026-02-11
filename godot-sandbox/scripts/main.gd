@@ -1001,7 +1001,7 @@ func _sync_3d_lights():
 		if "mine_targets" in p:
 			for target in p.mine_targets:
 				if not is_instance_valid(target): continue
-				active_targets[target] = ppos
+				active_targets[target] = p
 		# Remote player: resolve synced positions to nearest resource node
 		if "remote_mine_positions" in p and p.remote_mine_positions.size() > 0 and (not "is_local" in p or not p.is_local):
 			var mt_arr = p.remote_mine_positions
@@ -1017,11 +1017,12 @@ func _sync_3d_lights():
 						best_d = d
 						best_r = r
 				if best_r and best_r not in active_targets:
-					active_targets[best_r] = ppos
+					active_targets[best_r] = p
 	# Render beams for all active targets
 	for target in active_targets:
 		if not is_instance_valid(target): continue
-		var ppos = active_targets[target]
+		var p_node = active_targets[target]
+		var ppos = p_node.global_position
 		var tpos = target.global_position
 		var lc = Color(1.0, 0.8, 0.3)
 		if "resource_type" in target and target.resource_type == "crystal":
@@ -1030,7 +1031,13 @@ func _sync_3d_lights():
 		var t_sz = 10.0 + t_amt * 0.5
 		var t_rtype = target.resource_type if "resource_type" in target else "iron"
 		var t_center_y = t_sz * 0.3 if t_rtype == "iron" else t_sz * 0.5
-		var start = Vector3(ppos.x, 8, ppos.y)
+		var laser_y = 8.0
+		var pmesh = player_meshes.get(p_node)
+		if pmesh:
+			var marker = pmesh.get_node_or_null("Body/PlayerShip/LaserOrigin")
+			if marker:
+				laser_y = marker.global_position.y
+		var start = Vector3(ppos.x, laser_y, ppos.y)
 		var raw_end = Vector3(tpos.x, t_center_y, tpos.y)
 		var to_player = start - raw_end
 		var to_len = to_player.length()
@@ -1668,17 +1675,9 @@ func _create_player_mesh(col: Color) -> Node3D:
 	var root = Node3D.new()
 	var body = Node3D.new()
 	body.name = "Body"
-	var mi = MeshInstance3D.new()
-	var pm = PrismMesh.new()
-	pm.size = Vector3(12, 18, 10)
-	pm.left_to_right = 0.5
-	mi.mesh = pm
-	var pmat = _unlit_mat(col).duplicate()
-	pmat.next_pass = _dither_occlude_mat
-	mi.material_override = pmat
-	mi.rotation.x = -PI / 2
-	mi.position.y = 5
-	body.add_child(mi)
+	var ship_scene = load("res://scenes/player_ship.tscn")
+	var ship = ship_scene.instantiate()
+	body.add_child(ship)
 	root.add_child(body)
 	return root
 
