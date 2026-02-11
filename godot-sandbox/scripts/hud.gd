@@ -1393,6 +1393,7 @@ func _on_debug_toggle():
 
 func _on_debug_overlay_toggle():
 	debug_overlay.visible = not debug_overlay.visible
+	WebDebug.set_visible(debug_overlay.visible)
 
 
 func _update_debug_overlay():
