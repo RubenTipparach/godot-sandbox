@@ -23,6 +23,7 @@ func _ready():
 	_label.add_theme_font_size_override("font_size", 14)
 	_label.add_theme_color_override("font_color", Color.YELLOW)
 	_label.text = ""
+	_label.visible = false
 	layer.add_child(_label)
 	log_msg("=== Web Debug Overlay ===")
 	log_msg("OS: %s" % OS.get_name())
@@ -62,6 +63,11 @@ func _process(delta):
 			log_msg("Main children: %s" % str(child_names))
 		else:
 			log_msg("ERROR: Still no main scene at 5s!")
+
+
+func set_visible(vis: bool):
+	if _label:
+		_label.visible = vis
 
 
 func log_msg(msg: String):
