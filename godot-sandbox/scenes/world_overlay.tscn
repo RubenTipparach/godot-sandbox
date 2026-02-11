@@ -2,5 +2,5 @@
 
 [ext_resource type="Script" path="res://scripts/world_overlay.gd" id="1"]
 
-[node name="WorldOverlay" type="Node2D"]
+[node name="WorldOverlay" type="Node3D"]
 script = ExtResource("1")

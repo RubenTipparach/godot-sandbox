@@ -6,27 +6,25 @@ var CFG = load("res://resources/game_config.tres")
 var camera_3d: Camera3D
 var _ground_mesh: MeshInstance3D
 var _dir_light: DirectionalLight3D
-var game_viewport: SubViewport
-var game_sprite: Sprite3D
-var game_world_2d: Node2D
-var world_overlay: Node2D
-var mouse_world_2d: Vector2 = Vector2.ZERO
+var game_world_2d: Node3D
+var mouse_world_2d: Vector3 = Vector3.ZERO
 
 # 3D light tracking (OmniLight3D)
-var building_lights: Dictionary = {}   # Node2D -> OmniLight3D
-var player_lights: Dictionary = {}     # Node2D -> OmniLight3D
-var alien_lights: Dictionary = {}      # Node2D -> OmniLight3D
-var resource_lights: Dictionary = {}   # Node2D -> OmniLight3D
+var building_lights: Dictionary = {}   # Node3D -> OmniLight3D
+var player_lights: Dictionary = {}     # Node3D -> OmniLight3D
+var alien_lights: Dictionary = {}      # Node3D -> OmniLight3D
+var resource_lights: Dictionary = {}   # Node3D -> OmniLight3D
 var mining_laser_beams: Dictionary = {} # target -> pool entry dict
 var _laser_pool: Array = []              # Pre-created beam objects (grabbed on demand)
 const LASER_POOL_SIZE = 12
 var repair_beam_active: Dictionary = {} # "drone_id:target_id" -> pool entry dict
+var player_repair_beams: Dictionary = {} # target -> pool entry dict
 # Lightning bolt pool
 var _lightning_pool: Array = []
 const LIGHTNING_POOL_SIZE = 16
 var lightning_beam_active: Dictionary = {} # building -> Array of pool entries
 # Acid puddle 3D
-var puddle_meshes: Dictionary = {}      # Node2D -> MeshInstance3D
+var puddle_meshes: Dictionary = {}      # Node3D -> MeshInstance3D
 # Pylon wire 3D
 var wire_meshes: Dictionary = {}        # String (pair key) -> MeshInstance3D
 var _wire_mat_powered: StandardMaterial3D
@@ -34,24 +32,24 @@ var _wire_mat_unpowered: StandardMaterial3D
 # HQ light
 var hq_light_3d: OmniLight3D
 # 3D mesh representations (replaces SubViewport mirrors)
-var building_meshes: Dictionary = {}    # Node2D -> Node3D
-var player_meshes: Dictionary = {}      # Node2D -> Node3D
-var alien_meshes: Dictionary = {}       # Node2D -> Node3D
-var resource_meshes: Dictionary = {}    # Node2D -> Node3D
-var bullet_meshes: Dictionary = {}      # Node2D -> Node3D
-var gem_meshes: Dictionary = {}         # Node2D -> Node3D
-var powerup_meshes: Dictionary = {}     # Node2D -> Node3D
-var orb_meshes: Dictionary = {}         # Node2D -> Node3D
+var building_meshes: Dictionary = {}    # Node3D -> Node3D
+var player_meshes: Dictionary = {}      # Node3D -> Node3D
+var alien_meshes: Dictionary = {}       # Node3D -> Node3D
+var resource_meshes: Dictionary = {}    # Node3D -> Node3D
+var bullet_meshes: Dictionary = {}      # Node3D -> Node3D
+var gem_meshes: Dictionary = {}         # Node3D -> Node3D
+var powerup_meshes: Dictionary = {}     # Node3D -> Node3D
+var orb_meshes: Dictionary = {}         # Node3D -> Node3D
 var _mat_cache: Dictionary = {}         # String -> StandardMaterial3D
-var resource_init_amt: Dictionary = {}   # Node2D -> int (initial amount for scale calc)
+var resource_init_amt: Dictionary = {}   # Node3D -> int (initial amount for scale calc)
 var _laser_shader: Shader                # Cached laser beam shader
 var _crystal_shader: Shader              # Cached crystal shader
 var _iron_material: StandardMaterial3D   # Cached iron PBR material
 var hp_bar_layer: CanvasLayer            # Screen-space HP bar overlay
-var hp_bar_nodes: Dictionary = {}        # Node2D -> Control (HP bar UI)
+var hp_bar_nodes: Dictionary = {}        # Node3D -> Control (HP bar UI)
 var build_preview_mesh: Node3D = null    # 3D ghost for build placement
 var build_preview_type: String = ""      # Current preview building type
-var aoe_meshes: Dictionary = {}          # Node2D -> MeshInstance3D (combat range rings, selected-only)
+var aoe_meshes: Dictionary = {}          # Node3D -> MeshInstance3D (combat range rings, selected-only)
 var aoe_player_mesh: MeshInstance3D = null  # Player damage aura mesh
 var _aoe_shader: Shader                  # Cached dithered AoE shader (with ring_width uniform)
 # Energy grid merged-disc system (shader-based union of circles)
@@ -80,15 +78,17 @@ var upgrade_cooldown: float = 0.0
 var bosses_killed: int = 0
 var starting_wave: int = 1
 var next_wave_direction: float = 0.0  # Angle for next wave spawn
-var players: Dictionary = {}  # peer_id -> Node2D
+var players: Dictionary = {}  # peer_id -> Node3D
 var state_sync_timer: float = 0.0
 const STATE_SYNC_INTERVAL: float = 0.05  # 20Hz
 var next_net_id: int = 1
-var alien_net_ids: Dictionary = {}  # net_id -> Node2D
-var resource_net_ids: Dictionary = {}  # net_id -> Node2D
+var alien_net_ids: Dictionary = {}  # net_id -> Node3D
+var resource_net_ids: Dictionary = {}  # net_id -> Node3D
 var player_names: Dictionary = {}  # peer_id -> String
 var run_prestige: int = 0  # Prestige collected this run (host-authoritative)
 var _client_own_research: Dictionary = {}  # Client's own research, saved before host override
+var _waiting_for_clients: bool = false
+var clients_ready: Dictionary = {}  # peer_id -> bool
 
 # Upgrade voting (multiplayer)
 var vote_active: bool = false
@@ -182,13 +182,13 @@ func get_factory_rates() -> Dictionary:
 	return {"iron": iron_per_sec, "crystal": crystal_per_sec}
 
 
-var player_node: Node2D
-var buildings_node: Node2D
-var aliens_node: Node2D
-var resources_node: Node2D
-var powerups_node: Node2D
+var player_node: Node3D
+var buildings_node: Node3D
+var aliens_node: Node3D
+var resources_node: Node3D
+var powerups_node: Node3D
 var hud_node: CanvasLayer
-var hq_node: Node2D
+var hq_node: Node3D
 
 
 func _debug_log(msg: String):
@@ -286,9 +286,14 @@ func _init_game_world():
 	plane_mesh.subdivide_depth = 60
 	ground.mesh = plane_mesh
 	var mat = StandardMaterial3D.new()
-	mat.albedo_texture = load("res://resources/dirt_grass.png")
-	mat.uv1_scale = Vector3(60, 60, 1)
-	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	var ground_tex = load("res://resources/dirt_grass.png")
+	if ground_tex:
+		mat.albedo_texture = ground_tex
+		mat.uv1_scale = Vector3(60, 60, 1)
+		mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
+	else:
+		# Fallback for mobile/web where S3TC texture may not load
+		mat.albedo_color = Color(0.35, 0.45, 0.25)
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
 	mat.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT
 	ground.material_override = mat
@@ -299,44 +304,29 @@ func _init_game_world():
 		hud_node.show_loading("Setting up entities...", 0.15)
 	await get_tree().process_frame
 
-	game_viewport = SubViewport.new()
-	game_viewport.transparent_bg = true
-	game_viewport.size = Vector2i(2048, 2048)
-	game_viewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
-	game_viewport.canvas_transform = Transform2D(0, Vector2(1024, 1024))
-	add_child(game_viewport)
-
-	# World overlay (map boundary + selection highlight)
-	world_overlay = load("res://scenes/world_overlay.tscn").instantiate()
-	game_viewport.add_child(world_overlay)
-
-	# Y-sorted container for all game entities
-	game_world_2d = Node2D.new()
+	# Container for all game entities (direct child, no SubViewport)
+	game_world_2d = Node3D.new()
 	game_world_2d.name = "GameWorld"
-	game_world_2d.y_sort_enabled = true
 	game_world_2d.process_mode = Node.PROCESS_MODE_PAUSABLE
-	game_viewport.add_child(game_world_2d)
+	add_child(game_world_2d)
 
-	resources_node = Node2D.new()
+	resources_node = Node3D.new()
 	resources_node.name = "Resources"
-	resources_node.y_sort_enabled = true
 	game_world_2d.add_child(resources_node)
 
-	powerups_node = Node2D.new()
+	powerups_node = Node3D.new()
 	powerups_node.name = "Powerups"
-	powerups_node.y_sort_enabled = true
 	game_world_2d.add_child(powerups_node)
 
-	buildings_node = Node2D.new()
+	buildings_node = Node3D.new()
 	buildings_node.name = "Buildings"
-	buildings_node.y_sort_enabled = true
 	game_world_2d.add_child(buildings_node)
 
 	# Spawn HQ at center - if destroyed, game over
 	hq_node = load("res://scenes/hq.tscn").instantiate()
-	hq_node.global_position = Vector2.ZERO
+	hq_node.global_position = Vector3.ZERO
 	hq_node.destroyed.connect(_on_hq_destroyed)
-	hq_node.visible = false  # Hidden in 2D viewport; 3D standing sprite handles visuals
+	hq_node.visible = false  # Hidden; 3D standing sprite handles visuals
 	buildings_node.add_child(hq_node)
 
 	# HQ pointlight — illuminates surroundings
@@ -357,22 +347,47 @@ func _init_game_world():
 	player_node.level_up.connect(_on_player_level_up)
 	players[1] = player_node
 
-	aliens_node = Node2D.new()
+	aliens_node = Node3D.new()
 	aliens_node.name = "Aliens"
-	aliens_node.y_sort_enabled = true
 	game_world_2d.add_child(aliens_node)
 
-	# Sprite3D to display SubViewport on ground plane
-	game_sprite = Sprite3D.new()
-	game_sprite.texture = game_viewport.get_texture()
-	game_sprite.pixel_size = 1.0
-	game_sprite.rotation_degrees = Vector3(-90, 0, 0)
-	game_sprite.position = Vector3(0, 0.1, 0)
-	game_sprite.billboard = BaseMaterial3D.BILLBOARD_DISABLED
-	game_sprite.shaded = false
-	game_sprite.transparent = true
-	game_sprite.alpha_cut = SpriteBase3D.ALPHA_CUT_OPAQUE_PREPASS
-	add_child(game_sprite)
+	# 3D map boundary lines (replaces 2D world_overlay)
+	var hs = CFG.map_half_size
+	var boundary_y = 0.12
+	var boundary_color = Color(1, 0.3, 0.2, 0.8)
+	var boundary_mat = StandardMaterial3D.new()
+	boundary_mat.albedo_color = boundary_color
+	boundary_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	boundary_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	var line_thickness = 1.5
+	# Top edge
+	var top_line = MeshInstance3D.new()
+	var top_box = BoxMesh.new()
+	top_box.size = Vector3(hs * 2, 0.1, line_thickness)
+	top_line.mesh = top_box
+	top_line.material_override = boundary_mat
+	top_line.position = Vector3(0, boundary_y, -hs)
+	add_child(top_line)
+	# Bottom edge
+	var bot_line = MeshInstance3D.new()
+	bot_line.mesh = top_box
+	bot_line.material_override = boundary_mat
+	bot_line.position = Vector3(0, boundary_y, hs)
+	add_child(bot_line)
+	# Left edge
+	var left_line = MeshInstance3D.new()
+	var side_box = BoxMesh.new()
+	side_box.size = Vector3(line_thickness, 0.1, hs * 2)
+	left_line.mesh = side_box
+	left_line.material_override = boundary_mat
+	left_line.position = Vector3(-hs, boundary_y, 0)
+	add_child(left_line)
+	# Right edge
+	var right_line = MeshInstance3D.new()
+	right_line.mesh = side_box
+	right_line.material_override = boundary_mat
+	right_line.position = Vector3(hs, boundary_y, 0)
+	add_child(right_line)
 
 	# Step 3: Compile shaders
 	if is_instance_valid(hud_node):
@@ -707,7 +722,8 @@ func _spawn_resources():
 	rng.randomize()
 	for i in range(22):
 		var res = resource_scene.instantiate()
-		res.position = Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(80, 700)
+		var a1 = rng.randf() * TAU
+		res.position = Vector3(cos(a1), 0, sin(a1)) * rng.randf_range(80, 700)
 		res.resource_type = "iron"
 		res.amount = rng.randi_range(8, 20)
 		res.net_id = next_net_id
@@ -716,7 +732,8 @@ func _spawn_resources():
 		resources_node.add_child(res)
 	for i in range(14):
 		var res = resource_scene.instantiate()
-		res.position = Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(250, 900)
+		var a2 = rng.randf() * TAU
+		res.position = Vector3(cos(a2), 0, sin(a2)) * rng.randf_range(250, 900)
 		res.resource_type = "crystal"
 		res.amount = rng.randi_range(5, 15)
 		res.net_id = next_net_id
@@ -731,6 +748,10 @@ func _process(delta):
 
 	# Before game world is created, nothing to process
 	if not world_visible:
+		return
+
+	# Host waiting for all clients to finish loading
+	if _waiting_for_clients:
 		return
 
 	# When paused (during voting), do network sync + 3D rendering but skip game logic
@@ -813,17 +834,13 @@ func _process(delta):
 			hud_node.respawn_countdown = respawn_timers.get(player_node.peer_id, 0.0)
 		hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank, run_prestige)
 
-	# Sync world overlay with HUD selection state
-	if is_instance_valid(world_overlay) and is_instance_valid(hud_node):
-		world_overlay.selected_building = hud_node.selected_building
-
 	# Update mouse world position from 3D camera raycast
 	_update_mouse_world()
 
 	# Update 3D camera to follow player (position only, fixed angle)
 	if is_instance_valid(camera_3d) and is_instance_valid(player_node):
 		var p2d = player_node.global_position
-		var cam_target = Vector3(p2d.x, 0, p2d.y)
+		var cam_target = Vector3(p2d.x, 0, p2d.z)
 		var cam_offset = Vector3(0, 600, 350)
 		camera_3d.position = camera_3d.position.lerp(cam_target + cam_offset, 8.0 * delta)
 
@@ -851,7 +868,7 @@ func _process(delta):
 	# Sync HQ light position
 	if is_instance_valid(hq_node) and is_instance_valid(hq_light_3d):
 		var hpos = hq_node.global_position
-		hq_light_3d.position = Vector3(hpos.x, 50, hpos.y)
+		hq_light_3d.position = Vector3(hpos.x, 50, hpos.z)
 
 
 func _regenerate_resources():
@@ -866,7 +883,8 @@ func _regenerate_resources():
 	var spawn_count = mini(5 + wave_number / 2, max_res - current)
 	for i in range(spawn_count):
 		var res = resource_scene.instantiate()
-		res.position = Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(100, CFG.map_half_size * 0.85)
+		var a3 = rng.randf() * TAU
+		res.position = Vector3(cos(a3), 0, sin(a3)) * rng.randf_range(100, CFG.map_half_size * 0.85)
 		res.resource_type = "iron" if rng.randf() < 0.6 else "crystal"
 		res.amount = rng.randi_range(5 + wave_number, 15 + wave_number * 2)
 		res.net_id = next_net_id
@@ -882,7 +900,8 @@ func _spawn_powerup():
 	var powerup = load("res://scenes/powerup.tscn").instantiate()
 	var rng = RandomNumberGenerator.new()
 	rng.randomize()
-	powerup.position = Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(150, CFG.map_half_size * 0.8)
+	var a4 = rng.randf() * TAU
+	powerup.position = Vector3(cos(a4), 0, sin(a4)) * rng.randf_range(150, CFG.map_half_size * 0.8)
 	var types = ["magnet", "weapon_scroll", "heal", "nuke", "mining_boost"]
 	powerup.powerup_type = types[rng.randi() % types.size()]
 	powerups_node.add_child(powerup)
@@ -898,12 +917,12 @@ func _update_mouse_world():
 		var t = -from.y / dir.y
 		if t > 0:
 			var hit = from + dir * t
-			mouse_world_2d = Vector2(hit.x, hit.z)
+			mouse_world_2d = Vector3(hit.x, 0, hit.z)
 
 
-func world_to_screen(world_2d: Vector2) -> Vector2:
+func world_to_screen(world_pos: Vector3) -> Vector2:
 	if is_instance_valid(camera_3d):
-		return camera_3d.unproject_position(Vector3(world_2d.x, 0, world_2d.y))
+		return camera_3d.unproject_position(world_pos)
 	return Vector2.ZERO
 
 
@@ -931,7 +950,7 @@ func _sync_3d_lights():
 		if not is_instance_valid(b): continue
 		if b.is_in_group("hq"): continue
 		var bcolor = _get_building_light_color(b)
-		var pos3d = Vector3(b.global_position.x, 10, b.global_position.y)
+		var pos3d = Vector3(b.global_position.x, 10, b.global_position.z)
 		if b not in building_lights:
 			var light = OmniLight3D.new()
 			light.light_energy = CFG.building_light_energy
@@ -956,7 +975,7 @@ func _sync_3d_lights():
 	for p in get_tree().get_nodes_in_group("player"):
 		if not is_instance_valid(p): continue
 		var pcolor = p.player_color if "player_color" in p else Color(0.2, 0.9, 0.3)
-		var pos3d = Vector3(p.global_position.x, 12, p.global_position.y)
+		var pos3d = Vector3(p.global_position.x, 12, p.global_position.z)
 		if p not in player_lights:
 			var light = OmniLight3D.new()
 			light.light_energy = CFG.player_light_energy
@@ -972,7 +991,7 @@ func _sync_3d_lights():
 	for a in get_tree().get_nodes_in_group("aliens"):
 		if not is_instance_valid(a): continue
 		var is_boss = a.is_in_group("bosses")
-		var pos3d = Vector3(a.global_position.x, 30 if is_boss else 8, a.global_position.y)
+		var pos3d = Vector3(a.global_position.x, 30 if is_boss else 8, a.global_position.z)
 		if a not in alien_lights:
 			var light = OmniLight3D.new()
 			light.light_energy = 0.6
@@ -994,7 +1013,7 @@ func _sync_3d_lights():
 	for r in get_tree().get_nodes_in_group("resources"):
 		if not is_instance_valid(r): continue
 		var rtype = r.resource_type if "resource_type" in r else "iron"
-		var rpos = Vector3(r.global_position.x, 15, r.global_position.y)
+		var rpos = Vector3(r.global_position.x, 15, r.global_position.z)
 		if r not in resource_lights:
 			var light = OmniLight3D.new()
 			if rtype == "crystal":
@@ -1025,7 +1044,7 @@ func _sync_3d_lights():
 		if "remote_mine_positions" in p and p.remote_mine_positions.size() > 0 and (not "is_local" in p or not p.is_local):
 			var mt_arr = p.remote_mine_positions
 			for mi_idx in range(0, mt_arr.size(), 2):
-				var tpos2 = Vector2(mt_arr[mi_idx], mt_arr[mi_idx + 1])
+				var tpos2 = Vector3(mt_arr[mi_idx], 0, mt_arr[mi_idx + 1])
 				# Find closest resource to this position
 				var best_r = null
 				var best_d = 20.0  # Max match distance
@@ -1049,8 +1068,8 @@ func _sync_3d_lights():
 		var t_sz = 10.0 + t_amt * 0.5
 		var t_rtype = target.resource_type if "resource_type" in target else "iron"
 		var t_center_y = t_sz * 0.3 if t_rtype == "iron" else t_sz * 0.5
-		var start = Vector3(ppos.x, 8, ppos.y)
-		var raw_end = Vector3(tpos.x, t_center_y, tpos.y)
+		var start = Vector3(ppos.x, 8, ppos.z)
+		var raw_end = Vector3(tpos.x, t_center_y, tpos.z)
 		var to_player = start - raw_end
 		var to_len = to_player.length()
 		var surface_offset = minf(t_sz * 0.4, to_len * 0.5)
@@ -1069,7 +1088,7 @@ func _sync_3d_lights():
 		if target in mining_laser_beams:
 			# UPDATE existing — just set transforms (no allocation)
 			var e = mining_laser_beams[target]
-			e["light"].position = Vector3(tpos.x, 6, tpos.y)
+			e["light"].position = Vector3(tpos.x, 6, tpos.z)
 			e["outer_mi"].global_transform = Transform3D(scaled_basis, mid)
 			e["inner_mi"].global_transform = Transform3D(scaled_basis, mid)
 			e["sparks"].global_position = end_pt
@@ -1078,7 +1097,7 @@ func _sync_3d_lights():
 			# ACTIVATE a pool entry (no node creation, just show + set uniforms)
 			var e = _acquire_laser_beam()
 			e["light"].light_color = lc
-			e["light"].position = Vector3(tpos.x, 6, tpos.y)
+			e["light"].position = Vector3(tpos.x, 6, tpos.z)
 			e["light"].visible = true
 			e["outer_mat"].set_shader_parameter("beam_color", Color(lc.r, lc.g, lc.b, 0.6))
 			e["outer_mat"].set_shader_parameter("time_offset", tpos.x * 0.01)
@@ -1102,6 +1121,62 @@ func _sync_3d_lights():
 			e["active"] = false
 			mining_laser_beams.erase(key)
 
+	# --- Player repair beams (green, reuse laser pool) ---
+	var active_player_repair: Dictionary = {}
+	for p in get_tree().get_nodes_in_group("player"):
+		if not is_instance_valid(p): continue
+		if not "repair_targets" in p: continue
+		var ppos = p.global_position
+		for target in p.repair_targets:
+			if not is_instance_valid(target): continue
+			active_player_repair[target] = true
+			var tpos = target.global_position
+			var start = Vector3(ppos.x, 8, ppos.z)
+			var end_pt = Vector3(tpos.x, 10, tpos.z)
+			var dist3 = start.distance_to(end_pt)
+			if dist3 < 0.1: continue
+			var mid3 = (start + end_pt) / 2.0
+			var dir3 = (end_pt - start).normalized()
+			var side3: Vector3
+			if abs(dir3.dot(Vector3.UP)) < 0.999:
+				side3 = dir3.cross(Vector3.UP).normalized()
+			else:
+				side3 = dir3.cross(Vector3.FORWARD).normalized()
+			var fwd3 = side3.cross(dir3).normalized()
+			var scaled_basis3 = Basis(side3, dir3 * dist3, fwd3)
+			if target in player_repair_beams:
+				var re = player_repair_beams[target]
+				re["light"].position = end_pt
+				re["outer_mi"].global_transform = Transform3D(scaled_basis3, mid3)
+				re["inner_mi"].global_transform = Transform3D(scaled_basis3, mid3)
+				re["sparks"].global_position = end_pt
+			else:
+				var re = _acquire_laser_beam()
+				var gc = Color(0.3, 1.0, 0.5)
+				re["light"].light_color = gc
+				re["light"].position = end_pt
+				re["light"].visible = true
+				re["outer_mat"].set_shader_parameter("beam_color", Color(gc.r, gc.g, gc.b, 0.5))
+				re["outer_mat"].set_shader_parameter("time_offset", tpos.x * 0.01)
+				re["inner_mat"].set_shader_parameter("beam_color", Color(1, 1, 1, 0.8))
+				re["inner_mat"].set_shader_parameter("time_offset", tpos.x * 0.01 + 0.5)
+				re["outer_mi"].global_transform = Transform3D(scaled_basis3, mid3)
+				re["inner_mi"].global_transform = Transform3D(scaled_basis3, mid3)
+				re["spark_mat"].color = gc
+				re["sparks"].global_position = end_pt
+				re["sparks"].emitting = true
+				re["group"].visible = true
+				re["active"] = true
+				player_repair_beams[target] = re
+	for key in player_repair_beams.keys():
+		if key not in active_player_repair or not is_instance_valid(key):
+			var re = player_repair_beams[key]
+			re["light"].visible = false
+			re["group"].visible = false
+			re["sparks"].emitting = false
+			re["active"] = false
+			player_repair_beams.erase(key)
+
 	# --- Repair drone beams (green, reuse laser pool) ---
 	var active_repair_keys: Dictionary = {}
 	for b in get_tree().get_nodes_in_group("repair_drones"):
@@ -1113,14 +1188,14 @@ func _sync_3d_lights():
 		var drone_node = mr.get_node_or_null("Drone")
 		if not drone_node: continue
 		var bpos = b.global_position
-		var drone_world = Vector3(bpos.x, 0, bpos.y) + drone_node.position
+		var drone_world = Vector3(bpos.x, 0, bpos.z) + drone_node.position
 		for target in b.repair_targets:
 			if not is_instance_valid(target): continue
 			var rkey = str(b.get_instance_id()) + ":" + str(target.get_instance_id())
 			active_repair_keys[rkey] = true
 			var tpos = target.global_position
 			var start = drone_world
-			var end_pt = Vector3(tpos.x, 10, tpos.y)
+			var end_pt = Vector3(tpos.x, 10, tpos.z)
 			var dist2 = start.distance_to(end_pt)
 			if dist2 < 0.1: continue
 			var mid2 = (start + end_pt) / 2.0
@@ -1180,9 +1255,9 @@ func _sync_3d_lights():
 		var bolt_entries: Array = []
 		for target_offset in b.zap_targets:
 			var le = _acquire_lightning_bolt()
-			var bolt_start = Vector3(bpos.x, 32, bpos.y)
+			var bolt_start = Vector3(bpos.x, 32, bpos.z)
 			var tpos2 = bpos + target_offset
-			var bolt_end = Vector3(tpos2.x, 8, tpos2.y)
+			var bolt_end = Vector3(tpos2.x, 8, tpos2.z)
 			var bolt_dist = bolt_start.distance_to(bolt_end)
 			if bolt_dist < 0.1: continue
 			var bolt_mid = (bolt_start + bolt_end) / 2.0
@@ -1321,7 +1396,7 @@ func _acquire_lightning_bolt() -> Dictionary:
 	return le
 
 
-func _get_building_light_color(building: Node2D) -> Color:
+func _get_building_light_color(building: Node3D) -> Color:
 	if building.has_method("get_building_name"):
 		match building.get_building_name():
 			"Turret": return Color(0.4, 0.6, 1.0)
@@ -1526,6 +1601,11 @@ func _create_hp_bar_ui() -> Control:
 func _sync_hp_bars():
 	if not is_instance_valid(camera_3d) or not is_instance_valid(hp_bar_layer):
 		return
+	# Hide HP bars when game is paused (so they don't draw over pause/upgrade menus)
+	if get_tree().paused:
+		hp_bar_layer.visible = false
+		return
+	hp_bar_layer.visible = true
 	# Collect all entities that should have HP bars: buildings + players + aliens
 	var entities: Array = []
 	for b in get_tree().get_nodes_in_group("buildings"):
@@ -1555,7 +1635,7 @@ func _sync_hp_bars():
 			hp_bar_nodes[node] = new_bar
 		var bar = hp_bar_nodes[node]
 		var pos2d = node.global_position
-		var world_pos = Vector3(pos2d.x, e["y_offset"], pos2d.y)
+		var world_pos = Vector3(pos2d.x, e["y_offset"], pos2d.z)
 		if camera_3d.is_position_behind(world_pos):
 			bar.visible = false
 			continue
@@ -1702,7 +1782,7 @@ func _create_player_mesh(col: Color) -> Node3D:
 	return root
 
 
-func _create_alien_mesh(a: Node2D) -> Node3D:
+func _create_alien_mesh(a: Node3D) -> Node3D:
 	var root = Node3D.new()
 	var body = Node3D.new()
 	body.name = "Body"
@@ -1842,7 +1922,7 @@ func _sync_3d_meshes():
 				b.visible = false
 		var mr = building_meshes[b]
 		var bp = b.global_position
-		mr.position = Vector3(bp.x, 0, bp.y)
+		mr.position = Vector3(bp.x, 0, bp.z)
 		# Turret / acid turret barrel rotation
 		var head = mr.get_node_or_null("Head")
 		if head and "target_angle" in b:
@@ -1900,7 +1980,7 @@ func _sync_3d_meshes():
 			p.visible = false
 		var mr = player_meshes[p]
 		var pp = p.global_position
-		mr.position = Vector3(pp.x, 0, pp.y)
+		mr.position = Vector3(pp.x, 0, pp.z)
 		mr.visible = not p.is_dead if "is_dead" in p else true
 		var body = mr.get_node_or_null("Body")
 		if body and "facing_angle" in p:
@@ -1944,8 +2024,7 @@ func _sync_3d_meshes():
 			var orb_angle = p.orbital_angle if "orbital_angle" in p else 0.0
 			for i in range(mini(orb_count, orb_parent.get_child_count())):
 				var ang = orb_angle + TAU * i / orb_count
-				var orb_pos_2d = Vector2.from_angle(ang) * 80.0
-				orb_parent.get_child(i).position = Vector3(orb_pos_2d.x, 8, orb_pos_2d.y)
+				orb_parent.get_child(i).position = Vector3(cos(ang) * 80.0, 8, sin(ang) * 80.0)
 			orb_parent.visible = mr.visible
 		elif orb_parent:
 			orb_parent.visible = false
@@ -1961,10 +2040,10 @@ func _sync_3d_meshes():
 			a.visible = false
 		var mr = alien_meshes[a]
 		var ap = a.global_position
-		mr.position = Vector3(ap.x, 0, ap.y)
+		mr.position = Vector3(ap.x, 0, ap.z)
 		var body = mr.get_node_or_null("Body")
 		if body and "move_direction" in a and a.move_direction.length_squared() > 0.01:
-			var target_rot = atan2(-a.move_direction.x, -a.move_direction.y)
+			var target_rot = atan2(-a.move_direction.x, -a.move_direction.z)
 			body.rotation.y = lerp_angle(body.rotation.y, target_rot, minf(8.0 * get_process_delta_time(), 1.0))
 		# Hit flash
 		var mesh_node = body.get_node_or_null("Mesh") if body else null
@@ -2003,7 +2082,7 @@ func _sync_3d_meshes():
 			r.visible = false
 			print("[RESOURCE] Created ", rtype, " mesh in ", (Time.get_ticks_usec() - _t0) / 1000.0, "ms")
 		var mr = resource_meshes[r]
-		mr.position = Vector3(r.global_position.x, 0, r.global_position.y)
+		mr.position = Vector3(r.global_position.x, 0, r.global_position.z)
 		# Scale down as resource is mined
 		var cur_amt = r.amount if "amount" in r else 1
 		var init_amt = resource_init_amt.get(r, cur_amt)
@@ -2036,7 +2115,7 @@ func _sync_3d_meshes():
 			add_child(mr)
 			gem_meshes[g] = mr
 			g.visible = false
-		gem_meshes[g].position = Vector3(g.global_position.x, 0, g.global_position.y)
+		gem_meshes[g].position = Vector3(g.global_position.x, 0, g.global_position.z)
 
 	# ---- Powerups (keep 2D icons visible on ground) ----
 	_clean_mesh_dict(powerup_meshes)
@@ -2058,7 +2137,7 @@ func _sync_3d_meshes():
 			add_child(mr)
 			orb_meshes[o] = mr
 			o.visible = false
-		orb_meshes[o].position = Vector3(o.global_position.x, 0, o.global_position.y)
+		orb_meshes[o].position = Vector3(o.global_position.x, 0, o.global_position.z)
 
 	# ---- Bullets (billboard + point light, scan game_world_2d children) ----
 	_clean_mesh_dict(bullet_meshes)
@@ -2096,7 +2175,7 @@ func _sync_3d_meshes():
 		child.visible = false
 	for b in bullet_meshes:
 		if is_instance_valid(b):
-			bullet_meshes[b].position = Vector3(b.global_position.x, 0, b.global_position.y)
+			bullet_meshes[b].position = Vector3(b.global_position.x, 0, b.global_position.z)
 
 	# ---- Acid Puddles (ground disc) ----
 	_clean_mesh_dict(puddle_meshes)
@@ -2124,13 +2203,13 @@ func _sync_3d_meshes():
 			p.visible = false
 		var pmi = puddle_meshes[p]
 		pmi.position.x = p.global_position.x
-		pmi.position.z = p.global_position.y
+		pmi.position.z = p.global_position.z
 		# Fade out in last second
 		var fade = clampf(p.lifetime / 1.0, 0.0, 1.0) if "lifetime" in p else 1.0
 		pmi.material_override.albedo_color.a = 0.35 * fade
 
 
-func _get_combat_aoe(b: Node2D) -> Dictionary:
+func _get_combat_aoe(b: Node3D) -> Dictionary:
 	if not b.has_method("get_building_name"): return {}
 	match b.get_building_name():
 		"Turret": return {"radius": CFG.turret_range, "color": Color(0.5, 0.8, 1.0, 0.35), "ring_width": 0.04}
@@ -2143,7 +2222,7 @@ func _get_combat_aoe(b: Node2D) -> Dictionary:
 	return {}
 
 
-func _get_energy_radius(b: Node2D) -> float:
+func _get_energy_radius(b: Node3D) -> float:
 	if not b.has_method("get_building_name"): return 0.0
 	match b.get_building_name():
 		"HQ": return CFG.power_range_hq
@@ -2184,7 +2263,7 @@ func _sync_aoe_rings():
 				var ring = _create_aoe_ring(info["radius"], info["color"], info["ring_width"])
 				add_child(ring)
 				aoe_meshes[sel_b] = ring
-			aoe_meshes[sel_b].position = Vector3(sel_b.global_position.x, 0.15, sel_b.global_position.y)
+			aoe_meshes[sel_b].position = Vector3(sel_b.global_position.x, 0.15, sel_b.global_position.z)
 			aoe_meshes[sel_b].visible = true
 	# Hide rings for non-selected buildings
 	for key in aoe_meshes.keys():
@@ -2230,7 +2309,7 @@ func _sync_aoe_rings():
 			if absf(cur_size - r) > 1.0:
 				aoe_player_mesh.mesh.size = Vector2(r * 2, r * 2)
 			var pp = player_node.global_position
-			aoe_player_mesh.position = Vector3(pp.x, 0.15, pp.y)
+			aoe_player_mesh.position = Vector3(pp.x, 0.15, pp.z)
 			aoe_player_mesh.visible = not (player_node.is_dead if "is_dead" in player_node else false)
 		else:
 			if is_instance_valid(aoe_player_mesh):
@@ -2268,8 +2347,8 @@ func _sync_pylon_wires():
 				wire_meshes[key] = mi
 			var wmi = wire_meshes[key]
 			wmi.material_override = _wire_mat_powered if powered else _wire_mat_unpowered
-			var a_pos = Vector3(pa.global_position.x, 26, pa.global_position.y)
-			var b_pos = Vector3(pb.global_position.x, 26, pb.global_position.y)
+			var a_pos = Vector3(pa.global_position.x, 26, pa.global_position.z)
+			var b_pos = Vector3(pb.global_position.x, 26, pb.global_position.z)
 			var mid = (a_pos + b_pos) * 0.5
 			mid.y -= dist * 0.04  # slight sag
 			var diff = b_pos - a_pos
@@ -2301,8 +2380,8 @@ func _sync_pylon_wires():
 				wire_meshes[key] = mi
 			var wmi = wire_meshes[key]
 			wmi.material_override = _wire_mat_powered  # plant always provides power
-			var a_pos = Vector3(pa.global_position.x, 26, pa.global_position.y)
-			var b_pos = Vector3(plant.global_position.x, 22, plant.global_position.y)
+			var a_pos = Vector3(pa.global_position.x, 26, pa.global_position.z)
+			var b_pos = Vector3(plant.global_position.x, 22, plant.global_position.z)
 			var mid = (a_pos + b_pos) * 0.5
 			mid.y -= dist * 0.04
 			var diff = b_pos - a_pos
@@ -2328,12 +2407,12 @@ func _sync_nuke_visual():
 		if r > 0:
 			active = true
 			var origin = player_node.nuke_origin if "nuke_origin" in player_node else player_node.global_position
-			_nuke_ring_mesh.position = Vector3(origin.x, 0.2, origin.y)
+			_nuke_ring_mesh.position = Vector3(origin.x, 0.2, origin.z)
 			_nuke_ring_mesh.scale = Vector3(r, 1, r)
 			_nuke_ring_mesh.visible = true
 			# Flash light — bright at start, fades as it expands
 			var progress = r / CFG.nuke_range
-			_nuke_flash_light.position = Vector3(origin.x, 30, origin.y)
+			_nuke_flash_light.position = Vector3(origin.x, 30, origin.z)
 			_nuke_flash_light.light_energy = lerpf(20.0, 0.0, progress)
 			_nuke_flash_light.visible = true
 	if not active:
@@ -2379,12 +2458,12 @@ func _sync_build_preview():
 		add_child(build_preview_mesh)
 		build_preview_type = bmode
 	# Position at snapped mouse world pos
-	var bp: Vector2
-	if "is_mobile" in player_node and player_node.is_mobile and "pending_build_world_pos" in player_node and player_node.pending_build_world_pos != Vector2.ZERO:
+	var bp: Vector3
+	if "is_mobile" in player_node and player_node.is_mobile and "pending_build_world_pos" in player_node and player_node.pending_build_world_pos != Vector3.ZERO:
 		bp = player_node.pending_build_world_pos
 	else:
-		bp = mouse_world_2d.snapped(Vector2(40, 40))
-	build_preview_mesh.position = Vector3(bp.x, 0, bp.y)
+		bp = mouse_world_2d.snapped(Vector3(40, 0, 40))
+	build_preview_mesh.position = bp
 	build_preview_mesh.visible = true
 	# Color based on validity
 	var valid = player_node.can_place_at(bp) and player_node.can_afford(bmode)
@@ -2423,32 +2502,34 @@ func _spawn_wave():
 		hud_node.show_wave_alert(wave_number, wave_number >= CFG.boss_start_wave and wave_number % CFG.boss_wave_interval == 0)
 
 
-func _get_player_centroid() -> Vector2:
-	var total = Vector2.ZERO
+func _get_player_centroid() -> Vector3:
+	var total = Vector3.ZERO
 	var count = 0
 	for p in players.values():
 		if is_instance_valid(p) and not p.is_dead:
 			total += p.global_position
 			count += 1
 	if count == 0:
-		return Vector2.ZERO
+		return Vector3.ZERO
 	return total / count
 
 
-func _get_offscreen_spawn_pos(base_angle: float, rng: RandomNumberGenerator) -> Vector2:
+func _get_offscreen_spawn_pos(base_angle: float, rng: RandomNumberGenerator) -> Vector3:
 	# Spawn outside map bounds so enemies walk in and don't land on buildings
 	var spread = rng.randf_range(-0.4, 0.4)  # ~45 degree spread
 	var angle = base_angle + spread
 	var dist = rng.randf_range(850, 1100)
-	var spawn_pos = _get_player_centroid() + Vector2.from_angle(angle) * dist
+	var spawn_pos = _get_player_centroid() + Vector3(cos(angle), 0, sin(angle)) * dist
 	var margin = CFG.map_half_size + 200.0
-	return spawn_pos.clamp(Vector2(-margin, -margin), Vector2(margin, margin))
+	spawn_pos.x = clampf(spawn_pos.x, -margin, margin)
+	spawn_pos.z = clampf(spawn_pos.z, -margin, margin)
+	return spawn_pos
 
 
 func _spawn_aliens(type: String, count: int, rng: RandomNumberGenerator, wave_dir: float):
 	for i in range(count):
 		var spawn_pos = _get_offscreen_spawn_pos(wave_dir, rng)
-		var alien: Node2D
+		var alien: Node3D
 		match type:
 			"basic":
 				alien = load("res://scenes/alien.tscn").instantiate()
@@ -2582,7 +2663,15 @@ func _on_game_started(start_wave: int):
 				_spawn_remote_player(pid, PLAYER_COLORS[color_idx])
 				players[pid].player_name = player_names.get(pid, "Player")
 				peer_info.append([pid, color_idx, player_names.get(pid, "Player")])
+			# Wait for all clients to finish loading before starting gameplay
+			if peers.size() > 0:
+				_waiting_for_clients = true
+				clients_ready.clear()
+				for pid in peers:
+					clients_ready[pid] = false
 			_rpc_start_game.rpc(starting_wave, peer_info, GameData.research.duplicate())
+			if _waiting_for_clients and is_instance_valid(hud_node):
+				hud_node.show_alert("Waiting for players to load...")
 		else:
 			var my_color_idx = _get_color_index_for_peer(my_id)
 			player_node.player_color = PLAYER_COLORS[my_color_idx]
@@ -2614,7 +2703,7 @@ func _debug_dump():
 		if is_instance_valid(p):
 			var local = "LOCAL" if ("is_local" in p and p.is_local) else "REMOTE"
 			lines.append("  player pid=%d %s pos=(%.0f,%.0f) hp=%d/%d dead=%s color=%s mine_targets=%d" % [
-				pid, local, p.global_position.x, p.global_position.y,
+				pid, local, p.global_position.x, p.global_position.z,
 				p.health, p.max_health, p.is_dead,
 				p.player_color.to_html(), p.mine_targets.size()])
 
@@ -2623,7 +2712,7 @@ func _debug_dump():
 	var building_hash = 0
 	for b in buildings:
 		if is_instance_valid(b):
-			building_hash += int(b.global_position.x * 7 + b.global_position.y * 13)
+			building_hash += int(b.global_position.x * 7 + b.global_position.z * 13)
 			if "hp" in b:
 				building_hash += b.hp
 	lines.append("buildings=%d hash=%d" % [buildings.size(), building_hash])
@@ -2635,7 +2724,7 @@ func _debug_dump():
 	var res_crystal = 0
 	for r in resources:
 		if is_instance_valid(r):
-			res_hash += int(r.global_position.x * 7 + r.global_position.y * 13 + r.amount)
+			res_hash += int(r.global_position.x * 7 + r.global_position.z * 13 + r.amount)
 			if r.resource_type == "iron":
 				res_iron += 1
 			else:
@@ -2647,7 +2736,7 @@ func _debug_dump():
 	var alien_hash = 0
 	for a in aliens:
 		if is_instance_valid(a):
-			alien_hash += int(a.global_position.x * 3 + a.global_position.y * 7)
+			alien_hash += int(a.global_position.x * 3 + a.global_position.z * 7)
 			if "hp" in a:
 				alien_hash += a.hp
 	lines.append("aliens=%d hash=%d" % [aliens.size(), alien_hash])
@@ -2688,7 +2777,7 @@ func _debug_dump():
 		hud_node.alert_timer = 3.0
 
 
-func on_player_died(dead_player: Node2D = null):
+func on_player_died(dead_player: Node3D = null):
 	# In MP, respawn after 10s unless ALL players are dead
 	if NetworkManager.is_multiplayer_active():
 		var all_dead = true
@@ -2781,7 +2870,7 @@ func _spawn_remote_player(pid: int, color: Color):
 	var player_index = players.size()
 	var total = maxi(players.size() + 1, 2)
 	var angle = TAU * player_index / total
-	remote.position = Vector2.from_angle(angle) * 60.0
+	remote.position = Vector3(cos(angle), 0, sin(angle)) * 60.0
 	game_world_2d.add_child(remote)
 	players[pid] = remote
 
@@ -2811,6 +2900,21 @@ func _rpc_start_game(wave: int, all_peers: Array = [], host_research: Dictionary
 	# Also set host name from peer info
 	if player_names.has(1) and players.has(1) and is_instance_valid(players[1]):
 		players[1].player_name = player_names[1]
+	# Tell host we're done loading
+	_rpc_client_ready.rpc_id(1)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_client_ready():
+	var sender = multiplayer.get_remote_sender_id()
+	clients_ready[sender] = true
+	# Check if all clients are ready
+	for pid in clients_ready:
+		if not clients_ready[pid]:
+			return
+	_waiting_for_clients = false
+	if is_instance_valid(hud_node):
+		hud_node.show_alert("All players loaded!")
 
 
 func _broadcast_state():
@@ -2825,8 +2929,8 @@ func _broadcast_state():
 				for t in p.mine_targets:
 					if is_instance_valid(t):
 						mt.append(t.global_position.x)
-						mt.append(t.global_position.y)
-			player_states.append([pid, p.global_position.x, p.global_position.y, p.facing_angle, p.health, p.max_health, p.is_dead, respawn_timers.get(pid, 0.0), p.upgrades.get("orbital_lasers", 0), mt])
+						mt.append(t.global_position.z)
+			player_states.append([pid, p.global_position.x, p.global_position.z, p.facing_angle, p.health, p.max_health, p.is_dead, respawn_timers.get(pid, 0.0), p.upgrades.get("orbital_lasers", 0), mt])
 
 	# Clean dead aliens from tracking
 	var dead_ids = []
@@ -2847,7 +2951,7 @@ func _broadcast_state():
 			type_id = 2
 		elif "alien_type" in a and a.alien_type == "fast":
 			type_id = 1
-		enemy_data.append([nid, type_id, a.global_position.x, a.global_position.y, a.hp, a.max_hp])
+		enemy_data.append([nid, type_id, a.global_position.x, a.global_position.z, a.hp, a.max_hp])
 
 	var hq_hp = 0
 	var hq_max_hp = 0
@@ -2866,14 +2970,14 @@ func _broadcast_state():
 		resource_net_ids.erase(nid)
 	for nid in resource_net_ids:
 		var r = resource_net_ids[nid]
-		res_data.append([nid, 0 if r.resource_type == "iron" else 1, r.global_position.x, r.global_position.y, r.amount])
+		res_data.append([nid, 0 if r.resource_type == "iron" else 1, r.global_position.x, r.global_position.z, r.amount])
 
 	# Building data: [pos_x, pos_y, hp, max_hp]
 	var building_data = []
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if not is_instance_valid(b): continue
 		if b.is_in_group("hq"): continue
-		building_data.append([b.global_position.x, b.global_position.y, b.hp if "hp" in b else 0, b.max_hp if "max_hp" in b else 0])
+		building_data.append([b.global_position.x, b.global_position.z, b.hp if "hp" in b else 0, b.max_hp if "max_hp" in b else 0])
 
 	_receive_state.rpc([
 		player_states,
@@ -2943,7 +3047,7 @@ func _receive_state(state: Array):
 			# Remote player: update position and state (interpolated)
 			if players.has(pid) and is_instance_valid(players[pid]):
 				var rp = players[pid]
-				rp._remote_target_pos = Vector2(ps[1], ps[2])
+				rp._remote_target_pos = Vector3(ps[1], 0, ps[2])
 				rp.facing_angle = ps[3]
 				rp.health = ps[4]
 				rp.max_health = ps[5]
@@ -2971,7 +3075,7 @@ func _sync_resources(res_data: Array):
 	for rd in res_data:
 		var nid: int = rd[0]
 		var rtype: int = rd[1]
-		var pos = Vector2(rd[2], rd[3])
+		var pos = Vector3(rd[2], 0, rd[3])
 		var amt: int = rd[4]
 		live_ids[nid] = true
 		if resource_net_ids.has(nid) and is_instance_valid(resource_net_ids[nid]):
@@ -3000,7 +3104,7 @@ func _sync_resources(res_data: Array):
 
 func _sync_building_hp(building_data: Array):
 	for bd in building_data:
-		var pos = Vector2(bd[0], bd[1])
+		var pos = Vector3(bd[0], 0, bd[1])
 		var bhp: int = bd[2]
 		var bmax: int = bd[3]
 		var b = _find_building_at(pos)
@@ -3016,7 +3120,7 @@ func _send_client_state():
 	if is_instance_valid(player_node):
 		_receive_client_state.rpc_id(1,
 			player_node.global_position.x,
-			player_node.global_position.y,
+			player_node.global_position.z,
 			player_node.facing_angle)
 
 
@@ -3025,7 +3129,7 @@ func _receive_client_state(pos_x: float, pos_y: float, angle: float):
 	# Host receives client position
 	var sender_id = multiplayer.get_remote_sender_id()
 	if players.has(sender_id) and is_instance_valid(players[sender_id]):
-		players[sender_id]._remote_target_pos = Vector2(pos_x, pos_y)
+		players[sender_id]._remote_target_pos = Vector3(pos_x, 0, pos_y)
 		players[sender_id].facing_angle = angle
 
 
@@ -3221,9 +3325,9 @@ func _respawn_player(pid: int):
 	p.invuln_timer = 2.0
 	# Respawn near HQ or center
 	if is_instance_valid(hq_node):
-		p.global_position = hq_node.global_position + Vector2(randf_range(-40, 40), randf_range(-40, 40))
+		p.global_position = hq_node.global_position + Vector3(randf_range(-40, 40), 0, randf_range(-40, 40))
 	else:
-		p.global_position = Vector2(randf_range(-40, 40), randf_range(-40, 40))
+		p.global_position = Vector3(randf_range(-40, 40), 0, randf_range(-40, 40))
 	if NetworkManager.is_multiplayer_active():
 		_rpc_player_respawned.rpc(pid)
 
@@ -3239,7 +3343,24 @@ func _rpc_player_respawned(pid: int):
 
 
 func _on_game_peer_disconnected(pid: int):
+	# If the host disconnected and we're a client, end the game
+	if pid == 1 and NetworkManager.is_multiplayer_active() and not NetworkManager.is_host():
+		game_over = true
+		if is_instance_valid(hud_node):
+			hud_node.show_disconnect_panel()
+		return
 	respawn_timers.erase(pid)
+	# Remove from loading wait list if applicable
+	if clients_ready.has(pid):
+		clients_ready.erase(pid)
+		if _waiting_for_clients:
+			var all_ready = true
+			for cpid in clients_ready:
+				if not clients_ready[cpid]:
+					all_ready = false
+					break
+			if all_ready:
+				_waiting_for_clients = false
 	# Remove disconnected player from vote if active
 	if vote_active and vote_choices.has(pid):
 		vote_choices.erase(pid)
@@ -3281,7 +3402,7 @@ const BUILDING_NAME_TO_TYPE = {
 }
 
 
-func recycle_building(building: Node2D):
+func recycle_building(building: Node3D):
 	if not is_instance_valid(building):
 		return
 	if not building.has_method("get_building_name"):
@@ -3290,13 +3411,13 @@ func recycle_building(building: Node2D):
 		return
 	# MP client: request recycle from host
 	if NetworkManager.is_multiplayer_active() and not NetworkManager.is_host():
-		_request_recycle.rpc_id(1, building.global_position.x, building.global_position.y)
+		_request_recycle.rpc_id(1, building.global_position.x, building.global_position.z)
 		return
 	# Host / single-player: perform recycle
 	_do_recycle(building)
 
 
-func _do_recycle(building: Node2D):
+func _do_recycle(building: Node3D):
 	var bname = building.get_building_name()
 	var btype = BUILDING_NAME_TO_TYPE.get(bname, "")
 	if btype == "":
@@ -3314,24 +3435,24 @@ func _do_recycle(building: Node2D):
 	building.queue_free()
 	# Sync to clients
 	if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
-		_sync_building_recycled.rpc(pos.x, pos.y)
+		_sync_building_recycled.rpc(pos.x, pos.z)
 
 
 @rpc("any_peer", "call_remote", "reliable")
 func _request_recycle(pos_x: float, pos_y: float):
-	var building = _find_building_at(Vector2(pos_x, pos_y))
+	var building = _find_building_at(Vector3(pos_x, 0, pos_y))
 	if building and building.get_building_name() != "HQ":
 		_do_recycle(building)
 
 
 @rpc("authority", "call_remote", "reliable")
 func _sync_building_recycled(pos_x: float, pos_y: float):
-	var building = _find_building_at(Vector2(pos_x, pos_y))
+	var building = _find_building_at(Vector3(pos_x, 0, pos_y))
 	if building:
 		building.queue_free()
 
 
-func _find_building_at(pos: Vector2) -> Node2D:
+func _find_building_at(pos: Vector3) -> Node3D:
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if is_instance_valid(b) and b.global_position.distance_to(pos) < 5.0:
 			return b
@@ -3340,7 +3461,7 @@ func _find_building_at(pos: Vector2) -> Node2D:
 
 # --- Building power toggle ---
 
-func sync_building_toggle(building: Node2D):
+func sync_building_toggle(building: Node3D):
 	if not is_instance_valid(building) or "manually_disabled" not in building:
 		return
 	var pos = building.global_position
@@ -3348,14 +3469,14 @@ func sync_building_toggle(building: Node2D):
 	if not NetworkManager.is_multiplayer_active():
 		return
 	if NetworkManager.is_host():
-		_rpc_building_toggled.rpc(pos.x, pos.y, disabled)
+		_rpc_building_toggled.rpc(pos.x, pos.z, disabled)
 	else:
-		_request_building_toggle.rpc_id(1, pos.x, pos.y, disabled)
+		_request_building_toggle.rpc_id(1, pos.x, pos.z, disabled)
 
 
 @rpc("any_peer", "call_remote", "reliable")
 func _request_building_toggle(pos_x: float, pos_y: float, disabled: bool):
-	var b = _find_building_at(Vector2(pos_x, pos_y))
+	var b = _find_building_at(Vector3(pos_x, 0, pos_y))
 	if b and "manually_disabled" in b:
 		b.manually_disabled = disabled
 		_rpc_building_toggled.rpc(pos_x, pos_y, disabled)
@@ -3363,34 +3484,34 @@ func _request_building_toggle(pos_x: float, pos_y: float, disabled: bool):
 
 @rpc("authority", "call_remote", "reliable")
 func _rpc_building_toggled(pos_x: float, pos_y: float, disabled: bool):
-	var b = _find_building_at(Vector2(pos_x, pos_y))
+	var b = _find_building_at(Vector3(pos_x, 0, pos_y))
 	if b and "manually_disabled" in b:
 		b.manually_disabled = disabled
 
 
 # --- Drop sync RPCs ---
 
-func spawn_synced_prestige_orb(pos: Vector2):
+func spawn_synced_prestige_orb(pos: Vector3):
 	if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
-		_rpc_spawn_prestige_orb.rpc(pos.x, pos.y)
+		_rpc_spawn_prestige_orb.rpc(pos.x, pos.z)
 
 
 @rpc("authority", "call_remote", "reliable")
 func _rpc_spawn_prestige_orb(px: float, py: float):
 	var orb = load("res://scenes/prestige_orb.tscn").instantiate()
-	orb.global_position = Vector2(px, py)
+	orb.global_position = Vector3(px, 0, py)
 	game_world_2d.add_child(orb)
 
 
-func spawn_synced_powerup(pos: Vector2, type: String):
+func spawn_synced_powerup(pos: Vector3, type: String):
 	if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
-		_rpc_spawn_powerup.rpc(pos.x, pos.y, type)
+		_rpc_spawn_powerup.rpc(pos.x, pos.z, type)
 
 
 @rpc("authority", "call_remote", "reliable")
 func _rpc_spawn_powerup(px: float, py: float, type: String):
 	var powerup = load("res://scenes/powerup.tscn").instantiate()
-	powerup.global_position = Vector2(px, py)
+	powerup.global_position = Vector3(px, 0, py)
 	powerup.powerup_type = type
 	powerups_node.add_child(powerup)
 
@@ -3402,7 +3523,7 @@ func _request_build(type: String, pos_x: float, pos_y: float):
 	if not players.has(sender_id) or not is_instance_valid(players[sender_id]):
 		return
 	var requester = players[sender_id]
-	var bp = Vector2(pos_x, pos_y)
+	var bp = Vector3(pos_x, 0, pos_y)
 	# Range check from requester's position
 	if requester.global_position.distance_to(bp) > CFG.build_range:
 		return
@@ -3414,8 +3535,8 @@ func _request_build(type: String, pos_x: float, pos_y: float):
 @rpc("authority", "call_remote", "reliable")
 func _sync_building_placed(type: String, pos_x: float, pos_y: float):
 	# Client creates building locally (no cost deduction)
-	var bp = Vector2(pos_x, pos_y)
-	var building: Node2D
+	var bp = Vector3(pos_x, 0, pos_y)
+	var building: Node3D
 	match type:
 		"turret": building = load("res://scenes/turret.tscn").instantiate()
 		"factory": building = load("res://scenes/factory.tscn").instantiate()
@@ -3445,7 +3566,7 @@ func _sync_enemies(enemy_data: Array):
 	for ed in enemy_data:
 		var nid: int = ed[0]
 		var type_id: int = ed[1]
-		var pos = Vector2(ed[2], ed[3])
+		var pos = Vector3(ed[2], 0, ed[3])
 		var enemy_hp: int = ed[4]
 		var enemy_max_hp: int = ed[5]
 		live_ids[nid] = true
@@ -3458,7 +3579,7 @@ func _sync_enemies(enemy_data: Array):
 			a.max_hp = enemy_max_hp
 		else:
 			# Spawn new puppet
-			var alien: Node2D
+			var alien: Node3D
 			match type_id:
 				2:
 					alien = load("res://scenes/ranged_alien.tscn").instantiate()
@@ -3504,16 +3625,16 @@ func _sync_enemies(enemy_data: Array):
 
 # --- Bullet sync RPCs ---
 
-func spawn_synced_bullet(pos: Vector2, dir: Vector2, from_turret: bool, burn_dps: float, slow_amount: float):
+func spawn_synced_bullet(pos: Vector3, dir: Vector3, from_turret: bool, burn_dps: float, slow_amount: float):
 	if NetworkManager.is_multiplayer_active():
-		_rpc_spawn_bullet.rpc(pos.x, pos.y, dir.x, dir.y, from_turret, burn_dps, slow_amount)
+		_rpc_spawn_bullet.rpc(pos.x, pos.z, dir.x, dir.z, from_turret, burn_dps, slow_amount)
 
 
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_spawn_bullet(px: float, py: float, dx: float, dy: float, from_turret: bool, burn: float, slow: float):
 	var b = load("res://scenes/bullet.tscn").instantiate()
-	b.global_position = Vector2(px, py)
-	b.direction = Vector2(dx, dy)
+	b.global_position = Vector3(px, 0, py)
+	b.direction = Vector3(dx, 0, dy)
 	b.from_turret = from_turret
 	b.burn_dps = burn
 	b.slow_amount = slow
@@ -3521,16 +3642,16 @@ func _rpc_spawn_bullet(px: float, py: float, dx: float, dy: float, from_turret: 
 	game_world_2d.add_child(b)
 
 
-func spawn_synced_enemy_bullet(pos: Vector2, dir: Vector2):
+func spawn_synced_enemy_bullet(pos: Vector3, dir: Vector3):
 	if NetworkManager.is_multiplayer_active():
-		_rpc_spawn_enemy_bullet.rpc(pos.x, pos.y, dir.x, dir.y)
+		_rpc_spawn_enemy_bullet.rpc(pos.x, pos.z, dir.x, dir.z)
 
 
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_spawn_enemy_bullet(px: float, py: float, dx: float, dy: float):
 	var b = load("res://scenes/enemy_bullet.tscn").instantiate()
-	b.global_position = Vector2(px, py)
-	b.direction = Vector2(dx, dy)
+	b.global_position = Vector3(px, 0, py)
+	b.direction = Vector3(dx, 0, dy)
 	b.visual_only = true
 	game_world_2d.add_child(b)
 

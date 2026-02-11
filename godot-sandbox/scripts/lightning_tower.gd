@@ -1,4 +1,4 @@
-extends Node2D
+extends Node3D
 
 const CFG = preload("res://resources/game_config.tres")
 
@@ -6,7 +6,6 @@ var hp: int = CFG.hp_lightning
 var max_hp: int = CFG.hp_lightning
 var zap_timer: float = 0.0
 var zap_targets: Array = []
-var power_blink_timer: float = 0.0
 var manually_disabled: bool = false
 
 
@@ -36,7 +35,6 @@ func is_powered() -> bool:
 
 
 func _process(delta):
-	power_blink_timer += delta
 	zap_targets.clear()
 	var powered = is_powered()
 
@@ -45,8 +43,6 @@ func _process(delta):
 		if zap_timer >= CFG.lightning_zap_interval:
 			zap_timer = 0.0
 			_zap_enemies()
-
-	queue_redraw()
 
 
 func _zap_enemies():
@@ -70,46 +66,9 @@ func _spawn_aliens_on_death():
 	var alien_scene = preload("res://scenes/alien.tscn")
 	for i in range(3):
 		var alien = alien_scene.instantiate()
-		alien.global_position = global_position + Vector2(randf_range(-20, 20), randf_range(-20, 20))
+		alien.global_position = global_position + Vector3(randf_range(-20, 20), 0, randf_range(-20, 20))
 		alien.hp = 25
 		alien.max_hp = 25
 		alien.damage = 6
 		alien.speed = 55.0
 		get_tree().current_scene.aliens_node.add_child(alien)
-
-
-func _draw():
-	var powered = is_powered()
-
-	# Tower base
-	draw_rect(Rect2(-12, -8, 24, 20), Color(0.3, 0.3, 0.4) if powered else Color(0.25, 0.25, 0.3))
-	draw_rect(Rect2(-8, -20, 16, 14), Color(0.35, 0.35, 0.45) if powered else Color(0.28, 0.28, 0.35))
-
-	# Lightning orb at top
-	if powered:
-		var pulse = 0.7 + sin(Time.get_ticks_msec() * 0.01) * 0.3
-		draw_circle(Vector2(0, -24), 8, Color(0.3, 0.5, 1.0, 0.3 * pulse))
-		draw_circle(Vector2(0, -24), 5, Color(0.5, 0.7, 1.0, pulse))
-		draw_circle(Vector2(0, -24), 2, Color(1.0, 1.0, 1.0))
-	else:
-		draw_circle(Vector2(0, -24), 5, Color(0.3, 0.3, 0.4))
-
-	# Range indicator
-	draw_arc(Vector2.ZERO, CFG.lightning_range, 0, TAU, 48, Color(0.3, 0.5, 1.0, 0.04), 1.0)
-
-	# Zap lines
-	for target in zap_targets:
-		draw_line(Vector2(0, -24), target, Color(0.5, 0.8, 1.0, 0.8), 2.0)
-		draw_line(Vector2(0, -24), target, Color(1.0, 1.0, 1.0, 0.5), 1.0)
-
-	# HP bar
-	draw_rect(Rect2(-12, -32, 24, 3), Color(0.3, 0, 0))
-	draw_rect(Rect2(-12, -32, 24.0 * hp / max_hp, 3), Color(0, 0.8, 0))
-
-	# No power warning
-	if not powered:
-		var blink = fmod(power_blink_timer * 3.0, 1.0) < 0.5
-		var warn_color = Color(1.0, 0.9, 0.0) if blink else Color(0.1, 0.1, 0.1)
-		draw_polyline(PackedVector2Array([
-			Vector2(1, -4), Vector2(-2, 3), Vector2(2, 4), Vector2(-1, 12)
-		]), warn_color, 2.5)

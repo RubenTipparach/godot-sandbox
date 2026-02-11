@@ -2,5 +2,5 @@
 
 [ext_resource type="Script" path="res://scripts/xp_gem.gd" id="1"]
 
-[node name="XPGem" type="Node2D"]
+[node name="XPGem" type="Node3D"]
 script = ExtResource("1")
