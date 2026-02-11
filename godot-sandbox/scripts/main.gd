@@ -732,26 +732,35 @@ func _spawn_resources():
 	var resource_scene = load("res://scenes/resource_node.tscn")
 	var rng = RandomNumberGenerator.new()
 	rng.randomize()
-	for i in range(22):
-		var res = resource_scene.instantiate()
-		var a1 = rng.randf() * TAU
-		res.position = Vector3(cos(a1), 0, sin(a1)) * rng.randf_range(80, 700)
-		res.resource_type = "iron"
-		res.amount = rng.randi_range(8, 20)
-		res.net_id = next_net_id
-		resource_net_ids[next_net_id] = res
-		next_net_id += 1
-		resources_node.add_child(res)
-	for i in range(14):
-		var res = resource_scene.instantiate()
-		var a2 = rng.randf() * TAU
-		res.position = Vector3(cos(a2), 0, sin(a2)) * rng.randf_range(250, 900)
-		res.resource_type = "crystal"
-		res.amount = rng.randi_range(5, 15)
-		res.net_id = next_net_id
-		resource_net_ids[next_net_id] = res
-		next_net_id += 1
-		resources_node.add_child(res)
+
+	# Iron veins: 5 veins, 4-5 nodes each (~22 total), closer to center
+	_spawn_veins(resource_scene, rng, "iron", 5, 4, 5, 80, 600, 30, 60, 8, 20)
+
+	# Crystal veins: 4 veins, 3-4 nodes each (~14 total), further out
+	_spawn_veins(resource_scene, rng, "crystal", 4, 3, 4, 250, 850, 25, 50, 5, 15)
+
+
+func _spawn_veins(scene: PackedScene, rng: RandomNumberGenerator, type: String,
+		vein_count: int, min_per_vein: int, max_per_vein: int,
+		min_dist: float, max_dist: float, min_spread: float, max_spread: float,
+		min_amt: int, max_amt: int):
+	for _v in range(vein_count):
+		var angle = rng.randf() * TAU
+		var dist = rng.randf_range(min_dist, max_dist)
+		var center = Vector3(cos(angle), 0, sin(angle)) * dist
+		var count = rng.randi_range(min_per_vein, max_per_vein)
+		var spread = rng.randf_range(min_spread, max_spread)
+		for _n in range(count):
+			var res = scene.instantiate()
+			var offset_a = rng.randf() * TAU
+			var offset_d = rng.randf_range(0, spread)
+			res.position = center + Vector3(cos(offset_a), 0, sin(offset_a)) * offset_d
+			res.resource_type = type
+			res.amount = rng.randi_range(min_amt, max_amt)
+			res.net_id = next_net_id
+			resource_net_ids[next_net_id] = res
+			next_net_id += 1
+			resources_node.add_child(res)
 
 
 func _process(delta):
