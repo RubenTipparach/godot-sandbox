@@ -196,31 +196,16 @@ func _debug_log(msg: String):
 	print("[DEBUG] ", msg)
 	if _debug_label:
 		_debug_label.text += msg + "\n"
+	# Also log via WebDebug autoload (survives even if main.gd overlay fails)
+	if Engine.has_singleton("WebDebug") or has_node("/root/WebDebug"):
+		var wd = get_node_or_null("/root/WebDebug")
+		if wd and wd.has_method("log_msg"):
+			wd.log_msg("main: " + msg)
 
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
-	# On-screen debug overlay (visible even if 3D rendering fails)
-	if OS.has_feature("web"):
-		var debug_layer = CanvasLayer.new()
-		debug_layer.layer = 100
-		debug_layer.process_mode = Node.PROCESS_MODE_ALWAYS
-		add_child(debug_layer)
-		_debug_label = Label.new()
-		_debug_label.position = Vector2(10, 10)
-		_debug_label.size = Vector2(600, 400)
-		_debug_label.add_theme_font_size_override("font_size", 14)
-		_debug_label.add_theme_color_override("font_color", Color.YELLOW)
-		_debug_label.text = ""
-		debug_layer.add_child(_debug_label)
-		var renderer = str(ProjectSettings.get_setting("rendering/renderer/rendering_method", "unknown"))
-		var os_name = OS.get_name()
-		var touch = DisplayServer.is_touchscreen_available()
-		var gpu = RenderingServer.get_video_adapter_name()
-		_debug_log("OS: %s | Touch: %s" % [os_name, touch])
-		_debug_log("GPU: %s" % gpu)
-		_debug_log("Renderer setting: %s" % renderer)
-		_debug_log("Starting _setup_inputs...")
+	_debug_log("main.gd _ready() started")
 	_setup_inputs()
 	_debug_log("_setup_inputs OK. Starting _create_world...")
 	_create_world()
@@ -280,6 +265,7 @@ func _create_world():
 func _init_game_world():
 	# Called when the game actually starts (host clicks Play / player clicks wave).
 	# Creates all gameplay objects, pools, shaders, etc. with loading progress.
+	_debug_log("_init_game_world() started")
 
 	# Detect mobile platform for rendering optimizations
 	# Web builds use GL Compatibility renderer, so they need the mobile shader path too
@@ -289,6 +275,7 @@ func _init_game_world():
 		_is_mobile = true
 	if not _is_mobile and OS.has_feature("web"):
 		_is_mobile = true
+	_debug_log("  _is_mobile=%s" % str(_is_mobile))
 
 	# Step 1: Lighting & ground
 	if is_instance_valid(hud_node):
