@@ -33,5 +33,8 @@ window/stretch/aspect="expand"
 
 [rendering]
 
+renderer/rendering_method="forward_plus"
+renderer/rendering_method.mobile="gl_compatibility"
+renderer/rendering_method.web="gl_compatibility"
 rendering_device/driver.windows="d3d12"
 environment/defaults/default_clear_color=Color(0.12, 0.11, 0.1, 1)
