@@ -32,6 +32,16 @@ jobs:
           mkdir -v -p ~/.local/share/godot/export_templates/
           mv /root/.local/share/godot/export_templates/* ~/.local/share/godot/export_templates/ || true
 
+      - name: Inject version into game config
+        run: |
+          sed -i 's/game_version: String = "dev"/game_version: String = "'"${{ env.VERSION }}"'"/' godot-sandbox/scripts/game_config.gd
+
+      - name: Inject version into export preset
+        run: |
+          sed -i 's|application/product_version=""|application/product_version="${{ env.VERSION }}"|' export_presets.cfg
+          sed -i 's|application/file_version=""|application/file_version="${{ env.VERSION }}"|' export_presets.cfg
+        working-directory: godot-sandbox
+
       - name: Windows Build
         run: |
           mkdir -v -p build/windows
