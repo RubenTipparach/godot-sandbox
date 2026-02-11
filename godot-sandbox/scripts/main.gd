@@ -66,6 +66,7 @@ var _dither_occlude_shader: Shader
 var _dither_occlude_mat: ShaderMaterial
 var _flash_white_mat: StandardMaterial3D
 var _is_mobile: bool = false  # Detected at game start; enables mobile-optimized shaders & rendering
+var _debug_label: Label = null  # On-screen debug overlay for mobile web diagnostics
 
 var wave_number: int = 0
 var wave_timer: float = CFG.first_wave_delay
@@ -191,10 +192,39 @@ var hud_node: CanvasLayer
 var hq_node: Node2D
 
 
+func _debug_log(msg: String):
+	print("[DEBUG] ", msg)
+	if _debug_label:
+		_debug_label.text += msg + "\n"
+
+
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
+	# On-screen debug overlay (visible even if 3D rendering fails)
+	if OS.has_feature("web"):
+		var debug_layer = CanvasLayer.new()
+		debug_layer.layer = 100
+		debug_layer.process_mode = Node.PROCESS_MODE_ALWAYS
+		add_child(debug_layer)
+		_debug_label = Label.new()
+		_debug_label.position = Vector2(10, 10)
+		_debug_label.size = Vector2(600, 400)
+		_debug_label.add_theme_font_size_override("font_size", 14)
+		_debug_label.add_theme_color_override("font_color", Color.YELLOW)
+		_debug_label.text = ""
+		debug_layer.add_child(_debug_label)
+		var renderer = str(ProjectSettings.get_setting("rendering/renderer/rendering_method", "unknown"))
+		var os_name = OS.get_name()
+		var touch = DisplayServer.is_touchscreen_available()
+		var gpu = RenderingServer.get_video_adapter_name()
+		_debug_log("OS: %s | Touch: %s" % [os_name, touch])
+		_debug_log("GPU: %s" % gpu)
+		_debug_log("Renderer setting: %s" % renderer)
+		_debug_log("Starting _setup_inputs...")
 	_setup_inputs()
+	_debug_log("_setup_inputs OK. Starting _create_world...")
 	_create_world()
+	_debug_log("_create_world OK. Waiting for user input.")
 
 
 func _setup_inputs():
@@ -219,7 +249,7 @@ func _setup_inputs():
 
 
 func _create_world():
-	# --- 3D Environment (menu background) ---
+	_debug_log("  Creating WorldEnvironment...")
 	var env_node = WorldEnvironment.new()
 	var env = Environment.new()
 	env.background_mode = Environment.BG_COLOR
@@ -228,20 +258,23 @@ func _create_world():
 	env.ambient_light_color = CFG.ambient_light_color
 	env_node.environment = env
 	add_child(env_node)
+	_debug_log("  WorldEnvironment OK")
 
-	# --- 3D Camera (menu background) ---
+	_debug_log("  Creating Camera3D...")
 	camera_3d = Camera3D.new()
 	camera_3d.fov = 50
 	camera_3d.position = Vector3(0, 600, 350)
 	camera_3d.rotation_degrees = Vector3(-60, 0, 0)
 	add_child(camera_3d)
+	_debug_log("  Camera3D OK")
 
-	# --- HUD (needed for menus/lobby — no gameplay objects created yet) ---
+	_debug_log("  Loading HUD scene...")
 	var hud_scene = preload("res://scenes/hud.tscn")
 	hud_node = hud_scene.instantiate()
 	add_child(hud_node)
 	hud_node.upgrade_chosen.connect(_on_upgrade_chosen)
 	hud_node.game_started.connect(_on_game_started)
+	_debug_log("  HUD loaded OK. is_mobile=%s" % str(hud_node.is_mobile if "is_mobile" in hud_node else "N/A"))
 
 
 func _init_game_world():
