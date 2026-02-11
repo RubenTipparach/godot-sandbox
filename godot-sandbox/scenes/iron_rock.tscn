@@ -2,6 +2,9 @@
 
 [ext_resource type="PackedScene" uid="uid://dqtylne8agmem" path="res://resources/models/rock2.gltf" id="1"]
 
+[sub_resource type="SphereShape3D" id="SphereShape3D_emo08"]
+radius = 26.426
+
 [node name="IronRock" type="Node3D" unique_id=1375047630]
 
 [node name="Model" parent="." unique_id=506029004 instance=ExtResource("1")]
@@ -9,5 +12,13 @@ transform = Transform3D(-1.5000002, -2.598076, 0, 2.598076, -1.5000002, 0, 0, 0,
 
 [node name="SpotLight3D" type="SpotLight3D" parent="." unique_id=977107326]
 transform = Transform3D(1, 0, 0, 0, -4.371139e-08, 1, 0, -1, -4.371139e-08, 0, 60, 0)
-light_color = Color(1, 0.3882353, 0.21960784, 1)
+light_color = Color(0.9889969, 0.5790233, 0.51342744, 1)
+light_energy = 0.183
 spot_range = 86.225
+spot_attenuation = -0.14
+spot_angle = 62.3
+
+[node name="StaticBody3D" type="StaticBody3D" parent="." unique_id=1254556486]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="StaticBody3D" unique_id=1136393285]
+shape = SubResource("SphereShape3D_emo08")

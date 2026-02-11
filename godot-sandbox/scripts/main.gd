@@ -584,30 +584,16 @@ void fragment() {
 		beam_group.add_child(mi_inner)
 		e["inner_mi"] = mi_inner
 		e["inner_mat"] = inner_mat
-		var sparks = GPUParticles3D.new()
-		sparks.amount = 12
-		sparks.lifetime = 0.4
-		sparks.one_shot = false
-		sparks.explosiveness = 0.8
+		var sparks = preload("res://scenes/particles/laser_sparks.tscn").instantiate()
 		sparks.emitting = false
-		var spark_mat = ParticleProcessMaterial.new()
-		spark_mat.direction = Vector3(0, 1, 0)
-		spark_mat.spread = 45.0
-		spark_mat.initial_velocity_min = 15.0
-		spark_mat.initial_velocity_max = 40.0
-		spark_mat.gravity = Vector3(0, -60, 0)
-		spark_mat.scale_min = 0.5
-		spark_mat.scale_max = 1.5
-		spark_mat.color = Color(1.0, 0.8, 0.3)
-		sparks.process_material = spark_mat
-		var spark_mesh = SphereMesh.new()
-		spark_mesh.radius = 0.8
-		spark_mesh.height = 1.6
-		sparks.draw_pass_1 = spark_mesh
-		sparks.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		beam_group.add_child(sparks)
 		e["sparks"] = sparks
-		e["spark_mat"] = spark_mat
+		e["spark_mat"] = sparks.process_material
+		var crystal_sparks = preload("res://scenes/particles/crystal_sparks.tscn").instantiate()
+		crystal_sparks.emitting = false
+		beam_group.add_child(crystal_sparks)
+		e["crystal_sparks"] = crystal_sparks
+		e["crystal_spark_mat"] = crystal_sparks.process_material
 		e["active"] = false
 		_laser_pool.append(e)
 
@@ -1041,8 +1027,15 @@ func _sync_3d_lights():
 		var raw_end = Vector3(tpos.x, t_center_y, tpos.y)
 		var to_player = start - raw_end
 		var to_len = to_player.length()
-		var surface_offset = minf(t_sz * 0.4, to_len * 0.5)
-		var end_pt = raw_end + to_player.normalized() * surface_offset if to_len > 0.1 else raw_end
+		var end_pt: Vector3
+		var space_state = get_world_3d().direct_space_state
+		var query = PhysicsRayQueryParameters3D.create(start, raw_end)
+		var ray_result = space_state.intersect_ray(query)
+		if ray_result:
+			end_pt = ray_result.position
+		else:
+			var surface_offset = minf(t_sz * 0.4, to_len * 0.5)
+			end_pt = raw_end + to_player.normalized() * surface_offset if to_len > 0.1 else raw_end
 		var dist = start.distance_to(end_pt)
 		if dist < 0.1: continue
 		var mid = (start + end_pt) / 2.0
@@ -1054,14 +1047,17 @@ func _sync_3d_lights():
 			side = dir.cross(Vector3.FORWARD).normalized()
 		var fwd = side.cross(dir).normalized()
 		var scaled_basis = Basis(side, dir * dist, fwd)
+		var is_crystal = t_rtype == "crystal"
+		var spark_key = "crystal_sparks" if is_crystal else "sparks"
+		var spark_mat_key = "crystal_spark_mat" if is_crystal else "spark_mat"
 		if target in mining_laser_beams:
 			# UPDATE existing — just set transforms (no allocation)
 			var e = mining_laser_beams[target]
 			e["light"].position = Vector3(tpos.x, 6, tpos.y)
 			e["outer_mi"].global_transform = Transform3D(scaled_basis, mid)
 			e["inner_mi"].global_transform = Transform3D(scaled_basis, mid)
-			e["sparks"].global_position = end_pt
-			e["spark_mat"].direction = Vector3(to_player.x, 1, to_player.z).normalized()
+			e[spark_key].global_position = end_pt
+			e[spark_mat_key].direction = Vector3(to_player.x, 1, to_player.z).normalized()
 		else:
 			# ACTIVATE a pool entry (no node creation, just show + set uniforms)
 			var e = _acquire_laser_beam()
@@ -1073,10 +1069,9 @@ func _sync_3d_lights():
 			e["inner_mat"].set_shader_parameter("time_offset", tpos.x * 0.01 + 0.5)
 			e["outer_mi"].global_transform = Transform3D(scaled_basis, mid)
 			e["inner_mi"].global_transform = Transform3D(scaled_basis, mid)
-			e["spark_mat"].direction = Vector3(to_player.x, 1, to_player.z).normalized()
-			e["spark_mat"].color = lc
-			e["sparks"].global_position = end_pt
-			e["sparks"].emitting = true
+			e[spark_mat_key].direction = Vector3(to_player.x, 1, to_player.z).normalized()
+			e[spark_key].global_position = end_pt
+			e[spark_key].emitting = true
 			e["group"].visible = true
 			e["active"] = true
 			mining_laser_beams[target] = e
@@ -1087,6 +1082,7 @@ func _sync_3d_lights():
 			e["light"].visible = false
 			e["group"].visible = false
 			e["sparks"].emitting = false
+			e["crystal_sparks"].emitting = false
 			e["active"] = false
 			mining_laser_beams.erase(key)
 
@@ -1240,28 +1236,16 @@ func _acquire_laser_beam() -> Dictionary:
 	beam_group.add_child(mi_inner)
 	e["inner_mi"] = mi_inner
 	e["inner_mat"] = inner_mat
-	var sparks = GPUParticles3D.new()
-	sparks.amount = 12
-	sparks.lifetime = 0.4
-	sparks.one_shot = false
-	sparks.explosiveness = 0.8
+	var sparks = preload("res://scenes/particles/laser_sparks.tscn").instantiate()
 	sparks.emitting = false
-	var spark_mat = ParticleProcessMaterial.new()
-	spark_mat.spread = 45.0
-	spark_mat.initial_velocity_min = 15.0
-	spark_mat.initial_velocity_max = 40.0
-	spark_mat.gravity = Vector3(0, -60, 0)
-	spark_mat.scale_min = 0.5
-	spark_mat.scale_max = 1.5
-	sparks.process_material = spark_mat
-	var spark_mesh = SphereMesh.new()
-	spark_mesh.radius = 0.8
-	spark_mesh.height = 1.6
-	sparks.draw_pass_1 = spark_mesh
-	sparks.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	beam_group.add_child(sparks)
 	e["sparks"] = sparks
-	e["spark_mat"] = spark_mat
+	e["spark_mat"] = sparks.process_material
+	var crystal_sparks = preload("res://scenes/particles/crystal_sparks.tscn").instantiate()
+	crystal_sparks.emitting = false
+	beam_group.add_child(crystal_sparks)
+	e["crystal_sparks"] = crystal_sparks
+	e["crystal_spark_mat"] = crystal_sparks.process_material
 	e["active"] = false
 	_laser_pool.append(e)
 	print("[BEAM] Pool exhausted, created extra beam entry")
