@@ -17,8 +17,8 @@ var chain_damage_bonus: int = 0
 var chain_retention: float = CFG.chain_base_retention
 var visual_only: bool = false
 
-@onready var sprite: Sprite2D = $Sprite2D
-@onready var trail: GPUParticles2D = $Trail
+@onready var mesh: MeshInstance3D = $MeshInstance3D
+@onready var trail: GPUParticles3D = $Trail
 
 
 func _ready():
@@ -37,15 +37,17 @@ func _update_color():
 	if slow_amount > 0:
 		color = Color(0.4, 0.8, 1.0)
 
-	if sprite:
-		sprite.modulate = color
-	if trail:
-		trail.modulate = Color(color.r, color.g, color.b, 0.5)
+	if mesh and mesh.mesh:
+		var mat = mesh.mesh.material as StandardMaterial3D
+		if mat:
+			mat.emission = color
+	if trail and trail.process_material:
+		trail.process_material.color = Color(color.r, color.g, color.b, 0.5)
 
 
 func _process(delta):
 	position += direction * speed * delta
-	rotation = direction.angle()
+	rotation.y = atan2(-direction.x, -direction.z)
 	lifetime -= delta
 	if lifetime <= 0:
 		queue_free()
