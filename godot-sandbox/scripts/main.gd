@@ -1,6 +1,6 @@
 extends Node3D
 
-const CFG = preload("res://resources/game_config.tres")
+var CFG = load("res://resources/game_config.tres")
 
 # 3D scene nodes
 var camera_3d: Camera3D
@@ -254,7 +254,7 @@ func _create_world():
 	_debug_log("  Camera3D OK")
 
 	_debug_log("  Loading HUD scene...")
-	var hud_scene = preload("res://scenes/hud.tscn")
+	var hud_scene = load("res://scenes/hud.tscn")
 	hud_node = hud_scene.instantiate()
 	add_child(hud_node)
 	hud_node.upgrade_chosen.connect(_on_upgrade_chosen)
@@ -298,7 +298,7 @@ func _init_game_world():
 	plane_mesh.subdivide_depth = ground_subdivs
 	ground.mesh = plane_mesh
 	var mat = StandardMaterial3D.new()
-	mat.albedo_texture = preload("res://resources/dirt_grass.png")
+	mat.albedo_texture = load("res://resources/dirt_grass.png")
 	mat.uv1_scale = Vector3(60, 60, 1)
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_PER_VERTEX
@@ -320,7 +320,7 @@ func _init_game_world():
 	add_child(game_viewport)
 
 	# World overlay (map boundary + selection highlight)
-	world_overlay = preload("res://scenes/world_overlay.tscn").instantiate()
+	world_overlay = load("res://scenes/world_overlay.tscn").instantiate()
 	game_viewport.add_child(world_overlay)
 
 	# Y-sorted container for all game entities
@@ -346,7 +346,7 @@ func _init_game_world():
 	game_world_2d.add_child(buildings_node)
 
 	# Spawn HQ at center - if destroyed, game over
-	hq_node = preload("res://scenes/hq.tscn").instantiate()
+	hq_node = load("res://scenes/hq.tscn").instantiate()
 	hq_node.global_position = Vector2.ZERO
 	hq_node.destroyed.connect(_on_hq_destroyed)
 	hq_node.visible = false  # Hidden in 2D viewport; 3D standing sprite handles visuals
@@ -361,7 +361,7 @@ func _init_game_world():
 	hq_light_3d.position = Vector3(0, 50, 0)
 	add_child(hq_light_3d)
 
-	var player_scene = preload("res://scenes/player.tscn")
+	var player_scene = load("res://scenes/player.tscn")
 	player_node = player_scene.instantiate()
 	player_node.name = "Player"
 	player_node.peer_id = 1
@@ -805,7 +805,7 @@ void fragment() {
 
 
 func _spawn_resources():
-	var resource_scene = preload("res://scenes/resource_node.tscn")
+	var resource_scene = load("res://scenes/resource_node.tscn")
 	var rng = RandomNumberGenerator.new()
 	rng.randomize()
 	for i in range(22):
@@ -962,7 +962,7 @@ func _regenerate_resources():
 	var max_res = get_max_resources()
 	if current >= max_res:
 		return
-	var resource_scene = preload("res://scenes/resource_node.tscn")
+	var resource_scene = load("res://scenes/resource_node.tscn")
 	var rng = RandomNumberGenerator.new()
 	rng.randomize()
 	# Spawn more rocks per cycle as waves progress
@@ -982,7 +982,7 @@ func _spawn_powerup():
 	var current = get_tree().get_nodes_in_group("powerups").size()
 	if current >= CFG.max_powerups:
 		return
-	var powerup = preload("res://scenes/powerup.tscn").instantiate()
+	var powerup = load("res://scenes/powerup.tscn").instantiate()
 	var rng = RandomNumberGenerator.new()
 	rng.randomize()
 	powerup.position = Vector2.from_angle(rng.randf() * TAU) * rng.randf_range(150, CFG.map_half_size * 0.8)
@@ -1832,7 +1832,7 @@ func _create_alien_mesh(a: Node2D) -> Node3D:
 	if is_boss:
 		pm.size = Vector3(20, 28, 18)
 		col = Color(0.7, 0.12, 0.08)
-	elif a.get_script() == preload("res://scripts/ranged_alien.gd"):
+	elif a.get_script() == load("res://scripts/ranged_alien.gd"):
 		pm.size = Vector3(10, 14, 10)
 		col = Color(0.55, 0.2, 0.65)
 	elif atype == "fast":
@@ -2184,7 +2184,7 @@ func _sync_3d_meshes():
 		if not is_instance_valid(child): continue
 		if not ("direction" in child and "lifetime" in child): continue
 		if child in bullet_meshes: continue
-		var is_enemy = child.get_script() == preload("res://scripts/enemy_bullet.gd")
+		var is_enemy = child.get_script() == load("res://scripts/enemy_bullet.gd")
 		var col = Color(1.0, 0.9, 0.2)
 		if "from_turret" in child and child.from_turret:
 			col = Color(0.3, 0.9, 1.0)
@@ -2569,14 +2569,14 @@ func _spawn_aliens(type: String, count: int, rng: RandomNumberGenerator, wave_di
 		var alien: Node2D
 		match type:
 			"basic":
-				alien = preload("res://scenes/alien.tscn").instantiate()
+				alien = load("res://scenes/alien.tscn").instantiate()
 				alien.hp = CFG.alien_basic_base_hp + wave_number * CFG.alien_basic_hp_per_wave
 				alien.max_hp = alien.hp
 				alien.damage = CFG.alien_basic_base_damage + wave_number * CFG.alien_basic_damage_per_wave
 				alien.speed = CFG.alien_basic_base_speed + wave_number * CFG.alien_basic_speed_per_wave
 				alien.xp_value = CFG.alien_basic_xp
 			"fast":
-				alien = preload("res://scenes/alien.tscn").instantiate()
+				alien = load("res://scenes/alien.tscn").instantiate()
 				alien.hp = CFG.alien_fast_base_hp + wave_number * CFG.alien_fast_hp_per_wave
 				alien.max_hp = alien.hp
 				alien.damage = CFG.alien_fast_base_damage + wave_number * CFG.alien_fast_damage_per_wave
@@ -2584,7 +2584,7 @@ func _spawn_aliens(type: String, count: int, rng: RandomNumberGenerator, wave_di
 				alien.xp_value = CFG.alien_fast_xp
 				alien.alien_type = "fast"
 			"ranged":
-				alien = preload("res://scenes/ranged_alien.tscn").instantiate()
+				alien = load("res://scenes/ranged_alien.tscn").instantiate()
 				alien.hp = CFG.alien_ranged_base_hp + wave_number * CFG.alien_ranged_hp_per_wave
 				alien.max_hp = alien.hp
 				alien.damage = CFG.alien_ranged_base_damage + wave_number * CFG.alien_ranged_damage_per_wave
@@ -2598,7 +2598,7 @@ func _spawn_aliens(type: String, count: int, rng: RandomNumberGenerator, wave_di
 
 
 func _spawn_boss(rng: RandomNumberGenerator, wave_dir: float):
-	var boss = preload("res://scenes/boss_alien.tscn").instantiate()
+	var boss = load("res://scenes/boss_alien.tscn").instantiate()
 	boss.position = _get_offscreen_spawn_pos(wave_dir, rng)
 	boss.hp = CFG.boss_base_hp + wave_number * CFG.boss_hp_per_wave
 	boss.max_hp = boss.hp
@@ -2889,7 +2889,7 @@ func _get_color_index_for_peer(peer_id: int) -> int:
 
 
 func _spawn_remote_player(pid: int, color: Color):
-	var player_scene = preload("res://scenes/player.tscn")
+	var player_scene = load("res://scenes/player.tscn")
 	var remote = player_scene.instantiate()
 	remote.name = "Player_%d" % pid
 	remote.peer_id = pid
@@ -2961,7 +2961,7 @@ func _broadcast_state():
 		var type_id = 0  # basic
 		if a.is_in_group("bosses"):
 			type_id = 3
-		elif a.get_script() == preload("res://scripts/ranged_alien.gd"):
+		elif a.get_script() == load("res://scripts/ranged_alien.gd"):
 			type_id = 2
 		elif "alien_type" in a and a.alien_type == "fast":
 			type_id = 1
@@ -3085,7 +3085,7 @@ func _receive_state(state: Array):
 
 func _sync_resources(res_data: Array):
 	var live_ids = {}
-	var resource_scene = preload("res://scenes/resource_node.tscn")
+	var resource_scene = load("res://scenes/resource_node.tscn")
 	for rd in res_data:
 		var nid: int = rd[0]
 		var rtype: int = rd[1]
@@ -3495,7 +3495,7 @@ func spawn_synced_prestige_orb(pos: Vector2):
 
 @rpc("authority", "call_remote", "reliable")
 func _rpc_spawn_prestige_orb(px: float, py: float):
-	var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
+	var orb = load("res://scenes/prestige_orb.tscn").instantiate()
 	orb.global_position = Vector2(px, py)
 	game_world_2d.add_child(orb)
 
@@ -3507,7 +3507,7 @@ func spawn_synced_powerup(pos: Vector2, type: String):
 
 @rpc("authority", "call_remote", "reliable")
 func _rpc_spawn_powerup(px: float, py: float, type: String):
-	var powerup = preload("res://scenes/powerup.tscn").instantiate()
+	var powerup = load("res://scenes/powerup.tscn").instantiate()
 	powerup.global_position = Vector2(px, py)
 	powerup.powerup_type = type
 	powerups_node.add_child(powerup)
@@ -3535,18 +3535,18 @@ func _sync_building_placed(type: String, pos_x: float, pos_y: float):
 	var bp = Vector2(pos_x, pos_y)
 	var building: Node2D
 	match type:
-		"turret": building = preload("res://scenes/turret.tscn").instantiate()
-		"factory": building = preload("res://scenes/factory.tscn").instantiate()
-		"wall": building = preload("res://scenes/wall.tscn").instantiate()
-		"lightning": building = preload("res://scenes/lightning_tower.tscn").instantiate()
-		"slow": building = preload("res://scenes/slow_tower.tscn").instantiate()
-		"pylon": building = preload("res://scenes/pylon.tscn").instantiate()
-		"power_plant": building = preload("res://scenes/power_plant.tscn").instantiate()
-		"battery": building = preload("res://scenes/battery.tscn").instantiate()
-		"flame_turret": building = preload("res://scenes/flame_turret.tscn").instantiate()
-		"acid_turret": building = preload("res://scenes/acid_turret.tscn").instantiate()
-		"repair_drone": building = preload("res://scenes/repair_drone.tscn").instantiate()
-		"poison_turret": building = preload("res://scenes/poison_turret.tscn").instantiate()
+		"turret": building = load("res://scenes/turret.tscn").instantiate()
+		"factory": building = load("res://scenes/factory.tscn").instantiate()
+		"wall": building = load("res://scenes/wall.tscn").instantiate()
+		"lightning": building = load("res://scenes/lightning_tower.tscn").instantiate()
+		"slow": building = load("res://scenes/slow_tower.tscn").instantiate()
+		"pylon": building = load("res://scenes/pylon.tscn").instantiate()
+		"power_plant": building = load("res://scenes/power_plant.tscn").instantiate()
+		"battery": building = load("res://scenes/battery.tscn").instantiate()
+		"flame_turret": building = load("res://scenes/flame_turret.tscn").instantiate()
+		"acid_turret": building = load("res://scenes/acid_turret.tscn").instantiate()
+		"repair_drone": building = load("res://scenes/repair_drone.tscn").instantiate()
+		"poison_turret": building = load("res://scenes/poison_turret.tscn").instantiate()
 	if building:
 		building.global_position = bp
 		buildings_node.add_child(building)
@@ -3579,11 +3579,11 @@ func _sync_enemies(enemy_data: Array):
 			var alien: Node2D
 			match type_id:
 				2:
-					alien = preload("res://scenes/ranged_alien.tscn").instantiate()
+					alien = load("res://scenes/ranged_alien.tscn").instantiate()
 				3:
-					alien = preload("res://scenes/boss_alien.tscn").instantiate()
+					alien = load("res://scenes/boss_alien.tscn").instantiate()
 				_:
-					alien = preload("res://scenes/alien.tscn").instantiate()
+					alien = load("res://scenes/alien.tscn").instantiate()
 					if type_id == 1:
 						alien.alien_type = "fast"
 			alien.net_id = nid
@@ -3603,7 +3603,7 @@ func _sync_enemies(enemy_data: Array):
 			var a = alien_net_ids[nid]
 			if is_instance_valid(a):
 				# Spawn XP gem visual on death
-				var gem = preload("res://scenes/xp_gem.tscn").instantiate()
+				var gem = load("res://scenes/xp_gem.tscn").instantiate()
 				gem.global_position = a.global_position
 				gem.xp_value = a.xp_value
 				game_world_2d.add_child(gem)
@@ -3629,7 +3629,7 @@ func spawn_synced_bullet(pos: Vector2, dir: Vector2, from_turret: bool, burn_dps
 
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_spawn_bullet(px: float, py: float, dx: float, dy: float, from_turret: bool, burn: float, slow: float):
-	var b = preload("res://scenes/bullet.tscn").instantiate()
+	var b = load("res://scenes/bullet.tscn").instantiate()
 	b.global_position = Vector2(px, py)
 	b.direction = Vector2(dx, dy)
 	b.from_turret = from_turret
@@ -3646,7 +3646,7 @@ func spawn_synced_enemy_bullet(pos: Vector2, dir: Vector2):
 
 @rpc("any_peer", "call_remote", "reliable")
 func _rpc_spawn_enemy_bullet(px: float, py: float, dx: float, dy: float):
-	var b = preload("res://scenes/enemy_bullet.tscn").instantiate()
+	var b = load("res://scenes/enemy_bullet.tscn").instantiate()
 	b.global_position = Vector2(px, py)
 	b.direction = Vector2(dx, dy)
 	b.visual_only = true
