@@ -61,6 +61,11 @@ var pattern_duration: float = 4.0
 # Leg animation
 var leg_anim_time: float = 0.0
 
+# Contact damage
+var contact_timer: float = 0.0
+const CONTACT_RANGE: float = 80.0
+const CONTACT_INTERVAL: float = 0.8
+
 const RESOURCE_AVOID_FORCE = 1.5
 
 
@@ -166,6 +171,16 @@ func _process(delta):
 				var move_dir = (dir + resource_avoid * RESOURCE_AVOID_FORCE).normalized()
 				position += move_dir * speed * slow_factor * delta
 				move_direction = move_dir
+
+	# Contact damage — hurt nearby players
+	contact_timer += delta
+	if contact_timer >= CONTACT_INTERVAL:
+		contact_timer = 0.0
+		for p in get_tree().get_nodes_in_group("player"):
+			if is_instance_valid(p) and not p.is_dead:
+				if global_position.distance_to(p.global_position) < CONTACT_RANGE:
+					if p.has_method("take_damage"):
+						p.take_damage(damage)
 
 	# Minion spawning (all phases)
 	var minion_interval = 15.0

@@ -2041,46 +2041,54 @@ func _create_spider_boss_mesh(_boss: Node3D) -> Node3D:
 		var eye = _mesh_sphere(4.0, Color(1.0, 0.1, 0.05), epos)
 		eye.material_override = _unlit_mat(Color(1.0, 0.1, 0.05))
 		body.add_child(eye)
-	# 8 Legs — spider has 4 pairs, each with hip/upper/knee/lower segments
-	# Legs splay outward then bend down at the knee like a real spider
+	# 8 Legs — spider has 4 pairs with proper joint chain:
+	# Hip (pivot at body) → Upper (femur mesh) → Knee (pivot at end of upper) → Lower (tibia mesh) → Foot
+	# All joints properly parented so rotations cascade down the chain
+	var upper_len = 50.0
+	var lower_len = 65.0
 	var leg_defs = [
 		# Front legs (pair 1) — reach forward
-		{"name": "Leg0L", "x": -30, "z": -35, "side": -1, "angle": -0.5},
-		{"name": "Leg0R", "x": 30, "z": -35, "side": 1, "angle": -0.5},
+		{"name": "Leg0L", "x": -28, "z": -35, "side": -1, "fwd": -0.5},
+		{"name": "Leg0R", "x": 28, "z": -35, "side": 1, "fwd": -0.5},
 		# Second pair — slightly forward
-		{"name": "Leg1L", "x": -35, "z": -12, "side": -1, "angle": -0.2},
-		{"name": "Leg1R", "x": 35, "z": -12, "side": 1, "angle": -0.2},
+		{"name": "Leg1L", "x": -32, "z": -12, "side": -1, "fwd": -0.2},
+		{"name": "Leg1R", "x": 32, "z": -12, "side": 1, "fwd": -0.2},
 		# Third pair — slightly back
-		{"name": "Leg2L", "x": -35, "z": 10, "side": -1, "angle": 0.2},
-		{"name": "Leg2R", "x": 35, "z": 10, "side": 1, "angle": 0.2},
+		{"name": "Leg2L", "x": -32, "z": 10, "side": -1, "fwd": 0.2},
+		{"name": "Leg2R", "x": 32, "z": 10, "side": 1, "fwd": 0.2},
 		# Back legs (pair 4) — reach backward
-		{"name": "Leg3L", "x": -30, "z": 30, "side": -1, "angle": 0.5},
-		{"name": "Leg3R", "x": 30, "z": 30, "side": 1, "angle": 0.5},
+		{"name": "Leg3L", "x": -28, "z": 30, "side": -1, "fwd": 0.5},
+		{"name": "Leg3R", "x": 28, "z": 30, "side": 1, "fwd": 0.5},
 	]
 	for ld in leg_defs:
-		# Hip joint — attached to body, rotates to splay outward
+		# Hip — pivot point on the body where the leg attaches
 		var hip = Node3D.new()
 		hip.name = ld["name"]
 		hip.position = Vector3(ld["x"], 90, ld["z"])
-		# Upper leg (coxa+femur) — goes outward and up from body
-		var upper = _mesh_cyl(6.0, 50.0, Color(0.22, 0.16, 0.12))
-		upper.name = "Upper"
-		# Tilt outward (away from body center) and slightly up
-		upper.rotation.z = PI / 3.0 * ld["side"]
-		upper.rotation.y = ld["angle"]
-		hip.add_child(upper)
-		# Knee joint — at end of upper leg
+		# Upper leg pivot — rotates to swing the whole leg out and forward/back
+		var upper_pivot = Node3D.new()
+		upper_pivot.name = "UpperPivot"
+		# Base pose: splay outward from body center
+		upper_pivot.rotation.z = PI / 3.0 * ld["side"]  # Splay out ~60 degrees
+		upper_pivot.rotation.y = ld["fwd"]               # Angle forward/backward
+		hip.add_child(upper_pivot)
+		# Upper leg mesh (femur) — cylinder centered at half its length below the pivot
+		var upper_mesh = _mesh_cyl(5.5, upper_len, Color(0.22, 0.16, 0.12), Vector3(0, -upper_len * 0.5, 0))
+		upper_mesh.name = "UpperMesh"
+		upper_pivot.add_child(upper_mesh)
+		# Knee — pivot at the end of the upper leg
 		var knee = Node3D.new()
 		knee.name = "Knee"
-		knee.position = Vector3(ld["side"] * 40, 10, 0)
-		hip.add_child(knee)
-		# Lower leg (tibia) — goes down to ground
-		var lower = _mesh_cyl(4.5, 55.0, Color(0.18, 0.13, 0.1))
-		lower.name = "Lower"
-		lower.rotation.z = -PI / 6.0 * ld["side"]  # Angle back inward toward ground
-		knee.add_child(lower)
-		# Foot (tarsus) — small sphere at ground contact
-		var foot = _mesh_sphere(5.0, Color(0.15, 0.1, 0.08), Vector3(0, -28, 0))
+		knee.position = Vector3(0, -upper_len, 0)  # At bottom of upper leg
+		# Base knee angle: bend back inward toward ground
+		knee.rotation.z = -PI / 2.2 * ld["side"]
+		upper_pivot.add_child(knee)
+		# Lower leg mesh (tibia) — cylinder centered at half its length below the knee
+		var lower_mesh = _mesh_cyl(4.0, lower_len, Color(0.18, 0.13, 0.1), Vector3(0, -lower_len * 0.5, 0))
+		lower_mesh.name = "LowerMesh"
+		knee.add_child(lower_mesh)
+		# Foot — small sphere at the tip of the lower leg
+		var foot = _mesh_sphere(4.5, Color(0.15, 0.1, 0.08), Vector3(0, -lower_len, 0))
 		foot.name = "Foot"
 		knee.add_child(foot)
 		body.add_child(hip)
@@ -2346,38 +2354,49 @@ func _sync_3d_meshes():
 		if a.is_in_group("spider_boss") and body:
 			var leg_time = a.leg_anim_time if "leg_anim_time" in a else 0.0
 			var is_moving = "move_direction" in a and a.move_direction.length_squared() > 0.01
-			var _move_speed_mult = a.move_direction.length() if is_moving else 0.0
 			# 8 legs in 4 pairs, alternating tetrapod gait:
 			# Group A (0L, 1R, 2L, 3R) and Group B (0R, 1L, 2R, 3L) alternate
 			var leg_names = ["Leg0L", "Leg0R", "Leg1L", "Leg1R", "Leg2L", "Leg2R", "Leg3L", "Leg3R"]
-			# Phase offsets: Group A = 0, Group B = PI (opposite phase)
 			var gait_phases = [0.0, PI, PI, 0.0, 0.0, PI, PI, 0.0]
-			var leg_sides = [-1, 1, -1, 1, -1, 1, -1, 1]  # -1=left, 1=right
-			var gait_speed = 5.0  # Cycles per second when moving
+			var leg_sides = [-1, 1, -1, 1, -1, 1, -1, 1]
+			var gait_speed = 5.0
 			for li in range(leg_names.size()):
 				var hip = body.get_node_or_null(leg_names[li])
 				if not hip:
 					continue
-				var upper = hip.get_node_or_null("Upper")
-				var knee = hip.get_node_or_null("Knee")
-				if not upper or not knee:
+				var upper_pivot = hip.get_node_or_null("UpperPivot")
+				if not upper_pivot:
+					continue
+				var knee = upper_pivot.get_node_or_null("Knee")
+				if not knee:
 					continue
 				var phase = gait_phases[li]
 				var side = leg_sides[li]
+				# Base splay angles (set during mesh creation)
+				var base_splay = PI / 3.0 * side
+				var base_knee_bend = -PI / 2.2 * side
 				if is_moving:
-					# Walking: hip swings forward/back, knee bends up on lift
 					var cycle = sin(leg_time * gait_speed + phase)
-					var lift = maxf(0.0, sin(leg_time * gait_speed + phase))  # Only lift on positive phase
-					# Hip rotation — swing forward/back along movement direction
-					upper.rotation.x = cycle * 0.25  # Forward/back swing
-					# Knee lift — leg lifts up during swing phase
-					knee.rotation.z = -lift * 0.4 * side  # Bend knee upward during step
-					knee.position.y = 10 + lift * 15.0  # Lift knee node
+					var lift = maxf(0.0, sin(leg_time * gait_speed + phase))
+					# Upper leg: swing forward/back (rotation.y) + slight lift (rotation.z)
+					upper_pivot.rotation.y = hip.get_meta("base_fwd", 0.0) + cycle * 0.3
+					upper_pivot.rotation.z = base_splay + lift * 0.15 * side
+					# Knee: bend more during lift phase, straighten during plant
+					knee.rotation.z = base_knee_bend + lift * 0.35 * side
 				else:
-					# Idle: subtle breathing motion
-					upper.rotation.x = sin(leg_time * 0.8 + phase * 0.5) * 0.03
-					knee.rotation.z = 0.0
-					knee.position.y = 10
+					# Idle: subtle breathing sway
+					upper_pivot.rotation.y = hip.get_meta("base_fwd", 0.0) + sin(leg_time * 0.8 + phase * 0.5) * 0.03
+					upper_pivot.rotation.z = base_splay
+					knee.rotation.z = base_knee_bend
+			# Store base forward angles as meta on first frame
+			if not body.has_meta("legs_initialized"):
+				body.set_meta("legs_initialized", true)
+				for li2 in range(leg_names.size()):
+					var hip2 = body.get_node_or_null(leg_names[li2])
+					if hip2:
+						var up2 = hip2.get_node_or_null("UpperPivot")
+						if up2:
+							hip2.set_meta("base_fwd", up2.rotation.y)
 			# Weak point glow visibility (Phase 1 only)
 			var wp_parent = body.get_node_or_null("WeakPoints")
 			if wp_parent:
@@ -3387,8 +3406,15 @@ func _sync_spider_boss_beams():
 		var bolt = _acquire_lightning_bolt()
 		bolt["active"] = true
 		bolt["group"].visible = true
-		bolt["outer_mat"].set_shader_parameter("beam_color", Color(0.6, 0.2, 1.0, 0.5))
-		bolt["inner_mat"].set_shader_parameter("beam_color", Color(0.8, 0.5, 1.0, 0.9))
+		# Set beam colors — access material through the MeshInstance3D
+		if bolt.has("outer_mi") and is_instance_valid(bolt["outer_mi"]):
+			var omat = bolt["outer_mi"].material_override
+			if omat:
+				omat.set_shader_parameter("beam_color", Color(0.6, 0.2, 1.0, 0.5))
+		if bolt.has("inner_mi") and is_instance_valid(bolt["inner_mi"]):
+			var imat = bolt["inner_mi"].material_override
+			if imat:
+				imat.set_shader_parameter("beam_color", Color(0.8, 0.5, 1.0, 0.9))
 		spider_boss_beams.append(bolt)
 	while spider_boss_beams.size() > living_gens.size():
 		var beam = spider_boss_beams.pop_back()
