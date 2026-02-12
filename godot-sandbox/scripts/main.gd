@@ -982,14 +982,13 @@ func _sync_3d_lights():
 			building_lights[b] = light
 		var blight = building_lights[b]
 		blight.position = pos3d
-		# Unpowered buildings: dim light + red tint
+		var b_disabled = "manually_disabled" in b and b.manually_disabled
 		var b_powered = not b.has_method("is_powered") or b.is_powered()
-		if b_powered:
+		if b_disabled or not b_powered:
+			blight.light_energy = 0.0
+		else:
 			blight.light_energy = CFG.building_light_energy
 			blight.light_color = bcolor
-		else:
-			blight.light_energy = 0.4
-			blight.light_color = Color(1.0, 0.15, 0.1)
 
 	# Player lights
 	for p in get_tree().get_nodes_in_group("player"):
@@ -2033,6 +2032,9 @@ func _sync_3d_meshes():
 			if b_powered and "pulse_timer" in b:
 				var pulse = 0.6 + sin(b.pulse_timer * 4.0) * 0.4
 				fire_fx.process_material.emission_sphere_radius = 8.0 + pulse * 15.0
+		# Toggle scene-embedded lights & particles based on power/disabled state
+		var b_active = (not b.has_method("is_powered") or b.is_powered()) and not ("manually_disabled" in b and b.manually_disabled)
+		_set_scene_lights_visible(mr, b_active)
 		# Unpowered indicator (red sphere above building)
 		if b.has_method("is_powered"):
 			var powered = b.is_powered()
@@ -2557,6 +2559,31 @@ func _sync_nuke_visual():
 		_nuke_flash_light.light_energy = 0.0
 
 
+func _apply_ghost_material(node: Node, mat: StandardMaterial3D):
+	for child in node.get_children():
+		if child is MeshInstance3D:
+			child.material_override = mat
+		if child is Light3D or child is GPUParticles3D:
+			child.visible = false
+		_apply_ghost_material(child, mat)
+
+
+func _set_ghost_color(node: Node, col: Color):
+	for child in node.get_children():
+		if child is MeshInstance3D and child.material_override:
+			child.material_override.albedo_color = col
+		_set_ghost_color(child, col)
+
+
+func _set_scene_lights_visible(node: Node, on: bool):
+	for child in node.get_children():
+		if child is Light3D:
+			child.visible = on
+		if child is GPUParticles3D and child.name != "FireFX" and child.name != "PowerOff":
+			child.emitting = on
+		_set_scene_lights_visible(child, on)
+
+
 func _sync_build_preview():
 	if not is_instance_valid(player_node):
 		if is_instance_valid(build_preview_mesh):
@@ -2585,12 +2612,7 @@ func _sync_build_preview():
 		ghost_mat.albedo_color = Color(0.3, 1.0, 0.5, 0.4)
 		ghost_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		ghost_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		for child in build_preview_mesh.get_children():
-			if child is MeshInstance3D:
-				child.material_override = ghost_mat
-			for sub in child.get_children():
-				if sub is MeshInstance3D:
-					sub.material_override = ghost_mat
+		_apply_ghost_material(build_preview_mesh, ghost_mat)
 		add_child(build_preview_mesh)
 		build_preview_type = bmode
 	# Position at snapped mouse world pos
@@ -2604,12 +2626,7 @@ func _sync_build_preview():
 	# Color based on validity
 	var valid = player_node.can_place_at(bp) and player_node.can_afford(bmode)
 	var ghost_col = Color(0.3, 1.0, 0.5, 0.4) if valid else Color(1.0, 0.3, 0.3, 0.4)
-	for child in build_preview_mesh.get_children():
-		if child is MeshInstance3D:
-			child.material_override.albedo_color = ghost_col
-		for sub in child.get_children():
-			if sub is MeshInstance3D:
-				sub.material_override.albedo_color = ghost_col
+	_set_ghost_color(build_preview_mesh, ghost_col)
 
 
 func _spawn_wave():

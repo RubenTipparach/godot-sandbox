@@ -67,7 +67,7 @@ extends Resource
 # BULLET
 # =============================================================================
 @export_group("Bullet")
-@export var shoot_range: float = 300.0
+@export var shoot_range: float = 600.0
 @export var bullet_speed: float = 450.0
 @export var bullet_lifetime: float = 2.0
 @export var bullet_hit_radius: float = 14.0

@@ -132,6 +132,7 @@ func get_gem_range() -> float:
 
 func _process(delta):
 	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
+	_build_error_cooldown = maxf(0.0, _build_error_cooldown - delta)
 
 	if is_dead:
 		_process_death(delta)
@@ -194,7 +195,7 @@ func _process(delta):
 
 	var manual_shooting = not auto_fire and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) and build_mode == ""
 	var can_fire = auto_fire or manual_shooting
-	if shoot_timer <= 0 and can_fire and get_tree().get_nodes_in_group("aliens").size() > 0:
+	if shoot_timer <= 0 and can_fire and _find_nearest_alien() != null:
 		_shoot()
 		shoot_timer = CFG.shoot_cooldown / (1.0 + upgrades["attack_speed"] * CFG.attack_speed_per_level)
 
@@ -562,6 +563,12 @@ func _try_build_at(type: String, bp: Vector3) -> bool:
 
 	var cost = get_building_cost(type)
 	if iron < cost["iron"] or crystal < cost["crystal"]:
+		var parts: Array = []
+		if cost["iron"] > iron:
+			parts.append("%d more iron" % (cost["iron"] - iron))
+		if cost["crystal"] > crystal:
+			parts.append("%d more crystal" % (cost["crystal"] - crystal))
+		_show_build_error("Need " + " & ".join(parts))
 		return false
 
 	iron -= cost["iron"]
@@ -626,6 +633,21 @@ func can_place_at(pos: Vector3) -> bool:
 func can_afford(type: String) -> bool:
 	var cost = get_building_cost(type)
 	return iron >= cost["iron"] and crystal >= cost["crystal"]
+
+
+var _build_error_cooldown: float = 0.0
+
+func _show_build_error(msg: String):
+	if _build_error_cooldown > 0:
+		return
+	_build_error_cooldown = 1.0
+	var popup = preload("res://scenes/popup_text.tscn").instantiate()
+	popup.global_position = global_position + Vector3(0, 30, 0)
+	popup.text = msg
+	popup.color = Color(1.0, 0.4, 0.3)
+	popup.velocity = Vector3(0, 40, 0)
+	popup.lifetime = 1.5
+	get_tree().current_scene.game_world_2d.add_child(popup)
 
 
 func get_building_type_string(building: Node3D) -> String:
