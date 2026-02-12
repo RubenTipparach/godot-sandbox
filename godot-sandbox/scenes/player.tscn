@@ -1,11 +1,12 @@
-[gd_scene format=3 uid="uid://cujvp6tj7ymdx"]
+[gd_scene format=3 uid="uid://ogpe8jdjfi8k"]
 
 [ext_resource type="Script" uid="uid://vak1p1gshcdi" path="res://scripts/player.gd" id="1"]
 [ext_resource type="AudioStream" uid="uid://c605m7wnf8mmk" path="res://resources/sounds/sfx/mining_laser_sound.wav" id="2_g2els"]
-[ext_resource type="PackedScene" uid="uid://dvmlfavda273n" path="res://scenes/player_ship.tscn" id="3_qhqgy"]
+[ext_resource type="PackedScene" uid="uid://c0chwc5amw8re" path="res://scenes/player_ship.tscn" id="3_qhqgy"]
 
 [node name="Player" type="Node3D" unique_id=1671698601]
 script = ExtResource("1")
+hp_bar_y_offset = 70.0
 
 [node name="MiningSFXPlayer" type="AudioStreamPlayer2D" parent="." unique_id=44345520]
 stream = ExtResource("2_g2els")

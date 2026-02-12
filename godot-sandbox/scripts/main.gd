@@ -1130,8 +1130,8 @@ func _sync_3d_lights():
 		var t_sz = 10.0 + t_amt * 0.5
 		var t_rtype = target.resource_type if "resource_type" in target else "iron"
 		var t_center_y = t_sz * 0.3 if t_rtype == "iron" else t_sz * 0.5
-		var laser_y = 8.0
-		var marker = p_node.get_node_or_null("PlayerShip/LaserOrigin")
+		var laser_y = 50.0
+		var marker = p_node.get_node_or_null("PlayerShip/Model/LaserOrigin")
 		if marker:
 			laser_y = marker.global_position.y
 		var start = Vector3(ppos.x, laser_y, ppos.z)
@@ -1203,11 +1203,15 @@ func _sync_3d_lights():
 		if not is_instance_valid(p): continue
 		if not "repair_targets" in p: continue
 		var ppos = p.global_position
+		var repair_laser_y = 50.0
+		var repair_marker = p.get_node_or_null("PlayerShip/Model/LaserOrigin")
+		if repair_marker:
+			repair_laser_y = repair_marker.global_position.y
 		for target in p.repair_targets:
 			if not is_instance_valid(target): continue
 			active_player_repair[target] = true
 			var tpos = target.global_position
-			var start = Vector3(ppos.x, 8, ppos.z)
+			var start = Vector3(ppos.x, repair_laser_y, ppos.z)
 			var end_pt = Vector3(tpos.x, 10, tpos.z)
 			var dist3 = start.distance_to(end_pt)
 			if dist3 < 0.1: continue
@@ -1680,6 +1684,28 @@ func _mesh_sphere(r: float, col: Color, pos: Vector3 = Vector3.ZERO) -> MeshInst
 	return mi
 
 
+# ---- Bullet Impact Sparks ----
+
+func _spawn_bullet_impact(pos: Vector3):
+	var sparks = preload("res://scenes/particles/laser_sparks.tscn").instantiate()
+	sparks.one_shot = true
+	sparks.emitting = true
+	sparks.lifetime = 0.15
+	sparks.position = pos
+	if sparks.process_material:
+		sparks.process_material = sparks.process_material.duplicate()
+		sparks.process_material.color = Color(1.0, 0.8, 0.3)
+	add_child(sparks)
+	# Auto-free after particles finish
+	get_tree().create_timer(0.5).timeout.connect(func(): if is_instance_valid(sparks): sparks.queue_free())
+
+
+func _get_alien_center_y(alien: Node3D) -> float:
+	if alien == null or not is_instance_valid(alien):
+		return 0.0
+	return alien.global_position.y
+
+
 # ---- Status Effect 3D FX Helpers ----
 
 func _ensure_burn_fx(alien_root: Node3D, active: bool):
@@ -1813,7 +1839,8 @@ func _sync_hp_bars():
 		if is_instance_valid(p) and "health" in p and "max_health" in p:
 			var dead = p.is_dead if "is_dead" in p else false
 			if not dead:
-				entities.append({"node": p, "hp": p.health, "max_hp": p.max_health, "y_offset": 18, "bar_w": 32, "always": true})
+				var hp_y: float = p.hp_bar_y_offset
+				entities.append({"node": p, "hp": p.health, "max_hp": p.max_health, "y_offset": hp_y, "bar_w": 32, "always": true})
 	for a in get_tree().get_nodes_in_group("aliens"):
 		if is_instance_valid(a) and "hp" in a and "max_hp" in a:
 			entities.append({"node": a, "hp": a.hp, "max_hp": a.max_hp, "y_offset": 16, "bar_w": 28})
@@ -1890,9 +1917,8 @@ func _create_building_mesh(bname: String) -> Node3D:
 			root.add_child(_mesh_cyl(3, 12, Color(0.3, 0.5, 0.7), Vector3(0, 13, 0)))
 			root.add_child(_mesh_sphere(5, Color(0.4, 0.7, 1.0), Vector3(0, 24, 0)))
 		"Pylon":
-			var pylon_model = load("res://resources/models/pylon.glb").instantiate()
-			pylon_model.position.y = 51.12
-			root.add_child(pylon_model)
+			var pylon_scene = load("res://scenes/pylon.tscn").instantiate()
+			root.add_child(pylon_scene)
 		"Power Plant":
 			root.add_child(_mesh_box(Vector3(28, 14, 28), Color(0.65, 0.55, 0.2), Vector3(0, 7, 0)))
 			root.add_child(_mesh_cyl(6, 8, Color(0.75, 0.65, 0.25), Vector3(0, 18, 0)))
@@ -2486,7 +2512,14 @@ func _sync_3d_meshes():
 		orb_meshes[o].position = Vector3(o.global_position.x, 0, o.global_position.z)
 
 	# ---- Bullets (billboard + point light, scan game_world_2d children) ----
-	_clean_mesh_dict(bullet_meshes)
+	# Clean up dead bullets — spawn impact sparks before removing
+	for key in bullet_meshes.keys():
+		if not is_instance_valid(key):
+			var mr = bullet_meshes[key]
+			if is_instance_valid(mr):
+				_spawn_bullet_impact(mr.position + Vector3(0, mr.get_meta("cur_y", 10), 0))
+				mr.queue_free()
+			bullet_meshes.erase(key)
 	for child in game_world_2d.get_children():
 		if not is_instance_valid(child): continue
 		if not ("direction" in child and "lifetime" in child): continue
@@ -2505,7 +2538,8 @@ func _sync_3d_meshes():
 		mi.mesh = sm
 		mi.material_override = _bb_mat(col)
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		mi.position.y = 8
+		mi.position.y = 50
+		mi.name = "BulletMesh"
 		mr.add_child(mi)
 		# Point light per bullet
 		var bl = OmniLight3D.new()
@@ -2514,14 +2548,59 @@ func _sync_3d_meshes():
 		bl.omni_range = 25.0 if is_enemy else 20.0
 		bl.omni_attenuation = 1.5
 		bl.shadow_enabled = false
-		bl.position.y = 8
+		bl.position.y = 50
+		bl.name = "BulletLight"
 		mr.add_child(bl)
 		add_child(mr)
 		bullet_meshes[child] = mr
+		mr.set_meta("max_lifetime", child.lifetime)
+		mr.set_meta("cur_y", 50.0)
+		mr.set_meta("is_enemy", is_enemy)
+		# Find target enemy center Y for player bullets
+		if not is_enemy:
+			var target_y = 2.0  # Default: ground level if no target found
+			var bullet_dir = Vector2(child.direction.x, child.direction.z).normalized()
+			var best_dot = 0.7  # Must be roughly in bullet direction
+			for a in get_tree().get_nodes_in_group("aliens"):
+				if not is_instance_valid(a): continue
+				var to_a = Vector2(a.global_position.x - child.global_position.x, a.global_position.z - child.global_position.z)
+				var d = to_a.length()
+				if d < 1.0: continue
+				var dot = bullet_dir.dot(to_a.normalized())
+				if dot > best_dot:
+					best_dot = dot
+					target_y = _get_alien_center_y(a)
+			mr.set_meta("target_y", target_y)
+		else:
+			mr.set_meta("target_y", 50.0)  # Enemy bullets aim at player ship height
 		child.visible = false
+	# Update bullet positions and Y interpolation
+	var bullets_to_despawn: Array = []
 	for b in bullet_meshes:
 		if is_instance_valid(b):
-			bullet_meshes[b].position = Vector3(b.global_position.x, 0, b.global_position.z)
+			var mr = bullet_meshes[b]
+			mr.position = Vector3(b.global_position.x, 0, b.global_position.z)
+			var max_lt = mr.get_meta("max_lifetime", 2.0)
+			var is_enemy_bullet = mr.get_meta("is_enemy", false)
+			var start_y = 50.0 if not is_enemy_bullet else 0.0
+			var end_y = mr.get_meta("target_y", 8.0)
+			var progress = clampf(1.0 - b.lifetime / max_lt, 0.0, 1.0)
+			var cur_y = lerpf(start_y, end_y, progress)
+			mr.set_meta("cur_y", cur_y)
+			var bmi = mr.get_node_or_null("BulletMesh")
+			if bmi:
+				bmi.position.y = cur_y
+			var blight = mr.get_node_or_null("BulletLight")
+			if blight:
+				blight.position.y = cur_y
+			# Despawn bullet if it reaches ground level
+			if cur_y <= 2.5 and not is_enemy_bullet:
+				bullets_to_despawn.append(b)
+	for b in bullets_to_despawn:
+		_spawn_bullet_impact(bullet_meshes[b].position + Vector3(0, 2, 0))
+		bullet_meshes[b].queue_free()
+		bullet_meshes.erase(b)
+		b.queue_free()
 
 	# ---- Acid Puddles (ground disc) ----
 	_clean_mesh_dict(puddle_meshes)

@@ -2508,6 +2508,9 @@ func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active
 	level_label.text = "Lv %d" % player.level
 	wave_label.text = "Wave: %d" % wave_number
 
+	if is_instance_valid(minimap_node):
+		minimap_node.show_wave_direction = not wave_active
+
 	if wave_active:
 		timer_label.text = "WAVE IN PROGRESS"
 		timer_label.add_theme_color_override("font_color", Color(1.0, 0.6, 0.2))
