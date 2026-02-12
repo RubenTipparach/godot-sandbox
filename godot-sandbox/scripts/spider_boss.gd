@@ -33,24 +33,27 @@ var is_puppet: bool = false
 var target_pos: Vector3 = Vector3.ZERO
 
 # Phase system — 6-phase boss fight
-enum Phase { VULNERABLE_1, WEAKPOINTS, VULNERABLE_2, GENERATORS, FINAL, DYING }
-var current_phase: Phase = Phase.VULNERABLE_1
+# WEAKPOINTS (shields + weak points) → VULNERABLE_1 (6000→5000) → GENERATORS (at 5000, shields)
+# → VULNERABLE_2 (5000→2500) → FINAL (at 2500) → DYING
+enum Phase { WEAKPOINTS, VULNERABLE_1, GENERATORS, VULNERABLE_2, FINAL, DYING }
+var current_phase: Phase = Phase.WEAKPOINTS
 var armor_active: bool = false
-var shield_active: bool = false
+var shield_active: bool = true
 var dying_timer: float = 0.0
 const DYING_DURATION: float = 4.0
 var dying_explosion_timer: float = 0.0
 
 # Phase thresholds (loaded from config)
-var phase2_threshold: int = 5000
-var phase4_threshold: int = 2500
+var generators_threshold: int = 5000  # HP remaining -> GENERATORS triggers
+var final_threshold: int = 2500       # HP remaining -> FINAL triggers
 
-# Weak points (Phase 2: WEAKPOINTS)
-var weak_point_nodes: Array = []
-var weak_points_alive: int = 0
 var minion_timer: float = 0.0
 
-# Shield generators (Phase 4: GENERATORS)
+# Weak points
+var weak_point_nodes: Array = []
+var weak_points_alive: int = 0
+
+# Shield generators
 var generators_alive: int = 0
 var telegraph_circles: Array = []
 var telegraph_timer: float = 0.0
@@ -99,32 +102,52 @@ func _ready():
 	speed = CFG.spider_speed
 	damage = CFG.spider_contact_damage
 	xp_value = CFG.spider_xp_value
-	phase2_threshold = CFG.spider_phase2_threshold
-	phase4_threshold = CFG.spider_phase4_threshold
+	generators_threshold = CFG.spider_phase2_threshold
+	final_threshold = CFG.spider_phase4_threshold
 	_telegraph_lifetime = CFG.spider_telegraph_lifetime
 	_telegraph_damage = CFG.spider_telegraph_damage
 	_telegraph_radius = CFG.spider_telegraph_radius
 	_contact_range = CFG.spider_contact_range
 	_contact_interval = CFG.spider_contact_interval
-	# Show boss HP bar immediately (boss is damageable from Phase 1)
+	# Show boss HP bar immediately
 	get_tree().current_scene.show_boss_hp_bar(self)
+	# Start in WEAKPOINTS phase — shields up, spawn weak points
+	shield_active = true
+	_spawn_weak_points()
 
 
 func _spawn_weak_points():
-	var wp_count = CFG.spider_weak_point_count
-	for i in range(wp_count):
+	var count = CFG.spider_weak_point_count
+	weak_point_nodes.clear()
+	weak_points_alive = count
+	var wp_script = preload("res://scripts/weak_point.gd")
+	for i in range(count):
 		var wp = Node3D.new()
-		wp.set_script(load("res://scripts/weak_point.gd"))
-		wp.hp = CFG.spider_weak_point_hp
-		wp.max_hp = CFG.spider_weak_point_hp
+		wp.set_script(wp_script)
 		wp.boss_ref = self
 		wp.wp_index = i
-		wp.orbit_angle = TAU * i / wp_count
+		wp.hp = CFG.spider_weak_point_hp
+		wp.max_hp = CFG.spider_weak_point_hp
 		wp.orbit_distance = CFG.spider_weak_point_orbit_distance
-		get_tree().current_scene.aliens_node.add_child(wp)
+		wp.orbit_angle = TAU * i / count
+		get_tree().current_scene.game_world_2d.add_child(wp)
 		wp.global_position = global_position
 		weak_point_nodes.append(wp)
-	weak_points_alive = wp_count
+
+
+func on_weak_point_destroyed(_index: int):
+	weak_points_alive -= 1
+	if weak_points_alive <= 0:
+		_transition_to_vulnerable_1()
+
+
+func _transition_to_vulnerable_1():
+	current_phase = Phase.VULNERABLE_1
+	shield_active = false
+	telegraph_circles.clear()
+	burst_timer = 0.0
+	pattern_timer = 0.0
+	telegraph_timer = 0.0
 
 
 func can_take_orbital_hit() -> bool:
@@ -165,7 +188,7 @@ func _process(delta):
 			global_position = global_position.lerp(target_pos, 10.0 * delta)
 		return
 
-	# Status effects apply in all vulnerable phases
+	# Status effects apply in vulnerable phases only
 	if current_phase in [Phase.VULNERABLE_1, Phase.VULNERABLE_2, Phase.FINAL]:
 		if burn_timer > 0:
 			burn_timer -= delta
@@ -224,10 +247,10 @@ func _process(delta):
 	# Minion spawning (phase-specific interval)
 	var minion_interval: float
 	match current_phase:
-		Phase.VULNERABLE_1: minion_interval = CFG.spider_minion_interval_v1
 		Phase.WEAKPOINTS: minion_interval = CFG.spider_minion_interval_wp
-		Phase.VULNERABLE_2: minion_interval = CFG.spider_minion_interval_v2
+		Phase.VULNERABLE_1: minion_interval = CFG.spider_minion_interval_v1
 		Phase.GENERATORS: minion_interval = CFG.spider_minion_interval_gen
+		Phase.VULNERABLE_2: minion_interval = CFG.spider_minion_interval_v2
 		Phase.FINAL: minion_interval = CFG.spider_minion_interval_final
 		_: minion_interval = 15.0
 	minion_timer += delta
@@ -237,20 +260,56 @@ func _process(delta):
 
 	# Phase-specific logic
 	match current_phase:
-		Phase.VULNERABLE_1:
-			_update_vulnerable_1_phase(delta)
 		Phase.WEAKPOINTS:
 			_update_weakpoints_phase(delta)
-		Phase.VULNERABLE_2:
-			_update_vulnerable_2_phase(delta)
+		Phase.VULNERABLE_1:
+			_update_vulnerable_1_phase(delta)
 		Phase.GENERATORS:
 			_update_generators_phase(delta)
+		Phase.VULNERABLE_2:
+			_update_vulnerable_2_phase(delta)
 		Phase.FINAL:
 			_update_final_phase(delta)
 
 
+func _update_weakpoints_phase(delta):
+	# Cluster telegraphs (wp config)
+	telegraph_timer += delta
+	if telegraph_timer >= CFG.spider_wp_cluster_interval and cluster_beams_remaining <= 0:
+		telegraph_timer = 0.0
+		_start_cluster(
+			randi_range(CFG.spider_wp_cluster_beam_min, CFG.spider_wp_cluster_beam_max),
+			CFG.spider_wp_cluster_spread,
+			CFG.spider_wp_cluster_lead
+		)
+	_tick_cluster_spawner(delta)
+	_tick_telegraphs(delta)
+
+	# Dual rotating streams + aimed bursts
+	burst_timer += delta
+	attack_angle += delta * 2.0
+	if burst_timer >= 0.2:
+		burst_timer = 0.0
+		_fire(Vector3(cos(attack_angle), 0, sin(attack_angle)), 140.0)
+		_fire(Vector3(cos(attack_angle + PI), 0, sin(attack_angle + PI)), 140.0)
+	pattern_timer += delta
+	if pattern_timer >= 2.5:
+		pattern_timer = 0.0
+		var player = _find_player()
+		if player:
+			var dir = (player.global_position - global_position).normalized()
+			for i in range(5):
+				var spread_angle = (i - 2) * 0.15
+				var sd = Vector3(
+					dir.x * cos(spread_angle) - dir.z * sin(spread_angle),
+					0,
+					dir.x * sin(spread_angle) + dir.z * cos(spread_angle)
+				)
+				_fire(sd, 160.0)
+
+
 func _update_vulnerable_1_phase(delta):
-	# Simple aimed burst pattern (same as old ARMOR phase)
+	# Simple aimed burst pattern (lighter attacks while boss is first damageable)
 	burst_timer += delta
 	attack_angle += delta * 1.5
 	if burst_timer >= 1.5:
@@ -266,16 +325,16 @@ func _update_vulnerable_1_phase(delta):
 			_fire(right, 120.0)
 
 
-func _update_weakpoints_phase(delta):
-	# Cluster telegraphs
-	var interval = CFG.spider_wp_cluster_interval
+func _update_generators_phase(delta):
+	# Cluster telegraphs (interval scales with alive generators)
+	var interval = CFG.spider_gen_cluster_base_interval + generators_alive * CFG.spider_gen_cluster_interval_per_gen
 	telegraph_timer += delta
 	if telegraph_timer >= interval and cluster_beams_remaining <= 0:
 		telegraph_timer = 0.0
 		_start_cluster(
-			randi_range(CFG.spider_wp_cluster_beam_min, CFG.spider_wp_cluster_beam_max),
-			CFG.spider_wp_cluster_spread,
-			CFG.spider_wp_cluster_lead
+			randi_range(CFG.spider_gen_cluster_beam_min, CFG.spider_gen_cluster_beam_max),
+			CFG.spider_gen_cluster_spread,
+			CFG.spider_gen_cluster_lead
 		)
 	_tick_cluster_spawner(delta)
 	_tick_telegraphs(delta)
@@ -304,45 +363,8 @@ func _update_weakpoints_phase(delta):
 
 
 func _update_vulnerable_2_phase(delta):
-	# Same attacks as WEAKPOINTS but boss is hittable
-	var interval = CFG.spider_wp_cluster_interval
-	telegraph_timer += delta
-	if telegraph_timer >= interval and cluster_beams_remaining <= 0:
-		telegraph_timer = 0.0
-		_start_cluster(
-			randi_range(CFG.spider_wp_cluster_beam_min, CFG.spider_wp_cluster_beam_max),
-			CFG.spider_wp_cluster_spread,
-			CFG.spider_wp_cluster_lead
-		)
-	_tick_cluster_spawner(delta)
-	_tick_telegraphs(delta)
-
-	# Bullet pattern — rotating dual streams + aimed shots
-	burst_timer += delta
-	attack_angle += delta * 2.0
-	if burst_timer >= 0.2:
-		burst_timer = 0.0
-		_fire(Vector3(cos(attack_angle), 0, sin(attack_angle)), 140.0)
-		_fire(Vector3(cos(attack_angle + PI), 0, sin(attack_angle + PI)), 140.0)
-	pattern_timer += delta
-	if pattern_timer >= 2.5:
-		pattern_timer = 0.0
-		var player = _find_player()
-		if player:
-			var dir = (player.global_position - global_position).normalized()
-			for i in range(5):
-				var spread_angle = (i - 2) * 0.15
-				var sd = Vector3(
-					dir.x * cos(spread_angle) - dir.z * sin(spread_angle),
-					0,
-					dir.x * sin(spread_angle) + dir.z * cos(spread_angle)
-				)
-				_fire(sd, 160.0)
-
-
-func _update_generators_phase(delta):
-	# Cluster telegraphs (interval scales with alive generators)
-	var interval = CFG.spider_gen_cluster_base_interval + generators_alive * CFG.spider_gen_cluster_interval_per_gen
+	# Same attacks as GENERATORS but boss is hittable (no shields)
+	var interval = CFG.spider_gen_cluster_base_interval
 	telegraph_timer += delta
 	if telegraph_timer >= interval and cluster_beams_remaining <= 0:
 		telegraph_timer = 0.0
@@ -528,7 +550,7 @@ func take_damage(amount: int):
 		return
 	if current_phase == Phase.DYING:
 		return
-	if current_phase == Phase.WEAKPOINTS or current_phase == Phase.GENERATORS:
+	if current_phase in [Phase.WEAKPOINTS, Phase.GENERATORS]:
 		shield_hit_timer = 0.3
 		return
 	hp -= amount
@@ -540,26 +562,26 @@ func take_damage(amount: int):
 
 
 func _check_hp_thresholds():
-	if current_phase == Phase.VULNERABLE_1 and hp <= phase2_threshold:
-		_transition_to_weakpoints()
-	elif current_phase == Phase.VULNERABLE_2 and hp <= phase4_threshold:
+	if current_phase == Phase.VULNERABLE_1 and hp <= generators_threshold:
 		_transition_to_generators()
+	elif current_phase == Phase.VULNERABLE_2 and hp <= final_threshold:
+		_transition_to_final()
 
 
-func _transition_to_weakpoints():
-	current_phase = Phase.WEAKPOINTS
+func _transition_to_generators():
+	current_phase = Phase.GENERATORS
 	shield_active = true
-	hp = maxi(hp, phase2_threshold)
-	_spawn_weak_points()
+	hp = maxi(hp, generators_threshold)
 	telegraph_circles.clear()
 	burst_timer = 0.0
 	pattern_timer = 0.0
 	telegraph_timer = 0.0
+	get_tree().current_scene.spawn_shield_generators(self)
 
 
-func on_weak_point_destroyed(_index: int):
-	weak_points_alive -= 1
-	if weak_points_alive <= 0:
+func on_generator_destroyed():
+	generators_alive -= 1
+	if generators_alive <= 0:
 		_transition_to_vulnerable_2()
 
 
@@ -572,25 +594,7 @@ func _transition_to_vulnerable_2():
 	telegraph_timer = 0.0
 
 
-func _transition_to_generators():
-	current_phase = Phase.GENERATORS
-	shield_active = true
-	hp = maxi(hp, phase4_threshold)
-	telegraph_circles.clear()
-	burst_timer = 0.0
-	pattern_timer = 0.0
-	telegraph_timer = 0.0
-	get_tree().current_scene.spawn_shield_generators(self)
-
-
-func on_generator_destroyed():
-	generators_alive -= 1
-	if generators_alive <= 0:
-		_transition_to_final()
-
-
 func _transition_to_final():
-	shield_active = false
 	current_phase = Phase.FINAL
 	telegraph_circles.clear()
 	burst_timer = 0.0
@@ -604,10 +608,10 @@ func _spawn_minions():
 		return
 	var waves = 1
 	match current_phase:
+		Phase.WEAKPOINTS: waves = 1
 		Phase.VULNERABLE_1: waves = 1
-		Phase.WEAKPOINTS: waves = 2
-		Phase.VULNERABLE_2: waves = 2
 		Phase.GENERATORS: waves = 2
+		Phase.VULNERABLE_2: waves = 2
 		Phase.FINAL: waves = 4
 	for i in range(waves):
 		get_tree().current_scene.spawn_spider_minions(global_position + Vector3(randf_range(-120, 120), 0, randf_range(-120, 120)))
@@ -648,9 +652,6 @@ func _actually_die():
 		get_tree().current_scene.game_world_2d.add_child(orb)
 		orb.global_position = death_pos + Vector3(randf_range(-50, 50), 0, randf_range(-50, 50))
 		get_tree().current_scene.spawn_synced_prestige_orb(orb.global_position)
-	for wp in weak_point_nodes:
-		if is_instance_valid(wp):
-			wp.queue_free()
 	get_tree().current_scene.on_spider_boss_killed()
 	queue_free()
 
