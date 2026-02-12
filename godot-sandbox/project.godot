@@ -20,6 +20,7 @@ config/icon="res://icon.svg"
 WebDebug="*res://scripts/web_debug.gd"
 GameData="*res://scripts/game_data.gd"
 NetworkManager="*res://scripts/network_manager.gd"
+MusicPlayer="*uid://cjyl1eyw0e4yk"
 
 [display]
 
@@ -28,6 +29,10 @@ window/size/viewport_height=720
 window/size/mode=2
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
+
+[global_group]
+
+main="the main node"
 
 [physics]
 

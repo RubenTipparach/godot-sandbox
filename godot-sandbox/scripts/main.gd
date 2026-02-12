@@ -271,6 +271,8 @@ func _create_world():
 	hud_node.game_started.connect(_on_game_started)
 	_debug_log("  HUD loaded OK. is_mobile=%s" % str(hud_node.is_mobile if "is_mobile" in hud_node else "N/A"))
 
+	MusicPlayer.game_started()
+
 
 func _init_game_world():
 	# Called when the game actually starts (host clicks Play / player clicks wave).
@@ -2742,6 +2744,7 @@ func _on_upgrade_chosen(upgrade_key: String):
 
 
 func _on_game_started(start_wave: int):
+	MusicPlayer.start_build_music() ## Assuming we start the game in build mode everytime
 	starting_wave = start_wave
 	run_prestige = 0
 	# Create all gameplay objects (deferred from _ready to avoid loading during menu)
