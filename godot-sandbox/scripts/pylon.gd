@@ -19,6 +19,7 @@ func get_building_name() -> String:
 func take_damage(amount: int):
 	hp -= amount
 	if hp <= 0:
+		SFXManager.play("explode_small")
 		queue_free()
 
 

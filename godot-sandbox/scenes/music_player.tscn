@@ -1,9 +1,9 @@
 [gd_scene format=3 uid="uid://cjyl1eyw0e4yk"]
 
-[ext_resource type="Script" uid="uid://bo54ulan5hbfh" path="res://scripts/music_player.gd" id="1_jxdhu"]
-[ext_resource type="AudioStream" uid="uid://btuq4oicfg0rj" path="res://music/battle_intro-001.wav" id="2_yalyj"]
-[ext_resource type="AudioStream" uid="uid://jt8g8svtnqqk" path="res://music/build_loop.wav" id="3_l7xiw"]
-[ext_resource type="AudioStream" uid="uid://s1up1xq8akaw" path="res://music/menu.wav" id="4_yalyj"]
+[ext_resource type="Script" path="res://scripts/music_player.gd" id="1_jxdhu"]
+[ext_resource type="AudioStream" uid="uid://btuq4oicfg0rj" path="res://resources/sounds/music/battle_intro-001.wav" id="2_yalyj"]
+[ext_resource type="AudioStream" uid="uid://jt8g8svtnqqk" path="res://resources/sounds/music/build_loop.wav" id="3_l7xiw"]
+[ext_resource type="AudioStream" uid="uid://s1up1xq8akaw" path="res://resources/sounds/music/menu.wav" id="4_yalyj"]
 
 [node name="MusicPlayer" type="Node" unique_id=483043305]
 process_mode = 3

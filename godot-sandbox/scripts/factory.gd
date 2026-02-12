@@ -55,6 +55,7 @@ func _generate_resources():
 func take_damage(amount: int):
 	hp -= amount
 	if hp <= 0:
+		SFXManager.play("explode_small")
 		_spawn_aliens_on_death()
 		queue_free()
 
