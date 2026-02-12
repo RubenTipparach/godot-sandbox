@@ -369,7 +369,7 @@ func _ready():
 	power_warning_label.add_theme_font_size_override("font_size", 18)
 	power_warning_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.1))
 	power_warning_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	power_warning_label.offset_left = 190
+	power_warning_label.offset_left = 250
 	power_warning_label.offset_top = 110
 	power_warning_label.visible = false
 	power_warning_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -705,12 +705,12 @@ func _build_start_menu(root: Control):
 	_style_button(oc_btn, Color(0.15, 0.25, 0.45))
 	menu_buttons_container.add_child(oc_btn)
 
-	var research_btn = Button.new()
-	research_btn.text = "Research Tree"
-	research_btn.custom_minimum_size = Vector2(260, 50)
-	research_btn.add_theme_font_size_override("font_size", 20)
-	research_btn.pressed.connect(_on_research_btn_pressed)
-	menu_buttons_container.add_child(research_btn)
+	var settings_btn = Button.new()
+	settings_btn.text = "Settings"
+	settings_btn.custom_minimum_size = Vector2(260, 50)
+	settings_btn.add_theme_font_size_override("font_size", 20)
+	settings_btn.pressed.connect(_on_open_settings_from_menu)
+	menu_buttons_container.add_child(settings_btn)
 
 	# Wave selection sub-view (shown when Single Player or Local Co-Op is picked)
 	wave_select_container = Control.new()
@@ -747,30 +747,29 @@ func _build_start_menu(root: Control):
 		wave_container.add_child(btn)
 		start_wave_buttons.append({"button": btn, "wave": wave})
 
+	var wave_research_btn = Button.new()
+	wave_research_btn.text = "Research Tree"
+	wave_research_btn.custom_minimum_size = Vector2(150, 40)
+	wave_research_btn.add_theme_font_size_override("font_size", 16)
+	wave_research_btn.set_anchors_preset(Control.PRESET_CENTER)
+	wave_research_btn.offset_top = 60
+	wave_research_btn.offset_left = -75
+	wave_research_btn.offset_right = 75
+	wave_research_btn.offset_bottom = 100
+	wave_research_btn.pressed.connect(_on_research_btn_pressed)
+	wave_select_container.add_child(wave_research_btn)
+
 	var wave_back_btn = Button.new()
 	wave_back_btn.text = "Back"
 	wave_back_btn.custom_minimum_size = Vector2(150, 45)
 	wave_back_btn.add_theme_font_size_override("font_size", 18)
 	wave_back_btn.set_anchors_preset(Control.PRESET_CENTER)
-	wave_back_btn.offset_top = 60
+	wave_back_btn.offset_top = 110
 	wave_back_btn.offset_left = -75
 	wave_back_btn.offset_right = 75
-	wave_back_btn.offset_bottom = 105
+	wave_back_btn.offset_bottom = 155
 	wave_back_btn.pressed.connect(_on_wave_select_back)
 	wave_select_container.add_child(wave_back_btn)
-
-	# Settings button (bottom-left)
-	var start_settings_btn = Button.new()
-	start_settings_btn.text = "Settings"
-	start_settings_btn.custom_minimum_size = Vector2(150, 45)
-	start_settings_btn.add_theme_font_size_override("font_size", 18)
-	start_settings_btn.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	start_settings_btn.offset_top = -55
-	start_settings_btn.offset_left = 10
-	start_settings_btn.offset_right = 160
-	start_settings_btn.offset_bottom = -10
-	start_settings_btn.pressed.connect(_on_open_settings_from_menu)
-	start_menu.add_child(start_settings_btn)
 
 	var debug_toggle_btn = Button.new()
 	debug_toggle_btn.text = "Debug"
@@ -1214,6 +1213,18 @@ func _build_lobby_panel(root: Control):
 	_style_button(lobby_start_btn, Color(0.15, 0.45, 0.2))
 	lobby_center.add_child(lobby_start_btn)
 
+	var lobby_research_btn = Button.new()
+	lobby_research_btn.text = "Research Tree"
+	lobby_research_btn.custom_minimum_size = Vector2(150, 40)
+	lobby_research_btn.add_theme_font_size_override("font_size", 16)
+	lobby_research_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	lobby_research_btn.offset_top = -110
+	lobby_research_btn.offset_left = -75
+	lobby_research_btn.offset_right = 75
+	lobby_research_btn.offset_bottom = -70
+	lobby_research_btn.pressed.connect(_on_research_btn_pressed_from_lobby)
+	lobby_panel.add_child(lobby_research_btn)
+
 	var back_btn = Button.new()
 	back_btn.text = "Back"
 	back_btn.custom_minimum_size = Vector2(150, 45)
@@ -1592,17 +1603,28 @@ func _on_reset_progress():
 	_update_start_menu()
 
 
+var _research_opened_from: String = "wave_select"
+
 func _on_research_btn_pressed():
+	_research_opened_from = "wave_select"
 	start_menu.visible = false
 	research_panel.visible = true
 	_update_research_panel()
 
+func _on_research_btn_pressed_from_lobby():
+	_research_opened_from = "lobby"
+	lobby_panel.visible = false
+	research_panel.visible = true
+	_update_research_panel()
 
 func _on_research_back():
 	research_panel.visible = false
-	start_menu.visible = true
-	menu_buttons_container.visible = true
-	wave_select_container.visible = false
+	if _research_opened_from == "lobby":
+		lobby_panel.visible = true
+	else:
+		start_menu.visible = true
+		menu_buttons_container.visible = false
+		wave_select_container.visible = true
 	_update_start_menu()
 
 
@@ -2585,6 +2607,7 @@ func _desc(key: String, lv: int) -> String:
 		"armor": return "Reduce damage by %d" % (lv * 2)
 		"crit_chance": return "%d%% chance for 2x damage" % (lv * 10)
 		"pickup_range": return "+15 pickup range (+%dpx total)" % (lv * 15)
+		"shoot_range": return "+40 shoot range (+%d total)" % (lv * 40)
 	return ""
 
 
