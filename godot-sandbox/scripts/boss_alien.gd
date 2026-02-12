@@ -160,11 +160,12 @@ func _execute_pattern(delta):
 
 func _fire(dir: Vector3, spd: float):
 	var b = preload("res://scenes/enemy_bullet.tscn").instantiate()
+	var spawn_pos = global_position + dir * 25
 	b.direction = dir
 	b.speed = spd
 	b.damage = maxi(int(damage * 0.3), 3)
 	get_tree().current_scene.game_world_2d.add_child(b)
-	b.global_position = global_position + dir * 25
+	b.global_position = spawn_pos
 	get_tree().current_scene.spawn_synced_enemy_bullet(b.global_position, b.direction)
 
 
@@ -198,23 +199,23 @@ func take_damage(amount: int):
 
 
 func _die():
-	var die_pos = global_position
+	var death_pos = global_position
 	for i in range(5):
 		var gem = preload("res://scenes/xp_gem.tscn").instantiate()
 		gem.xp_value = maxi(xp_value / 5, 1)
 		gem.gem_size = 2
 		get_tree().current_scene.game_world_2d.add_child(gem)
-		gem.global_position = die_pos + Vector3(randf_range(-30, 30), 0, randf_range(-30, 30))
+		gem.global_position = death_pos + Vector3(randf_range(-30, 30), 0, randf_range(-30, 30))
 	var orb_count = 5 * NetworkManager.get_player_count()
 	for i in range(orb_count):
 		var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
 		get_tree().current_scene.game_world_2d.add_child(orb)
-		orb.global_position = die_pos + Vector3(randf_range(-25, 25), 0, randf_range(-25, 25))
+		orb.global_position = death_pos + Vector3(randf_range(-25, 25), 0, randf_range(-25, 25))
 		get_tree().current_scene.spawn_synced_prestige_orb(orb.global_position)
 	var powerup = preload("res://scenes/powerup.tscn").instantiate()
 	powerup.powerup_type = "heal"
 	get_tree().current_scene.game_world_2d.add_child(powerup)
-	powerup.global_position = die_pos
+	powerup.global_position = death_pos
 	get_tree().current_scene.spawn_synced_powerup(powerup.global_position, powerup.powerup_type)
 	get_tree().current_scene.on_boss_killed()
 	queue_free()

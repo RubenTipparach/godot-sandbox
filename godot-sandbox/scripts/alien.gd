@@ -191,16 +191,16 @@ func take_damage(amount: int):
 
 
 func _die():
-	var die_pos = global_position
+	var death_pos = global_position
 	var gem = preload("res://scenes/xp_gem.tscn").instantiate()
 	gem.xp_value = xp_value
 	get_tree().current_scene.game_world_2d.add_child(gem)
-	gem.global_position = die_pos
+	gem.global_position = death_pos
 	if randi() % 10 == 0:
 		var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
 		orb.prestige_value = NetworkManager.get_player_count()
 		get_tree().current_scene.game_world_2d.add_child(orb)
-		orb.global_position = die_pos
+		orb.global_position = death_pos
 		get_tree().current_scene.spawn_synced_prestige_orb(orb.global_position)
 	_try_drop_heal()
 	queue_free()

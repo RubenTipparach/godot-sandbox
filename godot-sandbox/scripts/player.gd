@@ -10,6 +10,7 @@ var iron: int = 0
 var crystal: int = 0
 var shoot_timer: float = 0.0
 var facing_angle: float = 0.0
+var gun_angle: float = 0.0
 var invuln_timer: float = 0.0
 var auto_mine_timer: float = 0.0
 var mine_targets: Array = []
@@ -77,6 +78,7 @@ var research_xp_gain: float = 0.0
 # Multiplayer
 var peer_id: int = 1
 var is_local: bool = true
+var bullet_origin: Marker3D = null
 var player_color: Color = Color(0.2, 0.9, 0.3)
 var player_name: String = ""
 var _remote_target_pos: Vector3 = Vector3.ZERO
@@ -172,22 +174,27 @@ func _process(delta):
 	position.x = clampf(position.x, -CFG.map_half_size, CFG.map_half_size)
 	position.z = clampf(position.z, -CFG.map_half_size, CFG.map_half_size)
 
+	# Ship body always faces mouse (or look joystick on mobile)
+	if look_joystick_node and look_joystick_node.input_vector != Vector2.ZERO:
+		facing_angle = atan2(look_joystick_node.input_vector.y, look_joystick_node.input_vector.x)
+	elif not is_mobile:
+		var mw = get_tree().current_scene.mouse_world_2d
+		var dir = mw - global_position
+		facing_angle = atan2(dir.z, dir.x)
+
+	# Gun independently aims at nearest enemy (auto-aim), falls back to mouse
 	if is_mobile or auto_aim:
 		if look_joystick_node and look_joystick_node.input_vector != Vector2.ZERO:
-			facing_angle = atan2(look_joystick_node.input_vector.y, look_joystick_node.input_vector.x)
+			gun_angle = atan2(look_joystick_node.input_vector.y, look_joystick_node.input_vector.x)
 		else:
 			var nearest_alien = _find_nearest_alien()
 			if nearest_alien:
 				var dir = nearest_alien.global_position - global_position
-				facing_angle = atan2(dir.z, dir.x)
+				gun_angle = atan2(dir.z, dir.x)
 			elif not is_mobile:
-				var mw = get_tree().current_scene.mouse_world_2d
-				var dir = mw - global_position
-				facing_angle = atan2(dir.z, dir.x)
+				gun_angle = facing_angle
 	else:
-		var mw = get_tree().current_scene.mouse_world_2d
-		var dir = mw - global_position
-		facing_angle = atan2(dir.z, dir.x)
+		gun_angle = facing_angle
 	shoot_timer = maxf(0.0, shoot_timer - delta)
 	invuln_timer = maxf(0.0, invuln_timer - delta)
 	magnet_timer = maxf(0.0, magnet_timer - delta)
@@ -323,7 +330,7 @@ func _shoot():
 		var off = 0.0
 		if count > 1:
 			off = lerpf(-spread / 2.0, spread / 2.0, float(i) / float(count - 1))
-		b.direction = Vector3(cos(facing_angle + off), 0, sin(facing_angle + off))
+		b.direction = Vector3(cos(gun_angle + off), 0, sin(gun_angle + off))
 		b.damage = CFG.bullet_damage + research_damage
 		b.crit_chance = upgrades["crit_chance"] * CFG.crit_per_level
 		b.chain_count = upgrades["chain_lightning"] + int(GameData.get_research_bonus("chain_count"))
@@ -332,7 +339,11 @@ func _shoot():
 		b.burn_dps = upgrades["burning"] * CFG.burn_dps_per_level
 		b.slow_amount = upgrades["ice"] * CFG.slow_per_level
 		b.lifetime = minf(CFG.bullet_lifetime, get_shoot_range() / b.speed)
-		var spawn_pos = global_position + Vector3(cos(facing_angle), 0, sin(facing_angle)) * 20.0
+		var spawn_pos: Vector3
+		if bullet_origin:
+			spawn_pos = Vector3(bullet_origin.global_position.x, 0, bullet_origin.global_position.z)
+		else:
+			spawn_pos = global_position + Vector3(cos(gun_angle), 0, sin(gun_angle)) * 20.0
 		get_tree().current_scene.game_world_2d.add_child(b)
 		b.global_position = spawn_pos
 		get_tree().current_scene.spawn_synced_bullet(b.global_position, b.direction, false, b.burn_dps, b.slow_amount)

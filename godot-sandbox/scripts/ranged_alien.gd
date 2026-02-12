@@ -174,10 +174,11 @@ func _get_resource_avoidance() -> Vector3:
 func _shoot_at(target: Node3D):
 	var b = preload("res://scenes/enemy_bullet.tscn").instantiate()
 	var dir = (target.global_position - global_position).normalized()
+	var spawn_pos = global_position + dir * 15
 	b.direction = dir
 	b.damage = damage
 	get_tree().current_scene.game_world_2d.add_child(b)
-	b.global_position = global_position + dir * 15
+	b.global_position = spawn_pos
 	get_tree().current_scene.spawn_synced_enemy_bullet(b.global_position, b.direction)
 
 
@@ -191,15 +192,15 @@ func take_damage(amount: int):
 
 
 func _die():
-	var die_pos = global_position
+	var death_pos = global_position
 	var gem = preload("res://scenes/xp_gem.tscn").instantiate()
 	gem.xp_value = xp_value
 	get_tree().current_scene.game_world_2d.add_child(gem)
-	gem.global_position = die_pos
+	gem.global_position = death_pos
 	if randi() % 10 == 0:
 		var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
 		get_tree().current_scene.game_world_2d.add_child(orb)
-		orb.global_position = die_pos
+		orb.global_position = death_pos
 		get_tree().current_scene.spawn_synced_prestige_orb(orb.global_position)
 	_try_drop_heal()
 	queue_free()
