@@ -4,8 +4,9 @@ importer="texture"
 type="CompressedTexture2D"
 uid="uid://c6ua1sjqa7oe4"
 path.s3tc="res://.godot/imported/cross_lander_0.png-70a5b771ffdaf3db136212c4ca171491.s3tc.ctex"
+path.etc2="res://.godot/imported/cross_lander_0.png-70a5b771ffdaf3db136212c4ca171491.etc2.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
+"imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
@@ -15,7 +16,7 @@ generator_parameters={
 [deps]
 
 source_file="res://resources/models/cross_lander_0.png"
-dest_files=["res://.godot/imported/cross_lander_0.png-70a5b771ffdaf3db136212c4ca171491.s3tc.ctex"]
+dest_files=["res://.godot/imported/cross_lander_0.png-70a5b771ffdaf3db136212c4ca171491.s3tc.ctex", "res://.godot/imported/cross_lander_0.png-70a5b771ffdaf3db136212c4ca171491.etc2.ctex"]
 
 [params]
 
