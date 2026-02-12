@@ -4,6 +4,16 @@ signal level_up
 
 const CFG = preload("res://resources/game_config.tres")
 
+## SFX STREAMS ##
+const MINING_LASER_SOUND = preload("uid://c605m7wnf8mmk")
+const MINING_LASER_SOUND_END = preload("uid://ckujswy7m8f0r")
+
+## ----------- ##
+## SFX PLAYERS ##
+@onready var mining_sfx_player: AudioStreamPlayer2D = $MiningSFXPlayer
+@onready var shooting_sfx_player: AudioStreamPlayer2D = $ShootingSFXPlayer
+## ----------- ##
+
 var health: int = CFG.player_health
 var max_health: int = CFG.player_health
 var iron: int = 0
@@ -283,6 +293,7 @@ func _process(delta):
 		_process_regen(delta)
 	if nuke_radius > 0:
 		_process_nuke(delta)
+	_play_sfx()
 
 
 func _process_nuke(delta):
@@ -491,6 +502,17 @@ func _spawn_popup(text: String, color: Color):
 	popup.color = color
 	get_tree().current_scene.game_world_2d.add_child(popup)
 	popup.global_position = global_position + Vector3(0, 30, 0)
+
+
+func _play_sfx():
+
+	if not mine_targets.any(is_instance_valid):
+		if mining_sfx_player.stream != MINING_LASER_SOUND_END:
+			mining_sfx_player.stream = MINING_LASER_SOUND_END
+			mining_sfx_player.play()
+	elif not mining_sfx_player.playing or mining_sfx_player.stream != MINING_LASER_SOUND:
+		mining_sfx_player.stream = MINING_LASER_SOUND
+		mining_sfx_player.play()
 
 
 func add_xp(amount: int):
@@ -750,6 +772,7 @@ func take_damage(amount: int):
 
 func _die():
 	is_dead = true
+	MusicPlayer.player_died()
 	_spawn_death_particles()
 	get_tree().current_scene.on_player_died(self)
 
