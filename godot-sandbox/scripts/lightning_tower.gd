@@ -6,6 +6,7 @@ var hp: int = CFG.hp_lightning
 var max_hp: int = CFG.hp_lightning
 var zap_timer: float = 0.0
 var zap_targets: Array = []
+var zap_visual_timer: float = 0.0
 var manually_disabled: bool = false
 
 
@@ -35,7 +36,6 @@ func is_powered() -> bool:
 
 
 func _process(delta):
-	zap_targets.clear()
 	var powered = is_powered()
 
 	if powered:
@@ -44,8 +44,15 @@ func _process(delta):
 			zap_timer = 0.0
 			_zap_enemies()
 
+	# Keep zap visual for 0.5s after firing
+	if zap_visual_timer > 0:
+		zap_visual_timer -= delta
+		if zap_visual_timer <= 0:
+			zap_targets.clear()
+
 
 func _zap_enemies():
+	zap_targets.clear()
 	var aliens = get_tree().get_nodes_in_group("aliens")
 	for alien in aliens:
 		if not is_instance_valid(alien):
@@ -53,6 +60,8 @@ func _zap_enemies():
 		if global_position.distance_to(alien.global_position) < CFG.lightning_range:
 			alien.take_damage(CFG.lightning_damage)
 			zap_targets.append(alien.global_position - global_position)
+	if not zap_targets.is_empty():
+		zap_visual_timer = 0.5
 
 
 func take_damage(amount: int):

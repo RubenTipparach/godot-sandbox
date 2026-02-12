@@ -1931,8 +1931,11 @@ func _on_death_return_to_menu():
 	get_tree().reload_current_scene()
 
 
-func show_death_screen(wave: int, bosses: int, prestige_earned: int = 0, prestige_total: int = 0):
-	death_stats_label.text = "Survived %d waves | Bosses killed: %d" % [wave, bosses]
+func show_death_screen(wave: int, bosses: int, prestige_earned: int = 0, prestige_total: int = 0, death_cause: String = ""):
+	var cause_text = ""
+	if death_cause != "":
+		cause_text = "Cause: %s\n" % death_cause
+	death_stats_label.text = "%sSurvived %d waves | Bosses killed: %d" % [cause_text, wave, bosses]
 	if prestige_earned > 0:
 		prestige_label.text = "Prestige Earned: +%d  (Total: %d)" % [prestige_earned, prestige_total]
 	else:

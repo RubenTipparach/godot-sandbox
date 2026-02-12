@@ -20,7 +20,8 @@ func get_building_name() -> String:
 
 
 func take_damage(amount: int):
-	hp -= amount
+	hp = maxi(0, hp - amount)
+	print("[HQ] Took %d damage | HP: %d/%d" % [amount, hp, max_hp])
 	if hp <= 0:
 		SFXManager.play("explode_small")
 		destroyed.emit()

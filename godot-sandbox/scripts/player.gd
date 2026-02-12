@@ -26,6 +26,7 @@ var iron: int = 0
 var crystal: int = 0
 var shoot_timer: float = 0.0
 var facing_angle: float = 0.0
+var move_direction: Vector3 = Vector3.ZERO
 var gun_angle: float = 0.0
 var gun_visual_angle: float = 0.0
 var invuln_timer: float = 0.0
@@ -201,7 +202,10 @@ func _process(delta):
 		if Input.is_action_pressed("move_left"): input.x -= 1
 		if Input.is_action_pressed("move_right"): input.x += 1
 	if input != Vector3.ZERO:
-		position += input.normalized() * CFG.player_speed * (1.0 + upgrades["move_speed"] * CFG.move_speed_per_level + research_move_speed) * delta
+		move_direction = input.normalized()
+		position += move_direction * CFG.player_speed * (1.0 + upgrades["move_speed"] * CFG.move_speed_per_level + research_move_speed) * delta
+	else:
+		move_direction = Vector3.ZERO
 	position.x = clampf(position.x, -CFG.map_half_size, CFG.map_half_size)
 	position.z = clampf(position.z, -CFG.map_half_size, CFG.map_half_size)
 
@@ -799,7 +803,8 @@ func take_damage(amount: int):
 	# Armor reduction
 	var armor_reduction = upgrades["armor"] * CFG.armor_per_level
 	var final_damage = maxi(1, amount - armor_reduction)
-	health -= final_damage
+	health = maxi(0, health - final_damage)
+	print("[SHIP] Took %d damage (raw %d, armor -%d) | HP: %d/%d" % [final_damage, amount, armor_reduction, health, max_health])
 	invuln_timer = 0.5
 	hit_flash_timer = 0.15
 	if health <= 0:
