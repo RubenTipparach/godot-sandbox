@@ -61,12 +61,13 @@ func take_damage(amount: int):
 
 
 func _spawn_aliens_on_death():
+	var die_pos = global_position
 	var alien_scene = preload("res://scenes/alien.tscn")
 	for i in range(3):
 		var alien = alien_scene.instantiate()
-		alien.global_position = global_position + Vector3(randf_range(-25, 25), 0, randf_range(-25, 25))
 		alien.hp = 25
 		alien.max_hp = 25
 		alien.damage = 6
 		alien.speed = 55.0
 		get_tree().current_scene.aliens_node.add_child(alien)
+		alien.global_position = die_pos + Vector3(randf_range(-25, 25), 0, randf_range(-25, 25))

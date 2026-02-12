@@ -79,7 +79,6 @@ func _on_hit(alien: Node3D):
 
 func _spawn_damage_number(pos: Vector3, amount: int, is_crit: bool):
 	var popup = preload("res://scenes/popup_text.tscn").instantiate()
-	popup.global_position = pos + Vector3(randf_range(-10, 10), 15, 0)
 	popup.text = str(amount)
 	if is_crit:
 		popup.text = str(amount) + "!"
@@ -89,6 +88,7 @@ func _spawn_damage_number(pos: Vector3, amount: int, is_crit: bool):
 	popup.velocity = Vector3(randf_range(-20, 20), 60, 0)
 	popup.lifetime = 0.8
 	get_tree().current_scene.game_world_2d.add_child(popup)
+	popup.global_position = pos + Vector3(randf_range(-10, 10), 15, 0)
 
 
 func _chain_lightning(start: Node3D):

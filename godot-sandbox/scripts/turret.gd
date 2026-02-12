@@ -80,7 +80,6 @@ func _shoot_at(target: Node3D):
 		var off = 0.0
 		if count > 1:
 			off = lerpf(-spread / 2.0, spread / 2.0, float(i) / float(count - 1))
-		bullet.global_position = global_position + dir * 20
 		var base_angle = atan2(dir.z, dir.x) + off
 		bullet.direction = Vector3(cos(base_angle), 0, sin(base_angle))
 		bullet.damage = CFG.turret_base_damage + damage_bonus + acid_damage_bonus
@@ -90,6 +89,7 @@ func _shoot_at(target: Node3D):
 		if fire_rounds:
 			bullet.burn_dps = 6.0
 		get_tree().current_scene.game_world_2d.add_child(bullet)
+		bullet.global_position = global_position + dir * 20
 		get_tree().current_scene.spawn_synced_bullet(bullet.global_position, bullet.direction, true, bullet.burn_dps, bullet.slow_amount)
 
 

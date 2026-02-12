@@ -174,10 +174,10 @@ func _get_resource_avoidance() -> Vector3:
 func _shoot_at(target: Node3D):
 	var b = preload("res://scenes/enemy_bullet.tscn").instantiate()
 	var dir = (target.global_position - global_position).normalized()
-	b.global_position = global_position + dir * 15
 	b.direction = dir
 	b.damage = damage
 	get_tree().current_scene.game_world_2d.add_child(b)
+	b.global_position = global_position + dir * 15
 	get_tree().current_scene.spawn_synced_enemy_bullet(b.global_position, b.direction)
 
 
@@ -191,14 +191,15 @@ func take_damage(amount: int):
 
 
 func _die():
+	var die_pos = global_position
 	var gem = preload("res://scenes/xp_gem.tscn").instantiate()
-	gem.global_position = global_position
 	gem.xp_value = xp_value
 	get_tree().current_scene.game_world_2d.add_child(gem)
+	gem.global_position = die_pos
 	if randi() % 10 == 0:
 		var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
-		orb.global_position = global_position
 		get_tree().current_scene.game_world_2d.add_child(orb)
+		orb.global_position = die_pos
 		get_tree().current_scene.spawn_synced_prestige_orb(orb.global_position)
 	_try_drop_heal()
 	queue_free()
@@ -212,7 +213,7 @@ func _try_drop_heal():
 	var drop_chance = 0.02 + (1.0 - health_ratio) * 0.23
 	if randf() < drop_chance:
 		var powerup = preload("res://scenes/powerup.tscn").instantiate()
-		powerup.global_position = global_position
 		powerup.powerup_type = "heal"
 		get_tree().current_scene.game_world_2d.add_child(powerup)
+		powerup.global_position = global_position
 		get_tree().current_scene.spawn_synced_powerup(powerup.global_position, powerup.powerup_type)

@@ -324,7 +324,6 @@ func _shoot():
 		if count > 1:
 			off = lerpf(-spread / 2.0, spread / 2.0, float(i) / float(count - 1))
 		b.direction = Vector3(cos(facing_angle + off), 0, sin(facing_angle + off))
-		b.global_position = global_position + Vector3(cos(facing_angle), 0, sin(facing_angle)) * 20.0
 		b.damage = CFG.bullet_damage + research_damage
 		b.crit_chance = upgrades["crit_chance"] * CFG.crit_per_level
 		b.chain_count = upgrades["chain_lightning"] + int(GameData.get_research_bonus("chain_count"))
@@ -333,7 +332,9 @@ func _shoot():
 		b.burn_dps = upgrades["burning"] * CFG.burn_dps_per_level
 		b.slow_amount = upgrades["ice"] * CFG.slow_per_level
 		b.lifetime = minf(CFG.bullet_lifetime, get_shoot_range() / b.speed)
+		var spawn_pos = global_position + Vector3(cos(facing_angle), 0, sin(facing_angle)) * 20.0
 		get_tree().current_scene.game_world_2d.add_child(b)
+		b.global_position = spawn_pos
 		get_tree().current_scene.spawn_synced_bullet(b.global_position, b.direction, false, b.burn_dps, b.slow_amount)
 
 
@@ -362,15 +363,15 @@ func _mine_nearby(qty: int):
 		# Drop XP gem when resource is fully depleted
 		if result["amount"] > 0 and not is_instance_valid(r):
 			var gem = preload("res://scenes/xp_gem.tscn").instantiate()
-			gem.global_position = res_pos
 			gem.xp_value = maxi(1, result["amount"])
 			get_tree().current_scene.game_world_2d.add_child(gem)
+			gem.global_position = res_pos
 			# 1 in 5 chance to drop a prestige orb from depleted rock
 			if randi() % 5 == 0:
 				var orb = preload("res://scenes/prestige_orb.tscn").instantiate()
-				orb.global_position = res_pos
 				orb.prestige_value = NetworkManager.get_player_count()
 				get_tree().current_scene.game_world_2d.add_child(orb)
+				orb.global_position = res_pos
 
 
 func _repair_nearby():
@@ -475,10 +476,10 @@ func _apply_powerup(type: String):
 
 func _spawn_popup(text: String, color: Color):
 	var popup = preload("res://scenes/popup_text.tscn").instantiate()
-	popup.global_position = global_position + Vector3(0, 30, 0)
 	popup.text = text
 	popup.color = color
 	get_tree().current_scene.game_world_2d.add_child(popup)
+	popup.global_position = global_position + Vector3(0, 30, 0)
 
 
 func add_xp(amount: int):
@@ -606,8 +607,8 @@ func _try_build_at(type: String, bp: Vector3) -> bool:
 			building = preload("res://scenes/poison_turret.tscn").instantiate()
 
 	if building:
-		building.global_position = bp
 		get_tree().current_scene.buildings_node.add_child(building)
+		building.global_position = bp
 		# Apply building health research bonus
 		var health_bonus = GameData.get_research_bonus("building_health")
 		if health_bonus > 0 and "hp" in building and "max_hp" in building:
@@ -642,12 +643,12 @@ func _show_build_error(msg: String):
 		return
 	_build_error_cooldown = 1.0
 	var popup = preload("res://scenes/popup_text.tscn").instantiate()
-	popup.global_position = global_position + Vector3(0, 30, 0)
 	popup.text = msg
 	popup.color = Color(1.0, 0.4, 0.3)
 	popup.velocity = Vector3(0, 40, 0)
 	popup.lifetime = 1.5
 	get_tree().current_scene.game_world_2d.add_child(popup)
+	popup.global_position = global_position + Vector3(0, 30, 0)
 
 
 func get_building_type_string(building: Node3D) -> String:
