@@ -92,8 +92,15 @@ spot_angle = 36.9
 [node name="LaserOrigin" type="Marker3D" parent="." unique_id=1330647160]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 41, 0)
 
-[node name="BulletOrigin" type="Marker3D" parent="." unique_id=730974009]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 41, 0)
+[node name="gun" type="Node3D" parent="." unique_id=2015138804]
+transform = Transform3D(-4.371139e-08, 0, -1, 0, 1, 0, 1, 0, -4.371139e-08, 0, 65, 0)
+
+[node name="CSGBox3D" type="CSGBox3D" parent="gun" unique_id=1523296121]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, 1, 0)
+size = Vector3(13, 3, 3)
+
+[node name="BulletOrigin" type="Marker3D" parent="gun/CSGBox3D" unique_id=730974009]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6, -1, 0)
 
 [node name="Thruster1" type="Marker3D" parent="." unique_id=1364093862]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -30, 39, 0)

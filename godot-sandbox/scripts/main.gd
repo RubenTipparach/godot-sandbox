@@ -1953,36 +1953,10 @@ func _create_resource_mesh(rtype: String, amount: int) -> Node3D:
 	var root = Node3D.new()
 	var sz = 10.0 + amount * 0.5
 	if rtype == "crystal":
-		var mat = _get_crystal_mat()
-		# Main crystal spire
-		var mi1 = MeshInstance3D.new()
-		var bm1 = BoxMesh.new()
-		bm1.size = Vector3(sz * 0.45, sz * 1.1, sz * 0.45)
-		mi1.mesh = bm1
-		mi1.material_override = mat
-		mi1.position = Vector3(0, sz * 0.55, 0)
-		mi1.rotation_degrees = Vector3(0, 15, 5)
-		root.add_child(mi1)
-		# Secondary crystal shard
-		var mi2 = MeshInstance3D.new()
-		var bm2 = BoxMesh.new()
-		bm2.size = Vector3(sz * 0.3, sz * 0.75, sz * 0.3)
-		mi2.mesh = bm2
-		var mat2 = _get_crystal_mat()
-		mat2.set_shader_parameter("crystal_color", Color(0.3, 0.55, 1.0))
-		mi2.material_override = mat2
-		mi2.position = Vector3(sz * 0.22, sz * 0.37, sz * 0.12)
-		mi2.rotation_degrees = Vector3(-8, -25, 12)
-		root.add_child(mi2)
-		# Small accent shard
-		var mi3 = MeshInstance3D.new()
-		var bm3 = BoxMesh.new()
-		bm3.size = Vector3(sz * 0.2, sz * 0.5, sz * 0.2)
-		mi3.mesh = bm3
-		mi3.material_override = mat
-		mi3.position = Vector3(-sz * 0.18, sz * 0.25, -sz * 0.1)
-		mi3.rotation_degrees = Vector3(5, 40, -10)
-		root.add_child(mi3)
+		var crystal = load("res://scenes/crystal.tscn").instantiate()
+		var scale_factor = sz * 0.08
+		crystal.scale = Vector3(scale_factor, scale_factor, scale_factor)
+		root.add_child(crystal)
 	else:
 		var iron_rock = load("res://scenes/iron_rock.tscn").instantiate()
 		root.add_child(iron_rock)
@@ -2073,6 +2047,12 @@ func _sync_3d_meshes():
 			var new_mesh = _create_player_mesh(col)
 			add_child(new_mesh)
 			player_meshes[p] = new_mesh
+			var bo = new_mesh.get_node_or_null("Body/PlayerShip/gun/CSGBox3D/BulletOrigin")
+			if bo:
+				p.bullet_origin = bo
+				print("[DEBUG] barrel assigned: ", bo, " global_pos=", bo.global_position)
+			else:
+				print("[DEBUG] BulletOrigin NOT FOUND in Body/PlayerShip/gun/CSGBox3D/")
 			p.visible = false
 		var mr = player_meshes[p]
 		var pp = p.global_position
@@ -2081,6 +2061,10 @@ func _sync_3d_meshes():
 		var body = mr.get_node_or_null("Body")
 		if body and "facing_angle" in p:
 			body.rotation.y = -p.facing_angle - PI / 2
+		var gun = mr.get_node_or_null("Body/PlayerShip/gun")
+		if gun and "gun_angle" in p:
+			# Gun rotates relative to body, so subtract body rotation
+			gun.rotation.y = -(p.gun_angle - p.facing_angle)
 		# Orbital lasers — sync 3D spheres + lights
 		var orb_count = p.upgrades.get("orbital_lasers", 0) if "upgrades" in p else 0
 		var orb_parent = mr.get_node_or_null("Orbitals")
@@ -3083,7 +3067,7 @@ func _broadcast_state():
 					if is_instance_valid(t):
 						mt.append(t.global_position.x)
 						mt.append(t.global_position.z)
-			player_states.append([pid, p.global_position.x, p.global_position.z, p.facing_angle, p.health, p.max_health, p.is_dead, respawn_timers.get(pid, 0.0), p.upgrades.get("orbital_lasers", 0), mt])
+			player_states.append([pid, p.global_position.x, p.global_position.z, p.facing_angle, p.health, p.max_health, p.is_dead, respawn_timers.get(pid, 0.0), p.upgrades.get("orbital_lasers", 0), mt, p.gun_angle])
 
 	# Clean dead aliens from tracking
 	var dead_ids = []
@@ -3209,6 +3193,8 @@ func _receive_state(state: Array):
 					rp.upgrades["orbital_lasers"] = ps[8]
 				if ps.size() > 9:
 					rp.remote_mine_positions = ps[9]
+				if ps.size() > 10:
+					rp.gun_angle = ps[10]
 
 	# Sync enemies
 	_sync_enemies(enemy_data)
@@ -3274,16 +3260,18 @@ func _send_client_state():
 		_receive_client_state.rpc_id(1,
 			player_node.global_position.x,
 			player_node.global_position.z,
-			player_node.facing_angle)
+			player_node.facing_angle,
+			player_node.gun_angle)
 
 
 @rpc("any_peer", "call_remote", "unreliable")
-func _receive_client_state(pos_x: float, pos_y: float, angle: float):
+func _receive_client_state(pos_x: float, pos_y: float, angle: float, g_angle: float = 0.0):
 	# Host receives client position
 	var sender_id = multiplayer.get_remote_sender_id()
 	if players.has(sender_id) and is_instance_valid(players[sender_id]):
 		players[sender_id]._remote_target_pos = Vector3(pos_x, 0, pos_y)
 		players[sender_id].facing_angle = angle
+		players[sender_id].gun_angle = g_angle
 
 
 @rpc("authority", "call_remote", "reliable")
