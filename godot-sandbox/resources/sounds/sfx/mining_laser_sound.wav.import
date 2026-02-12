@@ -3,12 +3,12 @@
 importer="wav"
 type="AudioStreamWAV"
 uid="uid://c605m7wnf8mmk"
-path="res://.godot/imported/mining_laser_sound.wav-d91ddc432a8f8af79e3f17408b549295.sample"
+path="res://.godot/imported/mining_laser_sound.wav-de0aa5ec41a50c8598d4d7feb5925113.sample"
 
 [deps]
 
-source_file="res://sfx/mining_laser_sound.wav"
-dest_files=["res://.godot/imported/mining_laser_sound.wav-d91ddc432a8f8af79e3f17408b549295.sample"]
+source_file="res://resources/sounds/sfx/mining_laser_sound.wav"
+dest_files=["res://.godot/imported/mining_laser_sound.wav-de0aa5ec41a50c8598d4d7feb5925113.sample"]
 
 [params]
 

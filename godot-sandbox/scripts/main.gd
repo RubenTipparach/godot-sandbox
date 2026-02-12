@@ -1815,9 +1815,9 @@ func _create_building_mesh(bname: String) -> Node3D:
 			root.add_child(_mesh_cyl(3, 12, Color(0.3, 0.5, 0.7), Vector3(0, 13, 0)))
 			root.add_child(_mesh_sphere(5, Color(0.4, 0.7, 1.0), Vector3(0, 24, 0)))
 		"Pylon":
-			root.add_child(_mesh_cyl(3, 24, Color(0.55, 0.6, 0.25), Vector3(0, 12, 0)))
-			root.add_child(_mesh_box(Vector3(8, 3, 8), Color(0.65, 0.7, 0.3), Vector3(0, 26, 0)))
-			root.add_child(_mesh_sphere(2, Color(0.8, 0.9, 0.4), Vector3(0, 29, 0)))
+			var pylon_model = load("res://resources/models/pylon.glb").instantiate()
+			pylon_model.position.y = 51.12
+			root.add_child(pylon_model)
 		"Power Plant":
 			root.add_child(_mesh_box(Vector3(28, 14, 28), Color(0.65, 0.55, 0.2), Vector3(0, 7, 0)))
 			root.add_child(_mesh_cyl(6, 8, Color(0.75, 0.65, 0.25), Vector3(0, 18, 0)))
@@ -1982,13 +1982,14 @@ func _sync_3d_meshes():
 	_clean_mesh_dict(building_meshes)
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if not is_instance_valid(b): continue
+		if b.is_in_group("pylons"):
+			continue
 		if b not in building_meshes:
 			var bname = b.get_building_name() if b.has_method("get_building_name") else ""
 			var new_mesh = _create_building_mesh(bname)
 			add_child(new_mesh)
 			building_meshes[b] = new_mesh
-			if not b.is_in_group("pylons"):
-				b.visible = false
+			b.visible = false
 		var mr = building_meshes[b]
 		var bp = b.global_position
 		mr.position = Vector3(bp.x, 0, bp.z)
