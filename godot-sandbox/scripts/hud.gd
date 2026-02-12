@@ -88,7 +88,14 @@ var hq_panel: PanelContainer
 var settings_panel: Control = null
 var auto_fire_btn: Button = null
 var auto_aim_btn: Button = null
+var music_slider: HSlider = null
+var sfx_slider: HSlider = null
 var _settings_from_pause: bool = false  # Track where settings was opened from
+var menu_buttons_container: VBoxContainer = null
+var wave_select_container: Control = null
+var _menu_mode: String = ""  # "single" or "local_coop"
+var power_warning_label: Label = null
+var power_warning_timer: float = 0.0
 var gameplay_hud: Control = null  # Container for all in-game HUD elements (hidden during menu)
 var start_wave_btn: Button = null
 var loading_panel: Control = null
@@ -356,6 +363,18 @@ func _ready():
 	tt_vbox.add_child(build_bar_tooltip_desc)
 	gameplay_hud.add_child(build_bar_tooltip)
 
+	# Power warning flash label (near energy display)
+	power_warning_label = Label.new()
+	power_warning_label.text = "LOW POWER"
+	power_warning_label.add_theme_font_size_override("font_size", 18)
+	power_warning_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.1))
+	power_warning_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	power_warning_label.offset_left = 190
+	power_warning_label.offset_top = 110
+	power_warning_label.visible = false
+	power_warning_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	gameplay_hud.add_child(power_warning_label)
+
 	alert_label = Label.new()
 	alert_label.add_theme_font_size_override("font_size", 36)
 	alert_label.add_theme_color_override("font_color", Color(1, 0.2, 0.2))
@@ -613,7 +632,7 @@ func _build_start_menu(root: Control):
 
 	var bg = ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.02, 0.02, 0.08, 0.95)
+	bg.color = Color(0, 0, 0, 1.0)
 	bg.mouse_filter = Control.MOUSE_FILTER_STOP
 	start_menu.add_child(bg)
 
@@ -648,25 +667,76 @@ func _build_start_menu(root: Control):
 	start_prestige_label.offset_right = 300
 	start_menu.add_child(start_prestige_label)
 
+	# Main mode buttons (Single Player / Local Co-Op / Online Co-Op / Research)
+	menu_buttons_container = VBoxContainer.new()
+	menu_buttons_container.set_anchors_preset(Control.PRESET_CENTER)
+	menu_buttons_container.offset_top = -80
+	menu_buttons_container.offset_left = -130
+	menu_buttons_container.offset_right = 130
+	menu_buttons_container.offset_bottom = 160
+	menu_buttons_container.alignment = BoxContainer.ALIGNMENT_CENTER
+	menu_buttons_container.add_theme_constant_override("separation", 12)
+	start_menu.add_child(menu_buttons_container)
+
+	var sp_btn = Button.new()
+	sp_btn.text = "Single Player"
+	sp_btn.custom_minimum_size = Vector2(260, 55)
+	sp_btn.add_theme_font_size_override("font_size", 22)
+	sp_btn.add_theme_color_override("font_color", Color(0.3, 0.9, 0.5))
+	sp_btn.pressed.connect(_on_single_player_pressed)
+	_style_button(sp_btn, Color(0.15, 0.35, 0.2))
+	menu_buttons_container.add_child(sp_btn)
+
+	var lc_btn = Button.new()
+	lc_btn.text = "Local Co-Op"
+	lc_btn.custom_minimum_size = Vector2(260, 55)
+	lc_btn.add_theme_font_size_override("font_size", 22)
+	lc_btn.add_theme_color_override("font_color", Color(0.9, 0.8, 0.3))
+	lc_btn.pressed.connect(_on_local_coop_pressed)
+	_style_button(lc_btn, Color(0.3, 0.25, 0.1))
+	menu_buttons_container.add_child(lc_btn)
+
+	var oc_btn = Button.new()
+	oc_btn.text = "Online Co-Op"
+	oc_btn.custom_minimum_size = Vector2(260, 55)
+	oc_btn.add_theme_font_size_override("font_size", 22)
+	oc_btn.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
+	oc_btn.pressed.connect(_on_online_coop_pressed)
+	_style_button(oc_btn, Color(0.15, 0.25, 0.45))
+	menu_buttons_container.add_child(oc_btn)
+
+	var research_btn = Button.new()
+	research_btn.text = "Research Tree"
+	research_btn.custom_minimum_size = Vector2(260, 50)
+	research_btn.add_theme_font_size_override("font_size", 20)
+	research_btn.pressed.connect(_on_research_btn_pressed)
+	menu_buttons_container.add_child(research_btn)
+
+	# Wave selection sub-view (shown when Single Player or Local Co-Op is picked)
+	wave_select_container = Control.new()
+	wave_select_container.set_anchors_preset(Control.PRESET_FULL_RECT)
+	wave_select_container.visible = false
+	start_menu.add_child(wave_select_container)
+
 	var wave_title = Label.new()
 	wave_title.text = "Select Starting Wave"
 	wave_title.add_theme_font_size_override("font_size", 22)
 	wave_title.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
 	wave_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	wave_title.set_anchors_preset(Control.PRESET_CENTER)
-	wave_title.offset_top = -100
+	wave_title.offset_top = -60
 	wave_title.offset_left = -200
 	wave_title.offset_right = 200
-	start_menu.add_child(wave_title)
+	wave_select_container.add_child(wave_title)
 
 	var wave_container = HBoxContainer.new()
 	wave_container.set_anchors_preset(Control.PRESET_CENTER)
-	wave_container.offset_top = -50
+	wave_container.offset_top = -10
 	wave_container.offset_left = -300
 	wave_container.offset_right = 300
 	wave_container.alignment = BoxContainer.ALIGNMENT_CENTER
 	wave_container.add_theme_constant_override("separation", 15)
-	start_menu.add_child(wave_container)
+	wave_select_container.add_child(wave_container)
 
 	for wave in [1, 5, 10, 15, 20]:
 		var btn = Button.new()
@@ -677,45 +747,19 @@ func _build_start_menu(root: Control):
 		wave_container.add_child(btn)
 		start_wave_buttons.append({"button": btn, "wave": wave})
 
-	var research_btn = Button.new()
-	research_btn.text = "Research Tree"
-	research_btn.custom_minimum_size = Vector2(200, 50)
-	research_btn.add_theme_font_size_override("font_size", 20)
-	research_btn.set_anchors_preset(Control.PRESET_CENTER)
-	research_btn.offset_top = 40
-	research_btn.offset_left = -100
-	research_btn.offset_right = 100
-	research_btn.offset_bottom = 90
-	research_btn.pressed.connect(_on_research_btn_pressed)
-	start_menu.add_child(research_btn)
+	var wave_back_btn = Button.new()
+	wave_back_btn.text = "Back"
+	wave_back_btn.custom_minimum_size = Vector2(150, 45)
+	wave_back_btn.add_theme_font_size_override("font_size", 18)
+	wave_back_btn.set_anchors_preset(Control.PRESET_CENTER)
+	wave_back_btn.offset_top = 60
+	wave_back_btn.offset_left = -75
+	wave_back_btn.offset_right = 75
+	wave_back_btn.offset_bottom = 105
+	wave_back_btn.pressed.connect(_on_wave_select_back)
+	wave_select_container.add_child(wave_back_btn)
 
-	var coop_container = HBoxContainer.new()
-	coop_container.set_anchors_preset(Control.PRESET_CENTER)
-	coop_container.offset_top = 100
-	coop_container.offset_left = -160
-	coop_container.offset_right = 160
-	coop_container.alignment = BoxContainer.ALIGNMENT_CENTER
-	coop_container.add_theme_constant_override("separation", 20)
-	start_menu.add_child(coop_container)
-
-	var host_btn = Button.new()
-	host_btn.text = "Host Co-op"
-	host_btn.custom_minimum_size = Vector2(150, 45)
-	host_btn.add_theme_font_size_override("font_size", 18)
-	host_btn.add_theme_color_override("font_color", Color(0.3, 0.9, 0.5))
-	host_btn.pressed.connect(_on_host_coop_pressed)
-	_style_button(host_btn, Color(0.15, 0.4, 0.2))
-	coop_container.add_child(host_btn)
-
-	var join_btn = Button.new()
-	join_btn.text = "Join Co-op"
-	join_btn.custom_minimum_size = Vector2(150, 45)
-	join_btn.add_theme_font_size_override("font_size", 18)
-	join_btn.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
-	join_btn.pressed.connect(_on_join_coop_pressed)
-	_style_button(join_btn, Color(0.15, 0.25, 0.45))
-	coop_container.add_child(join_btn)
-
+	# Settings button (bottom-left)
 	var start_settings_btn = Button.new()
 	start_settings_btn.text = "Settings"
 	start_settings_btn.custom_minimum_size = Vector2(150, 45)
@@ -744,10 +788,10 @@ func _build_start_menu(root: Control):
 	var debug_panel = VBoxContainer.new()
 	debug_panel.name = "DebugPanel"
 	debug_panel.set_anchors_preset(Control.PRESET_CENTER)
-	debug_panel.offset_top = 100
+	debug_panel.offset_top = 150
 	debug_panel.offset_left = -150
 	debug_panel.offset_right = 150
-	debug_panel.offset_bottom = 200
+	debug_panel.offset_bottom = 250
 	debug_panel.alignment = BoxContainer.ALIGNMENT_CENTER
 	debug_panel.add_theme_constant_override("separation", 8)
 	debug_panel.visible = false
@@ -947,6 +991,42 @@ func _build_settings_panel(root: Control):
 	auto_aim_btn.pressed.connect(_on_toggle_auto_aim)
 	vbox.add_child(auto_aim_btn)
 
+	# Music volume slider
+	var music_row = HBoxContainer.new()
+	music_row.add_theme_constant_override("separation", 8)
+	vbox.add_child(music_row)
+	var music_lbl = Label.new()
+	music_lbl.text = "Music:"
+	music_lbl.add_theme_font_size_override("font_size", 16)
+	music_lbl.custom_minimum_size = Vector2(60, 0)
+	music_row.add_child(music_lbl)
+	music_slider = HSlider.new()
+	music_slider.min_value = 0.0
+	music_slider.max_value = 1.0
+	music_slider.step = 0.05
+	music_slider.value = db_to_linear(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Music")))
+	music_slider.custom_minimum_size = Vector2(170, 20)
+	music_slider.value_changed.connect(_on_music_volume_changed)
+	music_row.add_child(music_slider)
+
+	# SFX volume slider
+	var sfx_row = HBoxContainer.new()
+	sfx_row.add_theme_constant_override("separation", 8)
+	vbox.add_child(sfx_row)
+	var sfx_lbl = Label.new()
+	sfx_lbl.text = "SFX:"
+	sfx_lbl.add_theme_font_size_override("font_size", 16)
+	sfx_lbl.custom_minimum_size = Vector2(60, 0)
+	sfx_row.add_child(sfx_lbl)
+	sfx_slider = HSlider.new()
+	sfx_slider.min_value = 0.0
+	sfx_slider.max_value = 1.0
+	sfx_slider.step = 0.05
+	sfx_slider.value = db_to_linear(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("SFX")))
+	sfx_slider.custom_minimum_size = Vector2(170, 20)
+	sfx_slider.value_changed.connect(_on_sfx_volume_changed)
+	sfx_row.add_child(sfx_slider)
+
 	var back_btn = Button.new()
 	back_btn.text = "Back"
 	back_btn.custom_minimum_size = Vector2(240, 50)
@@ -964,7 +1044,7 @@ func _build_lobby_panel(root: Control):
 
 	var bg = ColorRect.new()
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
-	bg.color = Color(0.02, 0.02, 0.08, 0.95)
+	bg.color = Color(0, 0, 0, 1.0)
 	bg.mouse_filter = Control.MOUSE_FILTER_STOP
 	lobby_panel.add_child(bg)
 
@@ -1017,6 +1097,31 @@ func _build_lobby_panel(root: Control):
 	lobby_center.add_theme_constant_override("separation", 10)
 	lobby_center.alignment = BoxContainer.ALIGNMENT_CENTER
 	lobby_panel.add_child(lobby_center)
+
+	# Host/Join picker row (shown initially when entering lobby from Online Co-Op)
+	var lobby_picker = HBoxContainer.new()
+	lobby_picker.name = "LobbyPicker"
+	lobby_picker.alignment = BoxContainer.ALIGNMENT_CENTER
+	lobby_picker.add_theme_constant_override("separation", 20)
+	lobby_center.add_child(lobby_picker)
+
+	var host_btn = Button.new()
+	host_btn.text = "Host Game"
+	host_btn.custom_minimum_size = Vector2(150, 50)
+	host_btn.add_theme_font_size_override("font_size", 20)
+	host_btn.add_theme_color_override("font_color", Color(0.3, 0.9, 0.5))
+	host_btn.pressed.connect(_on_host_coop_pressed)
+	_style_button(host_btn, Color(0.15, 0.4, 0.2))
+	lobby_picker.add_child(host_btn)
+
+	var join_btn = Button.new()
+	join_btn.text = "Join Game"
+	join_btn.custom_minimum_size = Vector2(150, 50)
+	join_btn.add_theme_font_size_override("font_size", 20)
+	join_btn.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
+	join_btn.pressed.connect(_on_join_coop_pressed)
+	_style_button(join_btn, Color(0.15, 0.25, 0.45))
+	lobby_picker.add_child(join_btn)
 
 	# Host section - shows room code
 	lobby_host_section = VBoxContainer.new()
@@ -1383,8 +1488,59 @@ func _on_start_menu_wave_pressed(wave: int):
 	_game_started = true
 	if gameplay_hud:
 		gameplay_hud.visible = true
+	# Set local co-op mode on main scene
+	var main = get_tree().current_scene
+	if main and "local_coop" in main:
+		main.local_coop = (_menu_mode == "local_coop")
 	get_tree().paused = false
 	game_started.emit(wave)
+
+
+func _on_single_player_pressed():
+	_menu_mode = "single"
+	menu_buttons_container.visible = false
+	wave_select_container.visible = true
+	_update_start_menu()
+
+
+func _on_local_coop_pressed():
+	_menu_mode = "local_coop"
+	menu_buttons_container.visible = false
+	wave_select_container.visible = true
+	_update_start_menu()
+
+
+func _on_online_coop_pressed():
+	start_menu.visible = false
+	lobby_panel.visible = true
+	# Show both host and join sections as initial choice
+	lobby_host_section.visible = false
+	lobby_client_section.visible = false
+	lobby_status_label.text = ""
+	# Show host/join picker within the lobby
+	_show_lobby_mode_picker()
+
+
+func _show_lobby_mode_picker():
+	lobby_host_section.visible = false
+	lobby_client_section.visible = false
+	lobby_start_btn.visible = false
+	lobby_status_label.text = ""
+	_show_lobby_picker()
+
+
+func _on_wave_select_back():
+	wave_select_container.visible = false
+	menu_buttons_container.visible = true
+	_menu_mode = ""
+
+
+func show_alert(msg: String, color: Color = Color(1.0, 0.9, 0.3), duration: float = 3.0):
+	alert_label.text = msg
+	alert_label.add_theme_color_override("font_color", color)
+	alert_label.visible = true
+	alert_label.modulate.a = 1.0
+	alert_timer = duration
 
 
 func _on_debug_toggle():
@@ -1445,6 +1601,8 @@ func _on_research_btn_pressed():
 func _on_research_back():
 	research_panel.visible = false
 	start_menu.visible = true
+	menu_buttons_container.visible = true
+	wave_select_container.visible = false
 	_update_start_menu()
 
 
@@ -1515,6 +1673,20 @@ func _on_toggle_auto_aim():
 		auto_aim_btn.text = "Auto Aim: OFF" if auto_aim_btn.text == "Auto Aim: ON" else "Auto Aim: ON"
 		return
 	auto_aim_btn.text = "Auto Aim: ON" if player.auto_aim else "Auto Aim: OFF"
+
+
+func _on_music_volume_changed(value: float):
+	var bus_idx = AudioServer.get_bus_index("Music")
+	if bus_idx >= 0:
+		AudioServer.set_bus_volume_db(bus_idx, linear_to_db(value))
+		AudioServer.set_bus_mute(bus_idx, value < 0.01)
+
+
+func _on_sfx_volume_changed(value: float):
+	var bus_idx = AudioServer.get_bus_index("SFX")
+	if bus_idx >= 0:
+		AudioServer.set_bus_volume_db(bus_idx, linear_to_db(value))
+		AudioServer.set_bus_mute(bus_idx, value < 0.01)
 
 
 func _copy_to_clipboard(text: String):
@@ -2237,6 +2409,20 @@ func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active
 		power_rate_label.text = "%.0f/s" % net
 		power_rate_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.4))
 
+	# Power warning flash when generation is negative
+	if net < 0 and power_cons > 0:
+		power_warning_label.visible = true
+		var flash = 0.5 + sin(Time.get_ticks_msec() * 0.008) * 0.5
+		power_warning_label.modulate.a = flash
+		if power_bank <= 0:
+			power_warning_label.text = "OUT OF POWER"
+			power_warning_label.add_theme_color_override("font_color", Color(1.0, 0.15, 0.1))
+		else:
+			power_warning_label.text = "LOW POWER"
+			power_warning_label.add_theme_color_override("font_color", Color(1.0, 0.5, 0.1))
+	else:
+		power_warning_label.visible = false
+
 	# Prestige earned this run
 	prestige_hud_label.text = "Prestige: %d" % prestige_earned
 
@@ -2407,24 +2593,9 @@ func _on_card_click(event: InputEvent, idx: int):
 		var key = card_info[idx]["key"]
 		if key == "":
 			return
-		if NetworkManager.is_multiplayer_active():
-			_local_vote_key = key
-			# Highlight the selected card
-			for i in range(card_info.size()):
-				var ci = card_info[i]
-				if not ci["panel"].visible:
-					continue
-				var data = UPGRADE_DATA.get(ci["key"], {})
-				var base_color = data.get("color", Color(0.4, 0.4, 0.5))
-				if ci["key"] == key:
-					ci["panel"].add_theme_stylebox_override("panel", _make_card_style(Color(1.0, 0.9, 0.3)))
-				else:
-					ci["panel"].add_theme_stylebox_override("panel", _make_card_style(base_color.lerp(Color.WHITE, 0.2)))
-			upgrade_chosen.emit(key)
-		else:
-			upgrade_panel.visible = false
-			_upgrade_showing = false
-			upgrade_chosen.emit(key)
+		upgrade_panel.visible = false
+		_upgrade_showing = false
+		upgrade_chosen.emit(key)
 
 
 # --- Co-op Lobby ---
@@ -2440,6 +2611,7 @@ func start_mp_game():
 func _on_host_coop_pressed():
 	start_menu.visible = false
 	lobby_panel.visible = true
+	_hide_lobby_picker()
 	lobby_host_section.visible = true
 	lobby_client_section.visible = false
 	lobby_start_btn.visible = true
@@ -2462,6 +2634,7 @@ func _on_host_coop_pressed():
 func _on_join_coop_pressed():
 	start_menu.visible = false
 	lobby_panel.visible = true
+	_hide_lobby_picker()
 	lobby_host_section.visible = false
 	lobby_client_section.visible = true
 	lobby_start_btn.visible = false
@@ -2528,12 +2701,28 @@ func _on_lobby_start_pressed():
 	game_started.emit(1)  # MP games start at wave 1
 
 
+func _hide_lobby_picker():
+	for c in lobby_panel.get_children():
+		var lp = c.get_node_or_null("LobbyPicker")
+		if lp:
+			lp.visible = false
+
+
+func _show_lobby_picker():
+	for c in lobby_panel.get_children():
+		var lp = c.get_node_or_null("LobbyPicker")
+		if lp:
+			lp.visible = true
+
+
 func _on_lobby_back_pressed():
 	NetworkManager.disconnect_peer()
 	_disconnect_network_signals()
 	lobby_panel.visible = false
 	lobby_connect_btn.disabled = false
 	start_menu.visible = true
+	menu_buttons_container.visible = true
+	wave_select_container.visible = false
 	_update_start_menu()
 
 
