@@ -10,6 +10,13 @@ var crystal_cost: int = 0
 var locked: bool = false
 var is_hovered: bool = false
 
+var _icon_textures: Dictionary = {}
+
+func _get_icon_texture(path: String) -> Texture2D:
+	if path not in _icon_textures:
+		_icon_textures[path] = load(path)
+	return _icon_textures[path]
+
 signal pressed
 signal hovered(icon)
 signal unhovered
@@ -66,10 +73,13 @@ func _draw():
 			draw_circle(center, 6, Color(0.5, 0.5, 0.6, icon_alpha))
 			draw_line(center, center + Vector2(12, 0), Color(0.3, 0.3, 0.35, icon_alpha), 3.0)
 		"factory":
-			# Square with chimney
-			draw_rect(Rect2(10, 14, 20, 18), Color(0.8, 0.6, 0.2, icon_alpha))
-			draw_rect(Rect2(16, 6, 8, 10), Color(0.6, 0.4, 0.15, icon_alpha))
-			draw_circle(Vector2(20, 4), 3, Color(0.5, 0.5, 0.5, icon_alpha * 0.5))
+			var tex = _get_icon_texture("res://resources/sprites/factory icon.png")
+			if tex:
+				var tex_size = tex.get_size()
+				var scale_f = min(32.0 / tex_size.x, 32.0 / tex_size.y)
+				var draw_size = tex_size * scale_f
+				var offset = (Vector2(40, 40) - draw_size) / 2.0
+				draw_texture_rect(tex, Rect2(offset, draw_size), false, Color(1, 1, 1, icon_alpha))
 		"wall":
 			# Brick wall
 			draw_rect(Rect2(8, 12, 24, 16), Color(0.45, 0.42, 0.38, icon_alpha))

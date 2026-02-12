@@ -17,9 +17,37 @@ var chain_damage_bonus: int = 0
 var chain_retention: float = CFG.chain_base_retention
 var visual_only: bool = false
 
+@onready var mesh: MeshInstance3D = $MeshInstance3D
+@onready var trail: GPUParticles3D = $Trail
+
+
+func _ready():
+	_update_color()
+
+	if trail:
+		trail.emitting = true
+
+
+func _update_color():
+	var color = Color(1, 0.9, 0.2)
+	if from_turret:
+		color = Color(0.3, 0.9, 1.0)
+	if burn_dps > 0:
+		color = Color(1.0, 0.5, 0.1)
+	if slow_amount > 0:
+		color = Color(0.4, 0.8, 1.0)
+
+	if mesh and mesh.mesh:
+		var mat = mesh.mesh.material as StandardMaterial3D
+		if mat:
+			mat.emission = color
+	if trail and trail.process_material:
+		trail.process_material.color = Color(color.r, color.g, color.b, 0.5)
+
 
 func _process(delta):
 	position += direction * speed * delta
+	rotation.y = atan2(-direction.x, -direction.z)
 	lifetime -= delta
 	if lifetime <= 0:
 		queue_free()
