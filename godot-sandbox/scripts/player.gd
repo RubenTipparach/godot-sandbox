@@ -14,6 +14,10 @@ const MINING_LASER_SOUND_END = preload("uid://ckujswy7m8f0r")
 @onready var shooting_sfx_player: AudioStreamPlayer2D = $ShootingSFXPlayer
 ## ----------- ##
 
+## SHIP VISUALS ##
+@onready var player_ship: Node3D = $PlayerShip
+@onready var gun_node: Node3D = $PlayerShip/gun
+
 var health: int = CFG.player_health
 var max_health: int = CFG.player_health
 var iron: int = 0
@@ -96,6 +100,10 @@ var _remote_target_pos: Vector3 = Vector3.ZERO
 
 func _ready():
 	add_to_group("player")
+	# Set bullet origin from the ship's gun marker
+	var bo = get_node_or_null("PlayerShip/gun/BulletOrigin")
+	if bo:
+		bullet_origin = bo
 
 
 func enter_build_mode(building_type: String):
@@ -167,6 +175,7 @@ func _process(delta):
 		# Animate orbital lasers visually for remote players
 		if upgrades["orbital_lasers"] > 0:
 			orbital_angle += delta * (2.5 + upgrades["orbital_lasers"] * 0.5)
+		_update_ship_visual()
 		return
 
 	var input = Vector3.ZERO
@@ -303,6 +312,16 @@ func _process(delta):
 	if nuke_radius > 0:
 		_process_nuke(delta)
 	_play_sfx()
+	_update_ship_visual()
+
+
+func _update_ship_visual():
+	if player_ship:
+		player_ship.rotation.y = -facing_angle - PI / 2
+		player_ship.visible = not is_dead
+	if gun_node:
+		# -PI/2 accounts for the barrel geometry extending along local -X
+		gun_node.rotation.y = -(gun_angle - facing_angle) - PI / 2
 
 
 func _process_nuke(delta):
@@ -340,6 +359,7 @@ func _process_death(delta):
 
 
 func _shoot():
+	SFXManager.play("shoot")
 	var count = 1
 	var spread = 0.0
 	if upgrades["shotgun"] > 0:
@@ -361,7 +381,7 @@ func _shoot():
 		b.lifetime = minf(CFG.bullet_lifetime, get_shoot_range() / b.speed)
 		var spawn_pos: Vector3
 		if bullet_origin:
-			spawn_pos = Vector3(bullet_origin.global_position.x, 0, bullet_origin.global_position.z)
+			spawn_pos = bullet_origin.global_position
 		else:
 			spawn_pos = global_position + Vector3(cos(gun_angle), 0, sin(gun_angle)) * 20.0
 		get_tree().current_scene.game_world_2d.add_child(b)
@@ -432,6 +452,7 @@ func _collect_gems():
 	for gem in get_tree().get_nodes_in_group("xp_gems"):
 		if not is_instance_valid(gem): continue
 		if global_position.distance_to(gem.global_position) < collect_range:
+			SFXManager.play("orepickup")
 			add_xp(gem.xp_value)
 			gem.collect()
 
@@ -450,6 +471,7 @@ func _collect_powerups():
 		if not is_instance_valid(p): continue
 		if global_position.distance_to(p.global_position) < 30:
 			_apply_powerup(p.powerup_type)
+			SFXManager.play("pickup")
 			p.queue_free()
 
 

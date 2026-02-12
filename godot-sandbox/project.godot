@@ -21,6 +21,7 @@ WebDebug="*res://scripts/web_debug.gd"
 GameData="*res://scripts/game_data.gd"
 NetworkManager="*res://scripts/network_manager.gd"
 MusicPlayer="*uid://cjyl1eyw0e4yk"
+SFXManager="*res://scripts/sfx_manager.gd"
 
 [display]
 

@@ -33,7 +33,6 @@ var _wire_mat_unpowered: StandardMaterial3D
 var hq_light_3d: OmniLight3D
 # 3D mesh representations (replaces SubViewport mirrors)
 var building_meshes: Dictionary = {}    # Node3D -> Node3D
-var player_meshes: Dictionary = {}      # Node3D -> Node3D
 var alien_meshes: Dictionary = {}       # Node3D -> Node3D
 var resource_meshes: Dictionary = {}    # Node3D -> Node3D
 var bullet_meshes: Dictionary = {}      # Node3D -> Node3D
@@ -1121,11 +1120,9 @@ func _sync_3d_lights():
 		var t_rtype = target.resource_type if "resource_type" in target else "iron"
 		var t_center_y = t_sz * 0.3 if t_rtype == "iron" else t_sz * 0.5
 		var laser_y = 8.0
-		var pmesh = player_meshes.get(p_node)
-		if pmesh:
-			var marker = pmesh.get_node_or_null("Body/PlayerShip/LaserOrigin")
-			if marker:
-				laser_y = marker.global_position.y
+		var marker = p_node.get_node_or_null("PlayerShip/LaserOrigin")
+		if marker:
+			laser_y = marker.global_position.y
 		var start = Vector3(ppos.x, laser_y, ppos.z)
 		var raw_end = Vector3(tpos.x, t_center_y, tpos.z)
 		var to_player = start - raw_end
@@ -1949,16 +1946,6 @@ func _create_building_mesh(bname: String) -> Node3D:
 
 # ---- Other Mesh Factories ----
 
-func _create_player_mesh(col: Color) -> Node3D:
-	var root = Node3D.new()
-	var body = Node3D.new()
-	body.name = "Body"
-	var ship_scene = load("res://scenes/player_ship.tscn")
-	var ship = ship_scene.instantiate()
-	body.add_child(ship)
-	root.add_child(body)
-	return root
-
 
 func _create_alien_mesh(a: Node3D) -> Node3D:
 	var root = Node3D.new()
@@ -2108,41 +2095,17 @@ func _sync_3d_meshes():
 			elif poff:
 				poff.visible = false
 
-	# ---- Players ----
-	_clean_mesh_dict(player_meshes)
+	# ---- Players (ship is now part of the player scene) ----
 	for p in get_tree().get_nodes_in_group("player"):
 		if not is_instance_valid(p): continue
-		if p not in player_meshes:
-			var col = p.player_color if "player_color" in p else Color(0.2, 0.9, 0.3)
-			var new_mesh = _create_player_mesh(col)
-			add_child(new_mesh)
-			player_meshes[p] = new_mesh
-			var bo = new_mesh.get_node_or_null("Body/PlayerShip/gun/CSGBox3D/BulletOrigin")
-			if bo:
-				p.bullet_origin = bo
-				print("[DEBUG] barrel assigned: ", bo, " global_pos=", bo.global_position)
-			else:
-				print("[DEBUG] BulletOrigin NOT FOUND in Body/PlayerShip/gun/CSGBox3D/")
-			p.visible = false
-		var mr = player_meshes[p]
-		var pp = p.global_position
-		mr.position = Vector3(pp.x, 0, pp.z)
-		mr.visible = not p.is_dead if "is_dead" in p else true
-		var body = mr.get_node_or_null("Body")
-		if body and "facing_angle" in p:
-			body.rotation.y = -p.facing_angle - PI / 2
-		var gun = mr.get_node_or_null("Body/PlayerShip/gun")
-		if gun and "gun_angle" in p:
-			# Gun rotates relative to body, so subtract body rotation
-			gun.rotation.y = -(p.gun_angle - p.facing_angle)
 		# Orbital lasers — sync 3D spheres + lights
 		var orb_count = p.upgrades.get("orbital_lasers", 0) if "upgrades" in p else 0
-		var orb_parent = mr.get_node_or_null("Orbitals")
+		var orb_parent = p.get_node_or_null("Orbitals")
 		if orb_count > 0:
 			if not orb_parent:
 				orb_parent = Node3D.new()
 				orb_parent.name = "Orbitals"
-				mr.add_child(orb_parent)
+				p.add_child(orb_parent)
 			# Add/remove orbital nodes to match count
 			while orb_parent.get_child_count() < orb_count:
 				var orb_node = Node3D.new()
@@ -2175,7 +2138,8 @@ func _sync_3d_meshes():
 			for i in range(mini(orb_count, orb_parent.get_child_count())):
 				var ang = orb_angle + TAU * i / orb_count
 				orb_parent.get_child(i).position = Vector3(cos(ang) * 80.0, 8, sin(ang) * 80.0)
-			orb_parent.visible = mr.visible
+			var p_dead = p.is_dead if "is_dead" in p else false
+			orb_parent.visible = not p_dead
 		elif orb_parent:
 			orb_parent.visible = false
 
@@ -2794,6 +2758,7 @@ func _try_show_upgrade():
 
 
 func _on_upgrade_chosen(upgrade_key: String):
+	SFXManager.play("levelup")
 	if NetworkManager.is_multiplayer_active():
 		# Each player picks their own upgrade independently
 		if is_instance_valid(player_node):
@@ -2952,8 +2917,8 @@ func _debug_dump():
 	lines.append("aliens=%d hash=%d" % [aliens.size(), alien_hash])
 
 	# 3D mesh counts
-	lines.append("3d_meshes: players=%d buildings=%d aliens=%d resources=%d" % [
-		player_meshes.size(), building_meshes.size(), alien_meshes.size(), resource_meshes.size()])
+	lines.append("3d_meshes: buildings=%d aliens=%d resources=%d" % [
+		building_meshes.size(), alien_meshes.size(), resource_meshes.size()])
 
 	# Lights
 	var pl_lights = 0

@@ -56,13 +56,15 @@ func _process(delta):
 	if not visual_only:
 		for alien in get_tree().get_nodes_in_group("aliens"):
 			if not is_instance_valid(alien): continue
-			if global_position.distance_to(alien.global_position) < CFG.bullet_hit_radius:
+			var xz_dist = Vector2(global_position.x - alien.global_position.x, global_position.z - alien.global_position.z).length()
+			if xz_dist < CFG.bullet_hit_radius:
 				_on_hit(alien)
 				queue_free()
 				return
 
 
 func _on_hit(alien: Node3D):
+	SFXManager.play("impact")
 	var final_damage = damage
 	var is_crit = randf() < crit_chance
 	if is_crit:
