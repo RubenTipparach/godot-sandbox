@@ -23,6 +23,7 @@ var player_repair_beams: Dictionary = {} # target -> pool entry dict
 var _lightning_pool: Array = []
 const LIGHTNING_POOL_SIZE = 16
 var lightning_beam_active: Dictionary = {} # building -> Array of pool entries
+var chain_lightning_active: Array = []     # Pool entries for chain lightning FX
 # Acid puddle 3D
 var puddle_meshes: Dictionary = {}      # Node3D -> MeshInstance3D
 # Pylon wire 3D
@@ -61,6 +62,8 @@ var _energy_proj_mat: ShaderMaterial
 var _nuke_ring_mesh: MeshInstance3D
 var _nuke_ring_mat: ShaderMaterial
 var _nuke_flash_light: OmniLight3D
+var _nuke_was_active: bool = false
+var _nuke_last_origin: Vector3 = Vector3.ZERO
 var _dither_occlude_shader: Shader
 var _dither_occlude_mat: ShaderMaterial
 var _flash_white_mat: StandardMaterial3D
@@ -71,6 +74,9 @@ var spider_boss_ref: Node3D = null
 var shield_gen_refs: Array = []
 var spider_boss_beams: Array = []  # Array of lightning bolt pool entries for shield beams
 var spider_telegraph_rings: Dictionary = {}  # telegraph dict -> MeshInstance3D
+var spider_telegraph_beams: Dictionary = {}  # tid -> lightning bolt pool entry (sky beam)
+var spider_telegraph_countdowns: Dictionary = {}  # tid -> Label3D node
+var spider_telegraph_positions: Dictionary = {}  # tid -> Vector3 (strike position)
 var boss_hp_bar_visible: bool = false
 
 var wave_number: int = 0
@@ -78,6 +84,8 @@ var wave_timer: float = CFG.first_wave_delay
 var wave_active: bool = false
 var is_first_wave: bool = true  # Extra prep time on first wave of each run
 var game_over: bool = false
+var death_delay_timer: float = 0.0
+var death_delay_cause: String = ""
 var world_visible: bool = false  # False until game starts (menu shows clean background)
 var resource_regen_timer: float = CFG.resource_regen_interval
 var powerup_timer: float = 10.0
@@ -226,6 +234,7 @@ func _ready():
 	_setup_inputs()
 	_debug_log("_setup_inputs OK. Starting _create_world...")
 	_create_world()
+	TELEGRAPH_RADIUS_3D = CFG.spider_telegraph_radius
 	_debug_log("_create_world OK. Waiting for user input.")
 
 
@@ -420,17 +429,68 @@ shader_type spatial;
 render_mode unshaded, cull_disabled;
 uniform vec4 beam_color : source_color = vec4(1.0, 0.8, 0.3, 1.0);
 uniform float time_offset = 0.0;
+uniform bool is_lightning = false;
+
+float hash(vec2 p) {
+	return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+float noise(vec2 p) {
+	vec2 i = floor(p);
+	vec2 f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	float a = hash(i);
+	float b = hash(i + vec2(1.0, 0.0));
+	float c = hash(i + vec2(0.0, 1.0));
+	float d = hash(i + vec2(1.0, 1.0));
+	return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
 void fragment() {
 	float t = TIME + time_offset;
-	float pulse = 0.7 + 0.3 * sin(t * 8.0);
-	float scroll = fract(UV.y * 3.0 - t * 2.0);
-	float band = smoothstep(0.0, 0.15, scroll) * smoothstep(1.0, 0.85, scroll);
-	float edge_glow = 1.0 - abs(UV.x - 0.5) * 2.0;
-	edge_glow = pow(edge_glow, 0.5);
-	float brightness = pulse * (0.6 + 0.4 * band) * edge_glow;
-	ALBEDO = beam_color.rgb * brightness;
-	EMISSION = beam_color.rgb * brightness * 2.0;
-	ALPHA = clamp(brightness * beam_color.a, 0.0, 1.0);
+	if (is_lightning) {
+		// Jagged lightning bolt effect
+		float center_x = UV.x - 0.5;
+		// Jagged displacement using noise at different scales
+		float jag1 = (noise(vec2(UV.y * 8.0, t * 12.0)) - 0.5) * 0.35;
+		float jag2 = (noise(vec2(UV.y * 20.0, t * 18.0 + 5.0)) - 0.5) * 0.15;
+		float jag3 = (noise(vec2(UV.y * 45.0, t * 25.0 + 10.0)) - 0.5) * 0.06;
+		float displaced_x = center_x - jag1 - jag2 - jag3;
+		// Core intensity (sharp bright center)
+		float core = exp(-abs(displaced_x) * 25.0);
+		// Inner glow
+		float inner_glow = exp(-abs(displaced_x) * 8.0) * 0.7;
+		// Outer glow
+		float outer_glow = exp(-abs(displaced_x) * 3.0) * 0.3;
+		// Random flicker
+		float flicker = 0.85 + 0.15 * sin(t * 30.0 + UV.y * 10.0);
+		float brightness = (core + inner_glow + outer_glow) * flicker;
+		// Branch sparks (thin secondary bolts)
+		float branch = 0.0;
+		float b_seed = floor(UV.y * 6.0 + t * 4.0);
+		float b_frac = fract(UV.y * 6.0 + t * 4.0);
+		if (hash(vec2(b_seed, 1.0)) > 0.6) {
+			float b_dir = sign(hash(vec2(b_seed, 2.0)) - 0.5);
+			float b_x = displaced_x + center_x - b_dir * b_frac * 0.4;
+			branch = exp(-abs(b_x) * 40.0) * (1.0 - b_frac) * 0.5;
+		}
+		brightness += branch;
+		vec3 col = mix(beam_color.rgb, vec3(1.0), core * 0.7);
+		ALBEDO = col * brightness;
+		EMISSION = col * brightness * 3.0;
+		ALPHA = clamp(brightness * beam_color.a, 0.0, 1.0);
+	} else {
+		// Original smooth laser beam
+		float pulse = 0.7 + 0.3 * sin(t * 8.0);
+		float scroll = fract(UV.y * 3.0 - t * 2.0);
+		float band = smoothstep(0.0, 0.15, scroll) * smoothstep(1.0, 0.85, scroll);
+		float edge_glow = 1.0 - abs(UV.x - 0.5) * 2.0;
+		edge_glow = pow(edge_glow, 0.5);
+		float brightness = pulse * (0.6 + 0.4 * band) * edge_glow;
+		ALBEDO = beam_color.rgb * brightness;
+		EMISSION = beam_color.rgb * brightness * 2.0;
+		ALPHA = clamp(brightness * beam_color.a, 0.0, 1.0);
+	}
 }
 """
 	_aoe_shader = Shader.new()
@@ -657,27 +717,79 @@ void fragment() {
 		bolt_group.visible = false
 		add_child(bolt_group)
 		le["group"] = bolt_group
-		var bolt_mi = MeshInstance3D.new()
-		var bolt_cm = CylinderMesh.new()
-		bolt_cm.top_radius = 0.5
-		bolt_cm.bottom_radius = 0.5
-		bolt_cm.height = 1.0
-		bolt_cm.radial_segments = 4
-		bolt_mi.mesh = bolt_cm
-		var bolt_mat = StandardMaterial3D.new()
-		bolt_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		bolt_mat.albedo_color = Color(0.7, 0.85, 1.0)
-		bolt_mat.emission_enabled = true
-		bolt_mat.emission = Color(0.6, 0.8, 1.0)
-		bolt_mat.emission_energy_multiplier = 4.0
-		bolt_mi.material_override = bolt_mat
-		bolt_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		bolt_group.add_child(bolt_mi)
-		le["mi"] = bolt_mi
+		# Wide bloom/glow cylinder (soft ambient glow)
+		var mi_bloom = MeshInstance3D.new()
+		var cm_bloom = CylinderMesh.new()
+		cm_bloom.top_radius = 8.0
+		cm_bloom.bottom_radius = 8.0
+		cm_bloom.height = 1.0
+		cm_bloom.radial_segments = 8
+		mi_bloom.mesh = cm_bloom
+		mi_bloom.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var bloom_mat = ShaderMaterial.new()
+		bloom_mat.shader = _laser_shader
+		bloom_mat.set_shader_parameter("beam_color", Color(0.3, 0.5, 1.0, 0.15))
+		bloom_mat.set_shader_parameter("is_lightning", true)
+		mi_bloom.material_override = bloom_mat
+		bolt_group.add_child(mi_bloom)
+		le["bloom_mi"] = mi_bloom
+		le["bloom_mat"] = bloom_mat
+		# Outer glow cylinder (main lightning body)
+		var mi_outer = MeshInstance3D.new()
+		var cm_outer = CylinderMesh.new()
+		cm_outer.top_radius = 4.0
+		cm_outer.bottom_radius = 4.0
+		cm_outer.height = 1.0
+		cm_outer.radial_segments = 8
+		mi_outer.mesh = cm_outer
+		mi_outer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var outer_mat = ShaderMaterial.new()
+		outer_mat.shader = _laser_shader
+		outer_mat.set_shader_parameter("beam_color", Color(0.4, 0.7, 1.0, 0.6))
+		outer_mat.set_shader_parameter("is_lightning", true)
+		mi_outer.material_override = outer_mat
+		bolt_group.add_child(mi_outer)
+		le["outer_mi"] = mi_outer
+		le["outer_mat"] = outer_mat
+		# Inner core cylinder (bright white-blue)
+		var mi_inner = MeshInstance3D.new()
+		var cm_inner = CylinderMesh.new()
+		cm_inner.top_radius = 1.5
+		cm_inner.bottom_radius = 1.5
+		cm_inner.height = 1.0
+		cm_inner.radial_segments = 6
+		mi_inner.mesh = cm_inner
+		mi_inner.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var inner_mat = ShaderMaterial.new()
+		inner_mat.shader = _laser_shader
+		inner_mat.set_shader_parameter("beam_color", Color(0.9, 0.95, 1.0, 0.95))
+		inner_mat.set_shader_parameter("is_lightning", true)
+		mi_inner.material_override = inner_mat
+		bolt_group.add_child(mi_inner)
+		le["inner_mi"] = mi_inner
+		le["inner_mat"] = inner_mat
+		le["mi"] = mi_outer  # Backward compat
+		# Impact sparks
+		var sparks = preload("res://scenes/particles/laser_sparks.tscn").instantiate()
+		sparks.emitting = false
+		bolt_group.add_child(sparks)
+		le["sparks"] = sparks
+		if sparks.process_material:
+			sparks.process_material = sparks.process_material.duplicate()
+			sparks.process_material.color = Color(0.5, 0.8, 1.0)
+		# Origin sparks (at the source end)
+		var origin_sparks = preload("res://scenes/particles/laser_sparks.tscn").instantiate()
+		origin_sparks.emitting = false
+		bolt_group.add_child(origin_sparks)
+		le["origin_sparks"] = origin_sparks
+		if origin_sparks.process_material:
+			origin_sparks.process_material = origin_sparks.process_material.duplicate()
+			origin_sparks.process_material.color = Color(0.6, 0.8, 1.0)
+		# Light
 		var bolt_light = OmniLight3D.new()
-		bolt_light.light_color = Color(0.6, 0.8, 1.0)
-		bolt_light.light_energy = 3.0
-		bolt_light.omni_range = 30.0
+		bolt_light.light_color = Color(0.5, 0.7, 1.0)
+		bolt_light.light_energy = 6.0
+		bolt_light.omni_range = 60.0
 		bolt_light.omni_attenuation = 1.2
 		bolt_light.shadow_enabled = false
 		bolt_light.visible = false
@@ -772,6 +884,15 @@ func _spawn_veins(scene: PackedScene, rng: RandomNumberGenerator, type: String,
 
 
 func _process(delta):
+	# Death delay — linger for 2 seconds after player death before showing game over
+	if death_delay_timer > 0:
+		death_delay_timer -= delta
+		if death_delay_timer <= 0:
+			_finish_end_run(death_delay_cause)
+		# Still render 3D + HP bars so player sees the explosion and final state
+		_sync_3d_meshes()
+		_sync_hp_bars()
+		return
 	if game_over:
 		return
 
@@ -1328,6 +1449,8 @@ func _sync_3d_lights():
 			le["light"].visible = false
 			if le.has("sparks"):
 				le["sparks"].emitting = false
+			if le.has("origin_sparks"):
+				le["origin_sparks"].emitting = false
 			le["active"] = false
 	lightning_beam_active.clear()
 	for b in get_tree().get_nodes_in_group("lightnings"):
@@ -1351,11 +1474,17 @@ func _sync_3d_lights():
 				bolt_side = bolt_dir.cross(Vector3.FORWARD).normalized()
 			var bolt_fwd = bolt_side.cross(bolt_dir).normalized()
 			var bolt_basis = Basis(bolt_side, bolt_dir * bolt_dist, bolt_fwd)
-			# Render both inner and outer cylinders with animated shader
+			# Render all three layers (bloom, outer, inner) — reset height to 1.0 (Basis handles scaling)
+			if le.has("bloom_mi"):
+				le["bloom_mi"].mesh.height = 1.0
+				le["bloom_mi"].global_transform = Transform3D(bolt_basis, bolt_mid)
+				le["bloom_mat"].set_shader_parameter("time_offset", randf() * 10.0)
 			if le.has("outer_mi"):
+				le["outer_mi"].mesh.height = 1.0
 				le["outer_mi"].global_transform = Transform3D(bolt_basis, bolt_mid)
 				le["outer_mat"].set_shader_parameter("time_offset", bpos.x * 0.01 + randf() * 0.5)
 			if le.has("inner_mi"):
+				le["inner_mi"].mesh.height = 1.0
 				le["inner_mi"].global_transform = Transform3D(bolt_basis, bolt_mid)
 				le["inner_mat"].set_shader_parameter("time_offset", bpos.z * 0.01 + randf() * 0.5)
 			le["group"].visible = true
@@ -1365,10 +1494,69 @@ func _sync_3d_lights():
 			if le.has("sparks"):
 				le["sparks"].global_position = bolt_end
 				le["sparks"].emitting = true
+			# Sparks at origin point (tower top)
+			if le.has("origin_sparks"):
+				le["origin_sparks"].global_position = bolt_start
+				le["origin_sparks"].emitting = true
 			le["active"] = true
 			bolt_entries.append(le)
 		if not bolt_entries.is_empty():
 			lightning_beam_active[b] = bolt_entries
+
+	# --- Chain lightning FX (from bullet upgrades) ---
+	# Release previous frame's chain bolts
+	for le in chain_lightning_active:
+		le["group"].visible = false
+		le["light"].visible = false
+		if le.has("sparks"):
+			le["sparks"].emitting = false
+		if le.has("origin_sparks"):
+			le["origin_sparks"].emitting = false
+		le["active"] = false
+	chain_lightning_active.clear()
+	# Find active lightning_effect nodes and draw bolts between their points
+	for fx in get_tree().get_nodes_in_group("chain_fx"):
+		if not is_instance_valid(fx) or not "points" in fx: continue
+		var pts = fx.points
+		for j in range(pts.size() - 1):
+			var le = _acquire_lightning_bolt()
+			var p_start = Vector3(pts[j].x, 10, pts[j].z)
+			var p_end = Vector3(pts[j + 1].x, 10, pts[j + 1].z)
+			var seg_dist = p_start.distance_to(p_end)
+			if seg_dist < 0.1: continue
+			var seg_mid = (p_start + p_end) / 2.0
+			var seg_dir = (p_end - p_start).normalized()
+			var seg_side: Vector3
+			if abs(seg_dir.dot(Vector3.UP)) < 0.999:
+				seg_side = seg_dir.cross(Vector3.UP).normalized()
+			else:
+				seg_side = seg_dir.cross(Vector3.FORWARD).normalized()
+			var seg_fwd = seg_side.cross(seg_dir).normalized()
+			var seg_basis = Basis(seg_side, seg_dir * seg_dist, seg_fwd)
+			if le.has("bloom_mi"):
+				le["bloom_mi"].mesh.height = 1.0
+				le["bloom_mi"].global_transform = Transform3D(seg_basis, seg_mid)
+			if le.has("outer_mi"):
+				le["outer_mi"].mesh.height = 1.0
+				le["outer_mi"].global_transform = Transform3D(seg_basis, seg_mid)
+				le["outer_mat"].set_shader_parameter("time_offset", randf() * 10.0)
+				le["outer_mat"].set_shader_parameter("beam_color", Color(0.4, 0.7, 1.0, 0.6))
+			if le.has("inner_mi"):
+				le["inner_mi"].mesh.height = 1.0
+				le["inner_mi"].global_transform = Transform3D(seg_basis, seg_mid)
+				le["inner_mat"].set_shader_parameter("time_offset", randf() * 10.0)
+				le["inner_mat"].set_shader_parameter("beam_color", Color(0.9, 0.95, 1.0, 0.95))
+			le["group"].visible = true
+			le["light"].position = p_end
+			le["light"].visible = true
+			if le.has("sparks"):
+				le["sparks"].global_position = p_end
+				le["sparks"].emitting = true
+			if j == 0 and le.has("origin_sparks"):
+				le["origin_sparks"].global_position = p_start
+				le["origin_sparks"].emitting = true
+			le["active"] = true
+			chain_lightning_active.append(le)
 
 
 func _acquire_laser_beam() -> Dictionary:
@@ -1439,45 +1627,64 @@ func _acquire_lightning_bolt() -> Dictionary:
 	for e in _lightning_pool:
 		if not e["active"]:
 			return e
-	# Pool exhausted — create new bolt entry with dual cylinders + sparks
+	# Pool exhausted — create new bolt matching pool format
 	var le = {}
 	var bolt_group = Node3D.new()
 	bolt_group.visible = false
 	add_child(bolt_group)
 	le["group"] = bolt_group
-	# Outer glow cylinder (shader-animated)
+	# Bloom layer
+	var mi_bloom = MeshInstance3D.new()
+	var cm_bloom = CylinderMesh.new()
+	cm_bloom.top_radius = 8.0
+	cm_bloom.bottom_radius = 8.0
+	cm_bloom.height = 1.0
+	cm_bloom.radial_segments = 8
+	mi_bloom.mesh = cm_bloom
+	mi_bloom.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var bloom_mat = ShaderMaterial.new()
+	bloom_mat.shader = _laser_shader
+	bloom_mat.set_shader_parameter("beam_color", Color(0.3, 0.5, 1.0, 0.15))
+	bloom_mat.set_shader_parameter("is_lightning", true)
+	mi_bloom.material_override = bloom_mat
+	bolt_group.add_child(mi_bloom)
+	le["bloom_mi"] = mi_bloom
+	le["bloom_mat"] = bloom_mat
+	# Outer glow
 	var mi_outer = MeshInstance3D.new()
 	var cm_outer = CylinderMesh.new()
-	cm_outer.top_radius = 2.5
-	cm_outer.bottom_radius = 2.5
+	cm_outer.top_radius = 4.0
+	cm_outer.bottom_radius = 4.0
 	cm_outer.height = 1.0
-	cm_outer.radial_segments = 6
+	cm_outer.radial_segments = 8
 	mi_outer.mesh = cm_outer
 	mi_outer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var outer_mat = ShaderMaterial.new()
 	outer_mat.shader = _laser_shader
-	outer_mat.set_shader_parameter("beam_color", Color(0.4, 0.7, 1.0, 0.4))
+	outer_mat.set_shader_parameter("beam_color", Color(0.4, 0.7, 1.0, 0.6))
+	outer_mat.set_shader_parameter("is_lightning", true)
 	mi_outer.material_override = outer_mat
 	bolt_group.add_child(mi_outer)
 	le["outer_mi"] = mi_outer
 	le["outer_mat"] = outer_mat
-	# Inner core cylinder (bright white-blue)
+	# Inner core
 	var mi_inner = MeshInstance3D.new()
 	var cm_inner = CylinderMesh.new()
-	cm_inner.top_radius = 0.8
-	cm_inner.bottom_radius = 0.8
+	cm_inner.top_radius = 1.5
+	cm_inner.bottom_radius = 1.5
 	cm_inner.height = 1.0
-	cm_inner.radial_segments = 4
+	cm_inner.radial_segments = 6
 	mi_inner.mesh = cm_inner
 	mi_inner.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var inner_mat = ShaderMaterial.new()
 	inner_mat.shader = _laser_shader
-	inner_mat.set_shader_parameter("beam_color", Color(0.9, 0.95, 1.0, 0.9))
+	inner_mat.set_shader_parameter("beam_color", Color(0.9, 0.95, 1.0, 0.95))
+	inner_mat.set_shader_parameter("is_lightning", true)
 	mi_inner.material_override = inner_mat
 	bolt_group.add_child(mi_inner)
 	le["inner_mi"] = mi_inner
 	le["inner_mat"] = inner_mat
-	le["mi"] = mi_outer  # Keep "mi" key for backward compat
+	le["mi"] = mi_outer
 	# Impact sparks
 	var sparks = preload("res://scenes/particles/laser_sparks.tscn").instantiate()
 	sparks.emitting = false
@@ -1486,11 +1693,19 @@ func _acquire_lightning_bolt() -> Dictionary:
 	if sparks.process_material:
 		sparks.process_material = sparks.process_material.duplicate()
 		sparks.process_material.color = Color(0.5, 0.8, 1.0)
+	# Origin sparks
+	var origin_sparks = preload("res://scenes/particles/laser_sparks.tscn").instantiate()
+	origin_sparks.emitting = false
+	bolt_group.add_child(origin_sparks)
+	le["origin_sparks"] = origin_sparks
+	if origin_sparks.process_material:
+		origin_sparks.process_material = origin_sparks.process_material.duplicate()
+		origin_sparks.process_material.color = Color(0.6, 0.8, 1.0)
 	# Light
 	var bolt_light = OmniLight3D.new()
 	bolt_light.light_color = Color(0.5, 0.7, 1.0)
-	bolt_light.light_energy = 4.0
-	bolt_light.omni_range = 40.0
+	bolt_light.light_energy = 6.0
+	bolt_light.omni_range = 60.0
 	bolt_light.omni_attenuation = 1.2
 	bolt_light.shadow_enabled = false
 	bolt_light.visible = false
@@ -1837,10 +2052,8 @@ func _sync_hp_bars():
 			entities.append({"node": b, "hp": b.hp, "max_hp": b.max_hp, "y_offset": h, "bar_w": 40})
 	for p in get_tree().get_nodes_in_group("player"):
 		if is_instance_valid(p) and "health" in p and "max_health" in p:
-			var dead = p.is_dead if "is_dead" in p else false
-			if not dead:
-				var hp_y: float = p.hp_bar_y_offset
-				entities.append({"node": p, "hp": p.health, "max_hp": p.max_health, "y_offset": hp_y, "bar_w": 32, "always": true})
+			var hp_y: float = p.hp_bar_y_offset
+			entities.append({"node": p, "hp": p.health, "max_hp": p.max_health, "y_offset": hp_y, "bar_w": 32, "always": true})
 	for a in get_tree().get_nodes_in_group("aliens"):
 		if is_instance_valid(a) and "hp" in a and "max_hp" in a:
 			entities.append({"node": a, "hp": a.hp, "max_hp": a.max_hp, "y_offset": 16, "bar_w": 28})
@@ -1917,8 +2130,10 @@ func _create_building_mesh(bname: String) -> Node3D:
 			root.add_child(_mesh_cyl(3, 12, Color(0.3, 0.5, 0.7), Vector3(0, 13, 0)))
 			root.add_child(_mesh_sphere(5, Color(0.4, 0.7, 1.0), Vector3(0, 24, 0)))
 		"Pylon":
-			var pylon_scene = load("res://scenes/pylon.tscn").instantiate()
-			root.add_child(pylon_scene)
+			var pylon_model = load("res://resources/models/pylon.glb").instantiate()
+			pylon_model.scale = Vector3(0.5, 0.5, 0.5)
+			pylon_model.position.y = 25
+			root.add_child(pylon_model)
 		"Power Plant":
 			root.add_child(_mesh_box(Vector3(28, 14, 28), Color(0.65, 0.55, 0.2), Vector3(0, 7, 0)))
 			root.add_child(_mesh_cyl(6, 8, Color(0.75, 0.65, 0.25), Vector3(0, 18, 0)))
@@ -2343,9 +2558,15 @@ func _sync_3d_meshes():
 		# Spider boss leg animation — alternating tetrapod gait
 		if a.is_in_group("spider_boss") and body:
 			var leg_time = a.leg_anim_time if "leg_anim_time" in a else 0.0
+			var is_dying = "current_phase" in a and a.current_phase == a.Phase.DYING
+			var dying_progress = clampf(a.dying_timer / a.DYING_DURATION, 0.0, 1.0) if is_dying else 0.0
 			var is_moving = "move_direction" in a and a.move_direction.length_squared() > 0.01
-			# 8 legs in 4 pairs, alternating tetrapod gait:
-			# Group A (0L, 1R, 2L, 3R) and Group B (0R, 1L, 2R, 3L) alternate
+
+			# Death animation: flip body onto its back
+			if is_dying:
+				var flip_t = clampf(dying_progress * 3.0, 0.0, 1.0)  # Flip in first third
+				body.rotation.x = lerp_angle(0.0, PI, flip_t)
+
 			var leg_names = ["Leg0L", "Leg0R", "Leg1L", "Leg1R", "Leg2L", "Leg2R", "Leg3L", "Leg3R"]
 			var gait_phases = [0.0, PI, PI, 0.0, 0.0, PI, PI, 0.0]
 			var leg_sides = [-1, 1, -1, 1, -1, 1, -1, 1]
@@ -2362,19 +2583,22 @@ func _sync_3d_meshes():
 					continue
 				var phase = gait_phases[li]
 				var side = leg_sides[li]
-				# Base splay angles (set during mesh creation)
 				var base_splay = PI / 3.0 * side
 				var base_knee_bend = -PI / 2.2 * side
-				if is_moving:
+				if is_dying:
+					# Frantic random leg wiggling that slows down
+					var wiggle_speed = 15.0 * (1.0 - dying_progress * 0.7)
+					var wiggle_amp = 0.6 * (1.0 - dying_progress * 0.8)
+					upper_pivot.rotation.y = hip.get_meta("base_fwd", 0.0) + sin(leg_time * wiggle_speed + li * 1.7) * wiggle_amp
+					upper_pivot.rotation.z = base_splay + sin(leg_time * wiggle_speed * 0.8 + li * 2.3) * wiggle_amp * 0.5 * side
+					knee.rotation.z = base_knee_bend + sin(leg_time * wiggle_speed * 1.2 + li * 3.1) * wiggle_amp * 0.7 * side
+				elif is_moving:
 					var cycle = sin(leg_time * gait_speed + phase)
 					var lift = maxf(0.0, sin(leg_time * gait_speed + phase))
-					# Upper leg: swing forward/back (rotation.y) + slight lift (rotation.z)
 					upper_pivot.rotation.y = hip.get_meta("base_fwd", 0.0) + cycle * 0.3
 					upper_pivot.rotation.z = base_splay + lift * 0.15 * side
-					# Knee: bend more during lift phase, straighten during plant
 					knee.rotation.z = base_knee_bend + lift * 0.35 * side
 				else:
-					# Idle: subtle breathing sway
 					upper_pivot.rotation.y = hip.get_meta("base_fwd", 0.0) + sin(leg_time * 0.8 + phase * 0.5) * 0.03
 					upper_pivot.rotation.z = base_splay
 					knee.rotation.z = base_knee_bend
@@ -2390,7 +2614,45 @@ func _sync_3d_meshes():
 			# Weak point glow visibility (Phase 1 only)
 			var wp_parent = body.get_node_or_null("WeakPoints")
 			if wp_parent:
-				wp_parent.visible = a.current_phase == a.Phase.ARMOR if "current_phase" in a else false
+				wp_parent.visible = a.current_phase == a.Phase.WEAKPOINTS if "current_phase" in a else false
+			# Shield hit flash — small translucent hexagonal shell around boss body
+			var shield_sphere = body.get_node_or_null("ShieldSphere")
+			if not shield_sphere:
+				var sm = SphereMesh.new()
+				sm.radius = 90.0
+				sm.height = 140.0
+				sm.radial_segments = 16
+				sm.rings = 8
+				shield_sphere = MeshInstance3D.new()
+				shield_sphere.name = "ShieldSphere"
+				shield_sphere.mesh = sm
+				shield_sphere.position = Vector3(0, 70, 0)
+				var mat = StandardMaterial3D.new()
+				mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+				mat.albedo_color = Color(0.3, 0.6, 1.0, 0.15)
+				mat.emission_enabled = true
+				mat.emission = Color(0.3, 0.5, 1.0)
+				mat.emission_energy_multiplier = 1.5
+				mat.cull_mode = BaseMaterial3D.CULL_FRONT
+				shield_sphere.material_override = mat
+				body.add_child(shield_sphere)
+			var show_shield = "shield_hit_timer" in a and a.shield_hit_timer > 0
+			shield_sphere.visible = show_shield
+			if show_shield:
+				var t = clampf(a.shield_hit_timer / 0.3, 0.0, 1.0)
+				shield_sphere.material_override.albedo_color.a = t * 0.2
+				shield_sphere.material_override.emission_energy_multiplier = 1.0 + t * 3.0
+			# Show "Destroy the Shield Generators!" text when boss is hit while shielded
+			if show_shield and is_instance_valid(hud_node):
+				if not body.has_meta("last_shield_alert") or body.get_meta("last_shield_alert") < Time.get_ticks_msec() - 3000:
+					body.set_meta("last_shield_alert", Time.get_ticks_msec())
+					var phase_name = ""
+					if "armor_active" in a and a.armor_active:
+						phase_name = "Destroy the Weak Points!"
+					elif "shield_active" in a and a.shield_active:
+						phase_name = "Destroy the Shield Generators!"
+					if phase_name != "":
+						hud_node.show_alert(phase_name, Color(1.0, 0.3, 0.3), 2.0)
 		# Hit flash
 		var mesh_node = body.get_node_or_null("Mesh") if body else null
 		if mesh_node and mesh_node is MeshInstance3D:
@@ -2854,6 +3116,7 @@ func _sync_nuke_visual():
 		if r > 0:
 			active = true
 			var origin = player_node.nuke_origin if "nuke_origin" in player_node else player_node.global_position
+			_nuke_last_origin = Vector3(origin.x, 0, origin.z)
 			_nuke_ring_mesh.position = Vector3(origin.x, 0.2, origin.z)
 			_nuke_ring_mesh.scale = Vector3(r, 1, r)
 			_nuke_ring_mesh.visible = true
@@ -2863,9 +3126,67 @@ func _sync_nuke_visual():
 			_nuke_flash_light.light_energy = lerpf(20.0, 0.0, progress)
 			_nuke_flash_light.visible = true
 	if not active:
+		if _nuke_was_active:
+			_spawn_nuke_explosion(_nuke_last_origin)
 		_nuke_ring_mesh.visible = false
 		_nuke_flash_light.visible = false
 		_nuke_flash_light.light_energy = 0.0
+	_nuke_was_active = active
+
+
+func _spawn_nuke_explosion(origin: Vector3):
+	# Big expanding flash ring
+	var ring = _create_aoe_ring(1.0, Color(1.0, 0.8, 0.3, 0.9), 0.4)
+	ring.position = Vector3(origin.x, 0.3, origin.z)
+	add_child(ring)
+	var final_size = CFG.nuke_range * 2.2
+	var tween = create_tween()
+	tween.tween_method(func(val: float):
+		if is_instance_valid(ring):
+			ring.mesh.size = Vector2(val, val)
+			var fade = 1.0 - val / final_size
+			ring.material_override.set_shader_parameter("ring_color", Color(1.0, lerp(0.8, 0.2, 1.0 - fade), lerp(0.3, 0.0, 1.0 - fade), fade * 0.9))
+	, 4.0, final_size, 0.6)
+	tween.tween_callback(func():
+		if is_instance_valid(ring):
+			ring.queue_free()
+	)
+	# Bright flash light
+	var flash = OmniLight3D.new()
+	flash.position = origin + Vector3(0, 20, 0)
+	flash.light_energy = 30.0
+	flash.omni_range = 250.0
+	flash.light_color = Color(1.0, 0.7, 0.3)
+	flash.shadow_enabled = false
+	add_child(flash)
+	var flash_tween = create_tween()
+	flash_tween.tween_property(flash, "light_energy", 0.0, 0.8)
+	flash_tween.tween_callback(func():
+		if is_instance_valid(flash):
+			flash.queue_free()
+	)
+	# Lightning bolt from sky for dramatic effect
+	var bolt = _acquire_lightning_bolt()
+	bolt["active"] = true
+	_position_bolt_vertical(bolt, origin, 1000.0)
+	_set_bolt_colors(bolt, Color(1.0, 0.6, 0.2, 0.3), Color(1.0, 0.5, 0.1, 0.7), Color(1.0, 0.9, 0.4, 0.9))
+	if bolt.has("sparks"):
+		bolt["sparks"].position = Vector3(0, -500, 0)
+		bolt["sparks"].emitting = true
+	if bolt.has("light") and is_instance_valid(bolt["light"]):
+		bolt["light"].position = origin + Vector3(0, 5, 0)
+		bolt["light"].light_energy = 15.0
+		bolt["light"].visible = true
+	var bolt_ref = bolt
+	get_tree().create_timer(0.6).timeout.connect(func():
+		bolt_ref["active"] = false
+		if bolt_ref.has("group") and is_instance_valid(bolt_ref["group"]):
+			bolt_ref["group"].visible = false
+		if bolt_ref.has("light") and is_instance_valid(bolt_ref["light"]):
+			bolt_ref["light"].visible = false
+		if bolt_ref.has("sparks"):
+			bolt_ref["sparks"].emitting = false
+	)
 
 
 func _apply_ghost_material(node: Node, mat: StandardMaterial3D):
@@ -2951,21 +3272,21 @@ func _spawn_wave():
 		hud_node.set_wave_direction(next_wave_direction)
 
 	# Wave 30: Spider Boss (final boss)
-	if wave_number == 30:
+	if wave_number == CFG.spider_boss_wave:
 		_spawn_spider_boss(rng, wave_dir)
 		if is_instance_valid(hud_node):
 			hud_node.show_wave_alert(wave_number, true)
 		return
 
 	# Slower scaling: fewer enemies early on, scale for player count
-	var mp_scale = 1.0 + (players.size() - 1) * 0.5
-	var basic_count = int((2 + wave_number) * mp_scale)
+	var mp_scale = 1.0 + (players.size() - 1) * CFG.wave_mp_scale_per_player
+	var basic_count = int((CFG.wave_basic_base_count + wave_number) * mp_scale)
 	_spawn_aliens("basic", basic_count, rng, wave_dir)
 	if wave_number >= CFG.alien_fast_start_wave:
-		_spawn_aliens("fast", int(maxi(1, wave_number - 3) * mp_scale), rng, wave_dir)
+		_spawn_aliens("fast", int(maxi(1, wave_number - CFG.wave_fast_offset) * mp_scale), rng, wave_dir)
 	if wave_number >= CFG.alien_ranged_start_wave:
-		_spawn_aliens("ranged", int(mini(wave_number - 5, CFG.alien_ranged_max_count) * mp_scale), rng, wave_dir)
-	if wave_number >= CFG.boss_start_wave and wave_number % CFG.boss_wave_interval == 0 and wave_number != 30:
+		_spawn_aliens("ranged", int(mini(wave_number - CFG.wave_ranged_offset, CFG.alien_ranged_max_count) * mp_scale), rng, wave_dir)
+	if wave_number >= CFG.boss_start_wave and wave_number % CFG.boss_wave_interval == 0 and wave_number != CFG.spider_boss_wave:
 		_spawn_boss(rng, wave_dir)
 	if is_instance_valid(hud_node):
 		hud_node.show_wave_alert(wave_number, wave_number >= CFG.boss_start_wave and wave_number % CFG.boss_wave_interval == 0)
@@ -2985,9 +3306,9 @@ func _get_player_centroid() -> Vector3:
 
 func _get_offscreen_spawn_pos(base_angle: float, rng: RandomNumberGenerator) -> Vector3:
 	# Spawn outside map bounds so enemies walk in and don't land on buildings
-	var spread = rng.randf_range(-0.4, 0.4)  # ~45 degree spread
+	var spread = rng.randf_range(-CFG.wave_spawn_spread, CFG.wave_spawn_spread)
 	var angle = base_angle + spread
-	var dist = rng.randf_range(850, 1100)
+	var dist = rng.randf_range(CFG.wave_spawn_distance_min, CFG.wave_spawn_distance_max)
 	var spawn_pos = _get_player_centroid() + Vector3(cos(angle), 0, sin(angle)) * dist
 	var margin = CFG.map_half_size + 200.0
 	spawn_pos.x = clampf(spawn_pos.x, -margin, margin)
@@ -3270,12 +3591,46 @@ func on_player_died(dead_player: Node3D = null):
 			if dead_player and NetworkManager.is_host():
 				respawn_timers[dead_player.peer_id] = 10.0
 			return
-	_end_run()
+	# Big mushroom cloud at player death + surrounding explosions
+	if is_instance_valid(dead_player):
+		spawn_mushroom_cloud(dead_player.global_position, 1.5)
+		for i in range(3):
+			var offset = Vector3(randf_range(-40, 40), 0, randf_range(-40, 40))
+			spawn_boss_death_explosion(dead_player.global_position + offset)
+	_end_run("Ship Destroyed")
 
 
-func _end_run():
-	game_over = true
+func _end_run(death_cause: String = "Unknown"):
+	# Log death state for debugging
+	var hq_hp_str = "N/A"
+	if is_instance_valid(hq_node):
+		hq_hp_str = "%d/%d" % [hq_node.hp, hq_node.max_hp]
+	var player_hp_str = "N/A"
+	if is_instance_valid(player_node):
+		player_hp_str = "%d/%d dead=%s" % [player_node.health, player_node.max_health, player_node.is_dead]
+	var boss_str = "None"
+	if is_instance_valid(spider_boss_ref):
+		boss_str = "%d/%d phase=%s" % [spider_boss_ref.hp, spider_boss_ref.max_hp, spider_boss_ref.Phase.keys()[spider_boss_ref.current_phase]]
+	print("=== GAME OVER ===")
+	print("  Cause: %s" % death_cause)
+	print("  Wave: %d | Bosses killed: %d" % [wave_number, bosses_killed])
+	print("  Player HP: %s" % player_hp_str)
+	print("  HQ HP: %s" % hq_hp_str)
+	print("  Boss: %s" % boss_str)
+	print("=================")
+	# Force one last HUD + HP bar update so the player sees final health values
+	if is_instance_valid(hud_node) and is_instance_valid(player_node):
+		var rates = get_factory_rates()
+		hud_node.update_hud(player_node, wave_timer, wave_number, wave_active, total_power_gen, total_power_consumption, power_on, rates, power_bank, max_power_bank, run_prestige)
+	_sync_hp_bars()
+	# Delay the game over screen by 2 seconds so the player sees the explosion
 	respawn_timers.clear()
+	death_delay_timer = 2.0
+	death_delay_cause = death_cause
+
+
+func _finish_end_run(death_cause: String):
+	game_over = true
 	# Divide run prestige evenly among all players
 	var player_count = maxi(players.size(), 1)
 	var prestige_share = run_prestige / player_count
@@ -3286,7 +3641,7 @@ func _end_run():
 	GameData.add_prestige(prestige_share)
 	GameData.record_run(wave_number, bosses_killed)
 	if is_instance_valid(hud_node):
-		hud_node.show_death_screen(wave_number, bosses_killed, prestige_share, GameData.prestige_points)
+		hud_node.show_death_screen(wave_number, bosses_killed, prestige_share, GameData.prestige_points, death_cause)
 	# Notify clients of game over in MP
 	if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
 		_rpc_game_over.rpc(wave_number, bosses_killed, prestige_share)
@@ -3304,7 +3659,7 @@ func _on_hq_destroyed():
 		player_node.health = 0
 		player_node.is_dead = true
 		player_node._spawn_death_particles()
-	on_player_died(player_node)
+	_end_run("HQ Destroyed")
 
 
 func on_boss_killed():
@@ -3326,23 +3681,33 @@ func _spawn_spider_boss(rng: RandomNumberGenerator, wave_dir: float):
 
 func spawn_shield_generators(boss: Node3D):
 	shield_gen_refs.clear()
-	var spread_positions = [
-		Vector3(-200, 0, -200),
-		Vector3(200, 0, -200),
-		Vector3(-200, 0, 200),
-		Vector3(200, 0, 200),
-	]
-	for pos in spread_positions:
+	var gen_count = CFG.spider_generator_count
+	var corner_offset = CFG.map_half_size * 0.85
+	var positions: Array = []
+	if gen_count == 4:
+		positions = [
+			Vector3(-corner_offset, 0, -corner_offset),
+			Vector3(corner_offset, 0, -corner_offset),
+			Vector3(-corner_offset, 0, corner_offset),
+			Vector3(corner_offset, 0, corner_offset),
+		]
+	else:
+		for i in range(gen_count):
+			var angle = TAU * i / gen_count
+			positions.append(Vector3(cos(angle) * corner_offset, 0, sin(angle) * corner_offset))
+	for pos in positions:
 		var gen = Node3D.new()
 		gen.set_script(load("res://scripts/shield_generator.gd"))
 		gen.position = pos
+		gen.hp = CFG.spider_generator_hp
+		gen.max_hp = CFG.spider_generator_hp
 		gen.spider_boss_ref = boss
 		gen.net_id = next_net_id
 		next_net_id += 1
 		aliens_node.add_child(gen)
 		alien_net_ids[gen.net_id] = gen
 		shield_gen_refs.append(gen)
-	boss.generators_alive = spread_positions.size()
+	boss.generators_alive = positions.size()
 
 
 func spawn_spider_minions(spawn_center: Vector3):
@@ -3359,6 +3724,7 @@ func spawn_spider_minions(spawn_center: Vector3):
 		alien.damage = CFG.alien_basic_base_damage + wave_number * CFG.alien_basic_damage_per_wave
 		alien.speed = CFG.alien_basic_base_speed + wave_number * CFG.alien_basic_speed_per_wave
 		alien.xp_value = CFG.alien_basic_xp
+		alien.prefer_buildings = true
 		alien.position = spawn_center + Vector3(randf_range(-30, 30), 0, randf_range(-30, 30))
 		alien.net_id = next_net_id
 		next_net_id += 1
@@ -3372,6 +3738,7 @@ func spawn_spider_minions(spawn_center: Vector3):
 	fast.speed = CFG.alien_fast_base_speed + wave_number * CFG.alien_fast_speed_per_wave
 	fast.xp_value = CFG.alien_fast_xp
 	fast.alien_type = "fast"
+	fast.prefer_buildings = true
 	fast.position = spawn_center + Vector3(randf_range(-30, 30), 0, randf_range(-30, 30))
 	fast.net_id = next_net_id
 	next_net_id += 1
@@ -3392,11 +3759,8 @@ func on_spider_boss_killed():
 		beam["active"] = false
 		beam["group"].visible = false
 	spider_boss_beams.clear()
-	# Clean up telegraph rings
-	for tc in spider_telegraph_rings:
-		if is_instance_valid(spider_telegraph_rings[tc]):
-			spider_telegraph_rings[tc].queue_free()
-	spider_telegraph_rings.clear()
+	# Clean up all telegraph visuals (rings, beams, countdowns)
+	_cleanup_all_telegraphs()
 	# Clean up remaining generators
 	for gen in shield_gen_refs:
 		if is_instance_valid(gen):
@@ -3434,7 +3798,7 @@ func _sync_spider_boss_beams():
 			beam["group"].visible = false
 		spider_boss_beams.clear()
 		return
-	if spider_boss_ref.current_phase != spider_boss_ref.Phase.SHIELDS:
+	if spider_boss_ref.current_phase != spider_boss_ref.Phase.GENERATORS:
 		for beam in spider_boss_beams:
 			beam["active"] = false
 			beam["group"].visible = false
@@ -3449,78 +3813,282 @@ func _sync_spider_boss_beams():
 	while spider_boss_beams.size() < living_gens.size():
 		var bolt = _acquire_lightning_bolt()
 		bolt["active"] = true
-		bolt["group"].visible = true
-		# Set beam colors — access material through the MeshInstance3D
-		if bolt.has("outer_mi") and is_instance_valid(bolt["outer_mi"]):
-			var omat = bolt["outer_mi"].material_override
-			if omat:
-				omat.set_shader_parameter("beam_color", Color(0.6, 0.2, 1.0, 0.5))
-		if bolt.has("inner_mi") and is_instance_valid(bolt["inner_mi"]):
-			var imat = bolt["inner_mi"].material_override
-			if imat:
-				imat.set_shader_parameter("beam_color", Color(0.8, 0.5, 1.0, 0.9))
 		spider_boss_beams.append(bolt)
 	while spider_boss_beams.size() > living_gens.size():
 		var beam = spider_boss_beams.pop_back()
 		beam["active"] = false
 		beam["group"].visible = false
-	# Position each beam
+	# Position each beam using Basis approach
 	for i in range(living_gens.size()):
 		var gen = living_gens[i]
 		var beam = spider_boss_beams[i]
 		var gen_top = gen.global_position + Vector3(0, 32, 0)
 		var boss_pos = spider_boss_ref.global_position + Vector3(0, 20, 0)
-		var mid = (gen_top + boss_pos) * 0.5
-		var dist = gen_top.distance_to(boss_pos)
-		beam["group"].position = mid
-		beam["group"].look_at(boss_pos, Vector3.UP)
-		beam["group"].rotation.x += PI / 2
-		beam["outer_mi"].mesh.height = dist
-		beam["inner_mi"].mesh.height = dist
-		beam["group"].visible = true
-		beam["light"].position = mid
-		beam["light"].visible = true
+		_position_bolt_between(beam, gen_top, boss_pos)
+		_set_bolt_colors(beam, Color(0.5, 0.15, 0.8, 0.2), Color(0.6, 0.2, 1.0, 0.5), Color(0.8, 0.5, 1.0, 0.9))
+		if beam.has("light") and is_instance_valid(beam["light"]):
+			beam["light"].position = (gen_top + boss_pos) * 0.5
+			beam["light"].visible = true
 
 
 func _sync_spider_telegraph_rings():
 	if not is_instance_valid(spider_boss_ref):
-		# Clean up all rings
-		for tc in spider_telegraph_rings:
-			if is_instance_valid(spider_telegraph_rings[tc]):
-				spider_telegraph_rings[tc].queue_free()
-		spider_telegraph_rings.clear()
+		_cleanup_all_telegraphs()
 		return
-	if spider_boss_ref.current_phase != spider_boss_ref.Phase.SHIELDS:
-		for tc in spider_telegraph_rings:
-			if is_instance_valid(spider_telegraph_rings[tc]):
-				spider_telegraph_rings[tc].queue_free()
-		spider_telegraph_rings.clear()
+	if spider_boss_ref.current_phase not in [spider_boss_ref.Phase.WEAKPOINTS, spider_boss_ref.Phase.VULNERABLE_2, spider_boss_ref.Phase.GENERATORS, spider_boss_ref.Phase.FINAL]:
+		_cleanup_all_telegraphs()
 		return
-	# Add new rings for new telegraphs
+	# Build set of active telegraph IDs
+	var active_ids: Dictionary = {}
 	for tc in spider_boss_ref.telegraph_circles:
-		if tc not in spider_telegraph_rings:
-			var ring = _create_aoe_ring(TELEGRAPH_RADIUS_3D, Color(1.0, 0.9, 0.2, 0.5), 0.15)
+		active_ids[tc["id"]] = tc
+	# Add new visuals for new telegraphs
+	for tc in spider_boss_ref.telegraph_circles:
+		var tid = tc["id"]
+		if tid not in spider_telegraph_rings:
+			# 1) Ground disc — filled pulsating dithered circle
+			var ring = _create_aoe_ring(TELEGRAPH_RADIUS_3D, Color(1.0, 0.9, 0.2, 0.35), 1.0)
 			ring.position = Vector3(tc["position"].x, 0.15, tc["position"].z)
 			add_child(ring)
-			spider_telegraph_rings[tc] = ring
-	# Update existing rings (fade yellow → red)
+			spider_telegraph_rings[tid] = ring
+			# 2) Sky aiming beam — bolt from y=1000 straight down to target
+			var bolt = _acquire_lightning_bolt()
+			bolt["active"] = true
+			var strike_pos = Vector3(tc["position"].x, 0, tc["position"].z)
+			_position_bolt_vertical(bolt, strike_pos, 1000.0)
+			# Start dim yellow-orange
+			_set_bolt_colors(bolt, Color(1.0, 0.8, 0.3, 0.15), Color(1.0, 0.8, 0.3, 0.3), Color(1.0, 0.9, 0.5, 0.5))
+			if bolt.has("sparks"):
+				bolt["sparks"].emitting = false
+			if bolt.has("light") and is_instance_valid(bolt["light"]):
+				bolt["light"].position = strike_pos + Vector3(0, 5, 0)
+				bolt["light"].light_energy = 1.0
+				bolt["light"].visible = true
+			spider_telegraph_beams[tid] = bolt
+			spider_telegraph_positions[tid] = strike_pos
+			# 3) Countdown label — floating "3", "2", "1"
+			var label = Label3D.new()
+			label.text = str(ceili(tc["timer"]))
+			label.font_size = 96
+			label.modulate = Color(1.0, 0.3, 0.1, 0.9)
+			label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			label.no_depth_test = true
+			label.position = Vector3(tc["position"].x, 35, tc["position"].z)
+			label.pixel_size = 0.5
+			add_child(label)
+			spider_telegraph_countdowns[tid] = label
+	# Update existing telegraph visuals
 	var to_remove: Array = []
-	for tc in spider_telegraph_rings:
-		if tc not in spider_boss_ref.telegraph_circles:
-			to_remove.append(tc)
+	for tid in spider_telegraph_rings:
+		if tid not in active_ids:
+			to_remove.append(tid)
 		else:
+			var tc = active_ids[tid]
 			var progress = 1.0 - tc["timer"] / tc["lifetime"]
-			var ring_mi = spider_telegraph_rings[tc]
+			# Update ground disc: yellow → red with pulsation
+			var ring_mi = spider_telegraph_rings[tid]
 			if is_instance_valid(ring_mi) and ring_mi.material_override:
-				var col = Color(1.0, 1.0 - progress * 0.8, 0.2 - progress * 0.2, 0.4 + progress * 0.3)
-				ring_mi.material_override.set_shader_parameter("ring_color", col)
-	for tc in to_remove:
-		if is_instance_valid(spider_telegraph_rings[tc]):
-			spider_telegraph_rings[tc].queue_free()
-		spider_telegraph_rings.erase(tc)
+				var pulse_speed = 3.0 + progress * 12.0
+				var pulse = sin(Time.get_ticks_msec() * 0.001 * pulse_speed) * 0.5 + 0.5
+				var base_alpha = 0.25 + progress * 0.45
+				var alpha_val = base_alpha + pulse * 0.25
+				var col_r = 1.0
+				var col_g = lerp(0.9, 0.1, progress)
+				var col_b = lerp(0.2, 0.0, progress)
+				ring_mi.material_override.set_shader_parameter("ring_color", Color(col_r, col_g, col_b, alpha_val))
+			# Update sky beam: intensify from dim to bright
+			if tid in spider_telegraph_beams:
+				var bolt = spider_telegraph_beams[tid]
+				var bloom_a = lerp(0.1, 0.4, progress)
+				var outer_a = lerp(0.2, 0.7, progress)
+				var inner_a = lerp(0.4, 0.95, progress)
+				var beam_r = 1.0
+				var beam_g = lerp(0.8, 0.2, progress)
+				var beam_b = lerp(0.3, 0.05, progress)
+				_set_bolt_colors(bolt, Color(beam_r, beam_g, beam_b, bloom_a), Color(beam_r, beam_g, beam_b, outer_a), Color(1.0, lerp(0.9, 0.5, progress), lerp(0.5, 0.2, progress), inner_a))
+				if bolt.has("light") and is_instance_valid(bolt["light"]):
+					bolt["light"].light_energy = lerp(1.0, 6.0, progress)
+			# Update countdown label
+			if tid in spider_telegraph_countdowns:
+				var label = spider_telegraph_countdowns[tid]
+				if is_instance_valid(label):
+					var secs = ceili(tc["timer"])
+					label.text = str(secs)
+					var label_scale = 1.0 + sin(Time.get_ticks_msec() * 0.001 * 4.0) * 0.1 * progress
+					label.scale = Vector3.ONE * label_scale
+					label.modulate = Color(1.0, lerp(0.4, 0.1, progress), 0.1, 0.7 + progress * 0.3)
+	# Handle expired telegraphs
+	for tid in to_remove:
+		# Get stored position for explosion
+		var strike_pos_val = spider_telegraph_positions.get(tid, Vector3.ZERO)
+		# Release sky beam
+		if tid in spider_telegraph_beams:
+			var bolt = spider_telegraph_beams[tid]
+			bolt["active"] = false
+			if bolt.has("group") and is_instance_valid(bolt["group"]):
+				bolt["group"].visible = false
+			if bolt.has("light") and is_instance_valid(bolt["light"]):
+				bolt["light"].visible = false
+			if bolt.has("sparks"):
+				bolt["sparks"].emitting = false
+			spider_telegraph_beams.erase(tid)
+		# Remove countdown label
+		if tid in spider_telegraph_countdowns:
+			if is_instance_valid(spider_telegraph_countdowns[tid]):
+				spider_telegraph_countdowns[tid].queue_free()
+			spider_telegraph_countdowns.erase(tid)
+		# Free ground disc
+		if tid in spider_telegraph_rings:
+			if is_instance_valid(spider_telegraph_rings[tid]):
+				spider_telegraph_rings[tid].queue_free()
+			spider_telegraph_rings.erase(tid)
+		spider_telegraph_positions.erase(tid)
+		# Spawn explosion at strike position
+		if strike_pos_val != Vector3.ZERO:
+			_spawn_telegraph_explosion(strike_pos_val)
 
 
-const TELEGRAPH_RADIUS_3D: float = 60.0
+func _position_bolt_between(bolt: Dictionary, start: Vector3, end: Vector3):
+	# Position a bolt between two world-space points using Basis (handles all orientations)
+	var dist = start.distance_to(end)
+	if dist < 0.1:
+		return
+	var mid = (start + end) / 2.0
+	var dir = (end - start).normalized()
+	var side: Vector3
+	if abs(dir.dot(Vector3.UP)) < 0.999:
+		side = dir.cross(Vector3.UP).normalized()
+	else:
+		side = dir.cross(Vector3.FORWARD).normalized()
+	var fwd = side.cross(dir).normalized()
+	var bolt_basis = Basis(side, dir * dist, fwd)
+	# Reset mesh height to 1.0 — the Basis scaling handles length
+	for key in ["bloom_mi", "outer_mi", "inner_mi"]:
+		if bolt.has(key) and is_instance_valid(bolt[key]):
+			bolt[key].mesh.height = 1.0
+			bolt[key].global_transform = Transform3D(bolt_basis, mid)
+	if bolt.has("group") and is_instance_valid(bolt["group"]):
+		bolt["group"].visible = true
+
+
+func _position_bolt_vertical(bolt: Dictionary, ground_pos: Vector3, height: float):
+	var sky_pos = ground_pos + Vector3(0, height, 0)
+	_position_bolt_between(bolt, sky_pos, ground_pos)
+
+
+func _set_bolt_colors(bolt: Dictionary, bloom_col: Color, outer_col: Color, inner_col: Color):
+	if bolt.has("bloom_mi") and is_instance_valid(bolt["bloom_mi"]):
+		var mat = bolt["bloom_mi"].material_override
+		if mat:
+			mat.set_shader_parameter("beam_color", bloom_col)
+	if bolt.has("outer_mi") and is_instance_valid(bolt["outer_mi"]):
+		var mat = bolt["outer_mi"].material_override
+		if mat:
+			mat.set_shader_parameter("beam_color", outer_col)
+	if bolt.has("inner_mi") and is_instance_valid(bolt["inner_mi"]):
+		var mat = bolt["inner_mi"].material_override
+		if mat:
+			mat.set_shader_parameter("beam_color", inner_col)
+
+
+func _cleanup_all_telegraphs():
+	for tid in spider_telegraph_rings:
+		if is_instance_valid(spider_telegraph_rings[tid]):
+			spider_telegraph_rings[tid].queue_free()
+	spider_telegraph_rings.clear()
+	for tid in spider_telegraph_beams:
+		var bolt = spider_telegraph_beams[tid]
+		bolt["active"] = false
+		if bolt.has("group") and is_instance_valid(bolt["group"]):
+			bolt["group"].visible = false
+		if bolt.has("light") and is_instance_valid(bolt["light"]):
+			bolt["light"].visible = false
+		if bolt.has("sparks"):
+			bolt["sparks"].emitting = false
+	spider_telegraph_beams.clear()
+	for tid in spider_telegraph_countdowns:
+		if is_instance_valid(spider_telegraph_countdowns[tid]):
+			spider_telegraph_countdowns[tid].queue_free()
+	spider_telegraph_countdowns.clear()
+	spider_telegraph_positions.clear()
+
+
+var TELEGRAPH_RADIUS_3D: float = 60.0
+
+
+func _spawn_telegraph_explosion(strike_pos: Vector3):
+	# 1) Impact lightning bolt from sky — straight down
+	var bolt = _acquire_lightning_bolt()
+	bolt["active"] = true
+	_position_bolt_vertical(bolt, strike_pos, 1000.0)
+	_set_bolt_colors(bolt, Color(1.0, 0.4, 0.1, 0.4), Color(1.0, 0.3, 0.1, 0.8), Color(1.0, 0.8, 0.3, 0.95))
+	if bolt.has("sparks"):
+		bolt["sparks"].position = Vector3(0, -500, 0)
+		bolt["sparks"].emitting = true
+	if bolt.has("origin_sparks"):
+		bolt["origin_sparks"].position = Vector3(0, 500, 0)
+		bolt["origin_sparks"].emitting = true
+	if bolt.has("light") and is_instance_valid(bolt["light"]):
+		bolt["light"].position = strike_pos + Vector3(0, 5, 0)
+		bolt["light"].light_energy = 12.0
+		bolt["light"].visible = true
+	# Auto-release bolt after 0.5s
+	var bolt_ref = bolt
+	get_tree().create_timer(0.5).timeout.connect(func():
+		bolt_ref["active"] = false
+		if bolt_ref.has("group") and is_instance_valid(bolt_ref["group"]):
+			bolt_ref["group"].visible = false
+		if bolt_ref.has("light") and is_instance_valid(bolt_ref["light"]):
+			bolt_ref["light"].visible = false
+		if bolt_ref.has("sparks"):
+			bolt_ref["sparks"].emitting = false
+		if bolt_ref.has("origin_sparks"):
+			bolt_ref["origin_sparks"].emitting = false
+	)
+	# 2) Expanding shockwave ring
+	var ring = _create_aoe_ring(1.0, Color(1.0, 0.9, 0.8, 0.8), 0.3)
+	ring.position = Vector3(strike_pos.x, 0.2, strike_pos.z)
+	add_child(ring)
+	var tween = create_tween()
+	var target_size = TELEGRAPH_RADIUS_3D * 2.0
+	tween.tween_method(func(val: float):
+		if is_instance_valid(ring):
+			ring.mesh.size = Vector2(val, val)
+			var fade = 1.0 - val / target_size
+			ring.material_override.set_shader_parameter("ring_color", Color(1.0, lerp(0.9, 0.3, 1.0 - fade), lerp(0.8, 0.1, 1.0 - fade), fade * 0.8))
+	, 2.0, target_size, 0.4)
+	tween.tween_callback(func():
+		if is_instance_valid(ring):
+			ring.queue_free()
+	)
+	# 3) Flash light
+	var flash = OmniLight3D.new()
+	flash.position = strike_pos + Vector3(0, 10, 0)
+	flash.light_energy = 20.0
+	flash.omni_range = 150.0
+	flash.light_color = Color(1.0, 0.6, 0.2)
+	flash.shadow_enabled = false
+	add_child(flash)
+	var flash_tween = create_tween()
+	flash_tween.tween_property(flash, "light_energy", 0.0, 0.5)
+	flash_tween.tween_callback(func():
+		if is_instance_valid(flash):
+			flash.queue_free()
+	)
+
+
+func spawn_boss_death_explosion(pos: Vector3, scale_mult: float = 1.0):
+	var fx = preload("res://scenes/explosion.tscn").instantiate()
+	fx.explosion_scale = scale_mult
+	add_child(fx)
+	fx.global_position = pos
+
+
+func spawn_mushroom_cloud(pos: Vector3, scale_mult: float = 1.0):
+	var fx = preload("res://scenes/mushroom_cloud.tscn").instantiate()
+	fx.explosion_scale = scale_mult
+	add_child(fx)
+	fx.global_position = pos
 
 
 func restart_game(start_wave: int = 1):

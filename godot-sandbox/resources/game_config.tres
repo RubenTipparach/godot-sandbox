@@ -12,6 +12,6 @@ hq_light_energy = 30.0
 resource_iron_light_color = Color(0.95, 0.3, 0.15, 1)
 resource_iron_light_energy = 5.0
 resource_iron_light_range = 45.0
-resource_crystal_light_color = Color(0.3, 0.5, 1.0, 1)
 resource_crystal_light_energy = 6.0
 resource_crystal_light_range = 55.0
+boss_telegraph_building_damage_pct = 0.1

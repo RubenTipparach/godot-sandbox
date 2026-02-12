@@ -6,6 +6,7 @@ var speed: float = 60.0
 var damage: int = 8
 var xp_value: int = 1
 var alien_type: String = "basic"
+var prefer_buildings: bool = false
 var move_direction: Vector3 = Vector3.ZERO
 var attack_timer: float = 0.0
 const ATTACK_INTERVAL = 1.0
@@ -104,38 +105,46 @@ func _process(delta):
 
 	var total_slow = slow_factor * (1.0 - tower_slow)
 
-	# Stuck detection
-	_stuck_timer += delta
-	if _stuck_timer >= 0.5:
-		if _stuck_check_pos != Vector3.ZERO and global_position.distance_to(_stuck_check_pos) < 3.0:
-			_unstuck_timer = randf_range(1.0, 2.0)
-			var escape_angle = randf() * TAU
-			_unstuck_dir = Vector3(cos(escape_angle), 0, sin(escape_angle))
-		_stuck_check_pos = global_position
+	var target = _find_target()
+	var in_attack_range = false
+	if target:
+		var dist = global_position.distance_to(target.global_position)
+		in_attack_range = dist <= ATTACK_RANGE
+
+	# Stuck detection (skip when attacking — alien is intentionally stationary)
+	if not in_attack_range:
+		_stuck_timer += delta
+		if _stuck_timer >= 0.5:
+			if _stuck_check_pos != Vector3.ZERO and global_position.distance_to(_stuck_check_pos) < 3.0:
+				_unstuck_timer = randf_range(1.0, 2.0)
+				var escape_angle = randf() * TAU
+				_unstuck_dir = Vector3(cos(escape_angle), 0, sin(escape_angle))
+			_stuck_check_pos = global_position
+			_stuck_timer = 0.0
+	else:
 		_stuck_timer = 0.0
+		_unstuck_timer = 0.0
 
 	if _unstuck_timer > 0:
 		_unstuck_timer -= delta
 		position += _unstuck_dir * speed * total_slow * delta
 		move_direction = _unstuck_dir
-	else:
-		var target = _find_target()
-		if target:
-			var dir = (target.global_position - global_position).normalized()
-			var dist = global_position.distance_to(target.global_position)
-			if dist > ATTACK_RANGE:
-				var separation = _get_separation_force()
-				var resource_avoid = _get_resource_avoidance()
-				var move_dir = (dir + separation * SEPARATION_FORCE + resource_avoid * RESOURCE_AVOID_FORCE).normalized()
-				position += move_dir * speed * total_slow * delta
-				move_direction = move_dir
+	elif target:
+		var dir = (target.global_position - global_position).normalized()
+		if not in_attack_range:
+			var separation = _get_separation_force()
+			var resource_avoid = _get_resource_avoidance()
+			var move_dir = (dir + separation * SEPARATION_FORCE + resource_avoid * RESOURCE_AVOID_FORCE).normalized()
+			position += move_dir * speed * total_slow * delta
+			move_direction = move_dir
+			attack_timer = 0.0
+		else:
+			move_direction = dir
+			attack_timer += delta
+			if attack_timer >= ATTACK_INTERVAL:
 				attack_timer = 0.0
-			else:
-				attack_timer += delta
-				if attack_timer >= ATTACK_INTERVAL:
-					attack_timer = 0.0
-					if target.has_method("take_damage"):
-						target.take_damage(damage)
+				if target.has_method("take_damage"):
+					target.take_damage(damage)
 
 
 func _find_target() -> Node3D:
@@ -147,9 +156,11 @@ func _find_target() -> Node3D:
 		if d < closest_dist:
 			closest_dist = d
 			closest = p
+	# When prefer_buildings is set, buildings get a distance advantage (appear 40% closer)
+	var building_bias = 0.6 if prefer_buildings else 1.0
 	for b in get_tree().get_nodes_in_group("buildings"):
 		if not is_instance_valid(b): continue
-		var d = global_position.distance_to(b.global_position)
+		var d = global_position.distance_to(b.global_position) * building_bias
 		if d < closest_dist:
 			closest_dist = d
 			closest = b

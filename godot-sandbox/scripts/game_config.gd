@@ -252,6 +252,72 @@ extends Resource
 @export var alien_ranged_start_wave: int = 6
 @export var alien_ranged_max_count: int = 6
 
+@export_group("Spider Boss")
+@export var spider_hp: int = 6000
+@export var spider_phase2_threshold: int = 5000
+@export var spider_phase4_threshold: int = 2500
+@export var spider_contact_damage: int = 30
+@export var spider_speed: float = 20.0
+@export var spider_xp_value: int = 100
+@export var spider_contact_range: float = 80.0
+@export var spider_contact_interval: float = 0.8
+
+@export_group("Spider Boss - Telegraphs")
+@export var spider_telegraph_lifetime: float = 3.0
+@export var spider_telegraph_damage: int = 80
+@export var spider_telegraph_radius: float = 60.0
+@export var boss_telegraph_building_damage_pct: float = 0.25
+
+@export_group("Spider Boss - Weak Points")
+@export var spider_weak_point_count: int = 3
+@export var spider_weak_point_hp: int = 300
+@export var spider_weak_point_orbit_distance: float = 40.0
+
+@export_group("Spider Boss - Generators")
+@export var spider_generator_count: int = 4
+@export var spider_generator_hp: int = 200
+
+@export_group("Spider Boss - Clusters")
+@export var spider_wp_cluster_beam_min: int = 4
+@export var spider_wp_cluster_beam_max: int = 5
+@export var spider_wp_cluster_spread: float = 80.0
+@export var spider_wp_cluster_lead: float = 80.0
+@export var spider_wp_cluster_interval: float = 6.0
+@export var spider_gen_cluster_beam_min: int = 4
+@export var spider_gen_cluster_beam_max: int = 5
+@export var spider_gen_cluster_spread: float = 80.0
+@export var spider_gen_cluster_lead: float = 80.0
+@export var spider_gen_cluster_base_interval: float = 6.0
+@export var spider_gen_cluster_interval_per_gen: float = 1.0
+@export var spider_final_cluster_beam_min: int = 8
+@export var spider_final_cluster_beam_max: int = 10
+@export var spider_final_cluster_spread: float = 100.0
+@export var spider_final_cluster_lead: float = 100.0
+@export var spider_final_cluster_interval: float = 8.0
+
+@export_group("Spider Boss - Radial Telegraphs")
+@export var spider_radial_directions: int = 6
+@export var spider_radial_beams_per_dir: int = 8
+@export var spider_radial_spacing: float = 80.0
+@export var spider_radial_interval: float = 6.0
+
+@export_group("Spider Boss - Minions")
+@export var spider_minion_interval_v1: float = 15.0
+@export var spider_minion_interval_wp: float = 10.0
+@export var spider_minion_interval_v2: float = 10.0
+@export var spider_minion_interval_gen: float = 10.0
+@export var spider_minion_interval_final: float = 8.0
+
+@export_group("Wave Spawning")
+@export var spider_boss_wave: int = 30
+@export var wave_basic_base_count: int = 2
+@export var wave_fast_offset: int = 3
+@export var wave_ranged_offset: int = 5
+@export var wave_mp_scale_per_player: float = 0.5
+@export var wave_spawn_distance_min: float = 850.0
+@export var wave_spawn_distance_max: float = 1100.0
+@export var wave_spawn_spread: float = 0.4
+
 @export_group("Boss Alien")
 @export var boss_base_hp: int = 150
 @export var boss_hp_per_wave: int = 50

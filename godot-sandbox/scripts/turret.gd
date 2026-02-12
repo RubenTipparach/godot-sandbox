@@ -109,9 +109,9 @@ func _spawn_aliens_on_death():
 	var alien_scene = preload("res://scenes/alien.tscn")
 	for i in range(3):
 		var alien = alien_scene.instantiate()
-		alien.global_position = spawn_pos + Vector3(randf_range(-25, 25), 0, randf_range(-25, 25))
 		alien.hp = 25
 		alien.max_hp = 25
 		alien.damage = 6
 		alien.speed = 55.0
 		get_tree().current_scene.aliens_node.add_child(alien)
+		alien.global_position = spawn_pos + Vector3(randf_range(-25, 25), 0, randf_range(-25, 25))
