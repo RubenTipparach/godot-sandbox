@@ -32,6 +32,14 @@ var death_panel: Control
 var death_stats_label: Label
 var prestige_label: Label
 
+var victory_panel: Control
+var victory_stats_label: Label
+var victory_prestige_label: Label
+
+var boss_hp_bar: Control = null
+var boss_hp_fill: ColorRect = null
+var boss_hp_label: Label = null
+
 var start_menu: Control
 var start_prestige_label: Label
 var start_stats_label: Label
@@ -150,6 +158,16 @@ const BUILD_DESCRIPTIONS = {
 
 func _ready():
 	process_mode = Node.PROCESS_MODE_ALWAYS
+
+	# Apply saved audio volumes
+	var music_bus = AudioServer.get_bus_index("Music")
+	if music_bus >= 0:
+		AudioServer.set_bus_volume_db(music_bus, linear_to_db(GameData.music_volume))
+		AudioServer.set_bus_mute(music_bus, GameData.music_volume < 0.01)
+	var sfx_bus = AudioServer.get_bus_index("SFX")
+	if sfx_bus >= 0:
+		AudioServer.set_bus_volume_db(sfx_bus, linear_to_db(GameData.sfx_volume))
+		AudioServer.set_bus_mute(sfx_bus, GameData.sfx_volume < 0.01)
 
 	# Make tooltips appear instantly
 	ProjectSettings.set_setting("gui/timers/tooltip_delay_sec", 0.0)
@@ -369,7 +387,7 @@ func _ready():
 	power_warning_label.add_theme_font_size_override("font_size", 18)
 	power_warning_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.1))
 	power_warning_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	power_warning_label.offset_left = 190
+	power_warning_label.offset_left = 250
 	power_warning_label.offset_top = 110
 	power_warning_label.visible = false
 	power_warning_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -452,6 +470,8 @@ func _ready():
 
 	_build_upgrade_panel(root)
 	_build_death_panel(root)
+	_build_victory_panel(root)
+	_build_boss_hp_bar(root)
 	_build_start_menu(root)
 	_build_research_panel(root)
 	_build_pause_menu(root)
@@ -623,6 +643,113 @@ func _build_death_panel(root: Control):
 	death_panel.add_child(menu_btn)
 
 
+func _build_victory_panel(root: Control):
+	victory_panel = Control.new()
+	victory_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	victory_panel.visible = false
+	victory_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	root.add_child(victory_panel)
+
+	var bg = ColorRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0.02, 0.05, 0.0, 0.85)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	victory_panel.add_child(bg)
+
+	var title = Label.new()
+	title.text = "VICTORY!"
+	title.add_theme_font_size_override("font_size", 56)
+	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.2))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	title.offset_top = 80; title.offset_left = -300; title.offset_right = 300
+	victory_panel.add_child(title)
+
+	victory_stats_label = Label.new()
+	victory_stats_label.add_theme_font_size_override("font_size", 20)
+	victory_stats_label.add_theme_color_override("font_color", Color(0.9, 0.95, 0.9))
+	victory_stats_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	victory_stats_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	victory_stats_label.offset_top = 160; victory_stats_label.offset_left = -300; victory_stats_label.offset_right = 300
+	victory_panel.add_child(victory_stats_label)
+
+	victory_prestige_label = Label.new()
+	victory_prestige_label.add_theme_font_size_override("font_size", 24)
+	victory_prestige_label.add_theme_color_override("font_color", Color(1.0, 0.85, 0.3))
+	victory_prestige_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	victory_prestige_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	victory_prestige_label.offset_top = 210; victory_prestige_label.offset_left = -300; victory_prestige_label.offset_right = 300
+	victory_panel.add_child(victory_prestige_label)
+
+	var menu_btn = Button.new()
+	menu_btn.text = "Return to Menu"
+	menu_btn.custom_minimum_size = Vector2(200, 50)
+	menu_btn.add_theme_font_size_override("font_size", 20)
+	menu_btn.set_anchors_preset(Control.PRESET_CENTER)
+	menu_btn.offset_top = -25; menu_btn.offset_left = -100; menu_btn.offset_right = 100; menu_btn.offset_bottom = 25
+	menu_btn.pressed.connect(_on_victory_return_to_menu)
+	victory_panel.add_child(menu_btn)
+
+
+func _build_boss_hp_bar(root: Control):
+	boss_hp_bar = Control.new()
+	boss_hp_bar.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	boss_hp_bar.offset_top = 20; boss_hp_bar.offset_left = -200; boss_hp_bar.offset_right = 200; boss_hp_bar.offset_bottom = 50
+	boss_hp_bar.visible = false
+	boss_hp_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(boss_hp_bar)
+
+	var bg = ColorRect.new()
+	bg.color = Color(0.15, 0.0, 0.0, 0.8)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boss_hp_bar.add_child(bg)
+
+	boss_hp_fill = ColorRect.new()
+	boss_hp_fill.color = Color(0.8, 0.1, 0.1)
+	boss_hp_fill.set_anchors_preset(Control.PRESET_FULL_RECT)
+	boss_hp_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boss_hp_bar.add_child(boss_hp_fill)
+
+	boss_hp_label = Label.new()
+	boss_hp_label.text = "SPIDER BOSS"
+	boss_hp_label.add_theme_font_size_override("font_size", 14)
+	boss_hp_label.add_theme_color_override("font_color", Color(1, 1, 1))
+	boss_hp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	boss_hp_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	boss_hp_label.set_anchors_preset(Control.PRESET_FULL_RECT)
+	boss_hp_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	boss_hp_bar.add_child(boss_hp_label)
+
+
+func show_victory_screen(wave: int, bosses: int, prestige_earned: int = 0, prestige_total: int = 0):
+	victory_stats_label.text = "Waves Survived: %d | Bosses Killed: %d" % [wave, bosses]
+	if prestige_earned > 0:
+		victory_prestige_label.text = "Prestige Earned: +%d  (Total: %d)" % [prestige_earned, prestige_total]
+	else:
+		victory_prestige_label.text = "Prestige Points: %d" % prestige_total
+	victory_panel.visible = true
+
+
+func _on_victory_return_to_menu():
+	victory_panel.visible = false
+	get_tree().paused = false
+	get_tree().reload_current_scene()
+
+
+func show_spider_boss_hp_bar(visible_flag: bool):
+	if boss_hp_bar:
+		boss_hp_bar.visible = visible_flag
+
+
+func update_boss_hp_bar(current_hp: int, max_hp: int):
+	if not boss_hp_bar or not boss_hp_bar.visible:
+		return
+	var ratio = clampf(float(current_hp) / float(maxi(max_hp, 1)), 0.0, 1.0)
+	boss_hp_fill.anchor_right = ratio
+	boss_hp_label.text = "SPIDER BOSS - %d / %d" % [current_hp, max_hp]
+
+
 func _build_start_menu(root: Control):
 	start_menu = Control.new()
 	start_menu.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -705,12 +832,12 @@ func _build_start_menu(root: Control):
 	_style_button(oc_btn, Color(0.15, 0.25, 0.45))
 	menu_buttons_container.add_child(oc_btn)
 
-	var research_btn = Button.new()
-	research_btn.text = "Research Tree"
-	research_btn.custom_minimum_size = Vector2(260, 50)
-	research_btn.add_theme_font_size_override("font_size", 20)
-	research_btn.pressed.connect(_on_research_btn_pressed)
-	menu_buttons_container.add_child(research_btn)
+	var settings_btn = Button.new()
+	settings_btn.text = "Settings"
+	settings_btn.custom_minimum_size = Vector2(260, 50)
+	settings_btn.add_theme_font_size_override("font_size", 20)
+	settings_btn.pressed.connect(_on_open_settings_from_menu)
+	menu_buttons_container.add_child(settings_btn)
 
 	# Wave selection sub-view (shown when Single Player or Local Co-Op is picked)
 	wave_select_container = Control.new()
@@ -747,30 +874,29 @@ func _build_start_menu(root: Control):
 		wave_container.add_child(btn)
 		start_wave_buttons.append({"button": btn, "wave": wave})
 
+	var wave_research_btn = Button.new()
+	wave_research_btn.text = "Research Tree"
+	wave_research_btn.custom_minimum_size = Vector2(150, 40)
+	wave_research_btn.add_theme_font_size_override("font_size", 16)
+	wave_research_btn.set_anchors_preset(Control.PRESET_CENTER)
+	wave_research_btn.offset_top = 60
+	wave_research_btn.offset_left = -75
+	wave_research_btn.offset_right = 75
+	wave_research_btn.offset_bottom = 100
+	wave_research_btn.pressed.connect(_on_research_btn_pressed)
+	wave_select_container.add_child(wave_research_btn)
+
 	var wave_back_btn = Button.new()
 	wave_back_btn.text = "Back"
 	wave_back_btn.custom_minimum_size = Vector2(150, 45)
 	wave_back_btn.add_theme_font_size_override("font_size", 18)
 	wave_back_btn.set_anchors_preset(Control.PRESET_CENTER)
-	wave_back_btn.offset_top = 60
+	wave_back_btn.offset_top = 110
 	wave_back_btn.offset_left = -75
 	wave_back_btn.offset_right = 75
-	wave_back_btn.offset_bottom = 105
+	wave_back_btn.offset_bottom = 155
 	wave_back_btn.pressed.connect(_on_wave_select_back)
 	wave_select_container.add_child(wave_back_btn)
-
-	# Settings button (bottom-left)
-	var start_settings_btn = Button.new()
-	start_settings_btn.text = "Settings"
-	start_settings_btn.custom_minimum_size = Vector2(150, 45)
-	start_settings_btn.add_theme_font_size_override("font_size", 18)
-	start_settings_btn.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	start_settings_btn.offset_top = -55
-	start_settings_btn.offset_left = 10
-	start_settings_btn.offset_right = 160
-	start_settings_btn.offset_bottom = -10
-	start_settings_btn.pressed.connect(_on_open_settings_from_menu)
-	start_menu.add_child(start_settings_btn)
 
 	var debug_toggle_btn = Button.new()
 	debug_toggle_btn.text = "Debug"
@@ -818,6 +944,14 @@ func _build_start_menu(root: Control):
 	reset_btn.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
 	reset_btn.pressed.connect(_on_reset_progress)
 	debug_panel.add_child(reset_btn)
+
+	var boss_fight_btn = Button.new()
+	boss_fight_btn.text = "Boss Fight"
+	boss_fight_btn.custom_minimum_size = Vector2(200, 36)
+	boss_fight_btn.add_theme_font_size_override("font_size", 14)
+	boss_fight_btn.add_theme_color_override("font_color", Color(1.0, 0.3, 0.8))
+	boss_fight_btn.pressed.connect(_on_debug_boss_fight)
+	debug_panel.add_child(boss_fight_btn)
 
 
 func _build_research_panel(root: Control):
@@ -1004,7 +1138,7 @@ func _build_settings_panel(root: Control):
 	music_slider.min_value = 0.0
 	music_slider.max_value = 1.0
 	music_slider.step = 0.05
-	music_slider.value = db_to_linear(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("Music")))
+	music_slider.value = GameData.music_volume
 	music_slider.custom_minimum_size = Vector2(170, 20)
 	music_slider.value_changed.connect(_on_music_volume_changed)
 	music_row.add_child(music_slider)
@@ -1022,7 +1156,7 @@ func _build_settings_panel(root: Control):
 	sfx_slider.min_value = 0.0
 	sfx_slider.max_value = 1.0
 	sfx_slider.step = 0.05
-	sfx_slider.value = db_to_linear(AudioServer.get_bus_volume_db(AudioServer.get_bus_index("SFX")))
+	sfx_slider.value = GameData.sfx_volume
 	sfx_slider.custom_minimum_size = Vector2(170, 20)
 	sfx_slider.value_changed.connect(_on_sfx_volume_changed)
 	sfx_row.add_child(sfx_slider)
@@ -1213,6 +1347,18 @@ func _build_lobby_panel(root: Control):
 	lobby_start_btn.pressed.connect(_on_lobby_start_pressed)
 	_style_button(lobby_start_btn, Color(0.15, 0.45, 0.2))
 	lobby_center.add_child(lobby_start_btn)
+
+	var lobby_research_btn = Button.new()
+	lobby_research_btn.text = "Research Tree"
+	lobby_research_btn.custom_minimum_size = Vector2(150, 40)
+	lobby_research_btn.add_theme_font_size_override("font_size", 16)
+	lobby_research_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	lobby_research_btn.offset_top = -110
+	lobby_research_btn.offset_left = -75
+	lobby_research_btn.offset_right = 75
+	lobby_research_btn.offset_bottom = -70
+	lobby_research_btn.pressed.connect(_on_research_btn_pressed_from_lobby)
+	lobby_panel.add_child(lobby_research_btn)
 
 	var back_btn = Button.new()
 	back_btn.text = "Back"
@@ -1592,17 +1738,37 @@ func _on_reset_progress():
 	_update_start_menu()
 
 
+func _on_debug_boss_fight():
+	start_menu.visible = false
+	_game_started = true
+	if gameplay_hud:
+		gameplay_hud.visible = true
+	get_tree().paused = false
+	game_started.emit(-1)
+
+
+var _research_opened_from: String = "wave_select"
+
 func _on_research_btn_pressed():
+	_research_opened_from = "wave_select"
 	start_menu.visible = false
 	research_panel.visible = true
 	_update_research_panel()
 
+func _on_research_btn_pressed_from_lobby():
+	_research_opened_from = "lobby"
+	lobby_panel.visible = false
+	research_panel.visible = true
+	_update_research_panel()
 
 func _on_research_back():
 	research_panel.visible = false
-	start_menu.visible = true
-	menu_buttons_container.visible = true
-	wave_select_container.visible = false
+	if _research_opened_from == "lobby":
+		lobby_panel.visible = true
+	else:
+		start_menu.visible = true
+		menu_buttons_container.visible = false
+		wave_select_container.visible = true
 	_update_start_menu()
 
 
@@ -1680,6 +1846,8 @@ func _on_music_volume_changed(value: float):
 	if bus_idx >= 0:
 		AudioServer.set_bus_volume_db(bus_idx, linear_to_db(value))
 		AudioServer.set_bus_mute(bus_idx, value < 0.01)
+	GameData.music_volume = value
+	GameData.save_data()
 
 
 func _on_sfx_volume_changed(value: float):
@@ -1687,6 +1855,8 @@ func _on_sfx_volume_changed(value: float):
 	if bus_idx >= 0:
 		AudioServer.set_bus_volume_db(bus_idx, linear_to_db(value))
 		AudioServer.set_bus_mute(bus_idx, value < 0.01)
+	GameData.sfx_volume = value
+	GameData.save_data()
 
 
 func _copy_to_clipboard(text: String):
@@ -2585,6 +2755,7 @@ func _desc(key: String, lv: int) -> String:
 		"armor": return "Reduce damage by %d" % (lv * 2)
 		"crit_chance": return "%d%% chance for 2x damage" % (lv * 10)
 		"pickup_range": return "+15 pickup range (+%dpx total)" % (lv * 15)
+		"shoot_range": return "+40 shoot range (+%d total)" % (lv * 40)
 	return ""
 
 

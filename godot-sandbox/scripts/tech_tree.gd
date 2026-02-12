@@ -71,7 +71,7 @@ const NODE_LAYOUT = {
 	"repair_drone_speed": Vector2(360, 200),
 
 	# Pickup Range
-	"pickup_range": Vector2(0, -400),
+	"pickup_range": Vector2(-240, -300),
 }
 
 # Connections between nodes: [prerequisite, child]
