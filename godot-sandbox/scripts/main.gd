@@ -67,6 +67,13 @@ var _dither_occlude_mat: ShaderMaterial
 var _flash_white_mat: StandardMaterial3D
 var _debug_label: Label = null  # On-screen debug overlay for mobile web diagnostics
 
+# Spider boss tracking
+var spider_boss_ref: Node3D = null
+var shield_gen_refs: Array = []
+var spider_boss_beams: Array = []  # Array of lightning bolt pool entries for shield beams
+var spider_telegraph_rings: Dictionary = {}  # telegraph dict -> MeshInstance3D
+var boss_hp_bar_visible: bool = false
+
 var wave_number: int = 0
 var wave_timer: float = CFG.first_wave_delay
 var wave_active: bool = false
@@ -904,6 +911,10 @@ func _process(delta):
 
 	# Sync screen-space HP bars
 	_sync_hp_bars()
+
+	# Update spider boss HP bar
+	if boss_hp_bar_visible and is_instance_valid(spider_boss_ref) and is_instance_valid(hud_node):
+		hud_node.update_boss_hp_bar(spider_boss_ref.hp, spider_boss_ref.max_hp)
 
 	# Sync AoE range rings (dithered overlay)
 	_sync_aoe_rings()
@@ -1995,6 +2006,134 @@ func _create_alien_mesh(a: Node3D) -> Node3D:
 	return root
 
 
+func _create_spider_boss_mesh(_boss: Node3D) -> Node3D:
+	var root = Node3D.new()
+	var body = Node3D.new()
+	body.name = "Body"
+	# Main abdomen (large rear sphere)
+	var abdomen = _mesh_sphere(45.0, Color(0.2, 0.15, 0.12), Vector3(0, 100, 30))
+	abdomen.name = "Abdomen"
+	body.add_child(abdomen)
+	# Thorax (front body box)
+	var torso = _mesh_box(Vector3(60, 40, 50), Color(0.22, 0.16, 0.12), Vector3(0, 95, -25))
+	torso.name = "Torso"
+	body.add_child(torso)
+	# Head (cephalothorax front)
+	var head = _mesh_sphere(30.0, Color(0.25, 0.18, 0.13), Vector3(0, 90, -60))
+	head.name = "Head"
+	body.add_child(head)
+	# Fangs (2 cylinders angled down)
+	var fang_l = _mesh_cyl(3.0, 25.0, Color(0.15, 0.1, 0.08), Vector3(-12, 72, -78))
+	fang_l.rotation.x = 0.3
+	fang_l.rotation.z = 0.15
+	body.add_child(fang_l)
+	var fang_r = _mesh_cyl(3.0, 25.0, Color(0.15, 0.1, 0.08), Vector3(12, 72, -78))
+	fang_r.rotation.x = 0.3
+	fang_r.rotation.z = -0.15
+	body.add_child(fang_r)
+	# Eyes (6 red emissive spheres — spider cluster)
+	var eye_positions = [
+		Vector3(-8, 105, -80), Vector3(8, 105, -80),   # main pair
+		Vector3(-14, 100, -76), Vector3(14, 100, -76),  # side pair
+		Vector3(-5, 110, -78), Vector3(5, 110, -78),    # top pair
+	]
+	for epos in eye_positions:
+		var eye = _mesh_sphere(4.0, Color(1.0, 0.1, 0.05), epos)
+		eye.material_override = _unlit_mat(Color(1.0, 0.1, 0.05))
+		body.add_child(eye)
+	# 8 Legs — spider has 4 pairs, each with hip/upper/knee/lower segments
+	# Legs splay outward then bend down at the knee like a real spider
+	var leg_defs = [
+		# Front legs (pair 1) — reach forward
+		{"name": "Leg0L", "x": -30, "z": -35, "side": -1, "angle": -0.5},
+		{"name": "Leg0R", "x": 30, "z": -35, "side": 1, "angle": -0.5},
+		# Second pair — slightly forward
+		{"name": "Leg1L", "x": -35, "z": -12, "side": -1, "angle": -0.2},
+		{"name": "Leg1R", "x": 35, "z": -12, "side": 1, "angle": -0.2},
+		# Third pair — slightly back
+		{"name": "Leg2L", "x": -35, "z": 10, "side": -1, "angle": 0.2},
+		{"name": "Leg2R", "x": 35, "z": 10, "side": 1, "angle": 0.2},
+		# Back legs (pair 4) — reach backward
+		{"name": "Leg3L", "x": -30, "z": 30, "side": -1, "angle": 0.5},
+		{"name": "Leg3R", "x": 30, "z": 30, "side": 1, "angle": 0.5},
+	]
+	for ld in leg_defs:
+		# Hip joint — attached to body, rotates to splay outward
+		var hip = Node3D.new()
+		hip.name = ld["name"]
+		hip.position = Vector3(ld["x"], 90, ld["z"])
+		# Upper leg (coxa+femur) — goes outward and up from body
+		var upper = _mesh_cyl(6.0, 50.0, Color(0.22, 0.16, 0.12))
+		upper.name = "Upper"
+		# Tilt outward (away from body center) and slightly up
+		upper.rotation.z = PI / 3.0 * ld["side"]
+		upper.rotation.y = ld["angle"]
+		hip.add_child(upper)
+		# Knee joint — at end of upper leg
+		var knee = Node3D.new()
+		knee.name = "Knee"
+		knee.position = Vector3(ld["side"] * 40, 10, 0)
+		hip.add_child(knee)
+		# Lower leg (tibia) — goes down to ground
+		var lower = _mesh_cyl(4.5, 55.0, Color(0.18, 0.13, 0.1))
+		lower.name = "Lower"
+		lower.rotation.z = -PI / 6.0 * ld["side"]  # Angle back inward toward ground
+		knee.add_child(lower)
+		# Foot (tarsus) — small sphere at ground contact
+		var foot = _mesh_sphere(5.0, Color(0.15, 0.1, 0.08), Vector3(0, -28, 0))
+		foot.name = "Foot"
+		knee.add_child(foot)
+		body.add_child(hip)
+	# Weak point glow markers (3 emissive spheres, shown during Phase 1)
+	var wp_parent = Node3D.new()
+	wp_parent.name = "WeakPoints"
+	for i in range(3):
+		var wp_glow = _mesh_sphere(8.0, Color(1.0, 0.9, 0.2))
+		wp_glow.name = "WP%d" % i
+		wp_glow.material_override = _unlit_mat(Color(1.0, 0.9, 0.2))
+		wp_parent.add_child(wp_glow)
+	body.add_child(wp_parent)
+	root.add_child(body)
+	var base_mat = _unlit_mat(Color(0.2, 0.15, 0.12)).duplicate()
+	base_mat.next_pass = _dither_occlude_mat
+	root.set_meta("base_mat", base_mat)
+	return root
+
+
+func _create_shield_generator_mesh(_gen: Node3D) -> Node3D:
+	var root = Node3D.new()
+	var body = Node3D.new()
+	body.name = "Body"
+	# Tower cylinder
+	var tower = _mesh_cyl(6.0, 30.0, Color(0.3, 0.3, 0.35), Vector3(0, 15, 0))
+	tower.name = "Tower"
+	body.add_child(tower)
+	# Glowing top sphere (blue emissive)
+	var top_orb = _mesh_sphere(5.0, Color(0.3, 0.5, 1.0), Vector3(0, 32, 0))
+	top_orb.name = "TopOrb"
+	top_orb.material_override = _unlit_mat(Color(0.3, 0.5, 1.0))
+	body.add_child(top_orb)
+	root.add_child(body)
+	var base_mat = _unlit_mat(Color(0.3, 0.3, 0.35)).duplicate()
+	base_mat.next_pass = _dither_occlude_mat
+	root.set_meta("base_mat", base_mat)
+	return root
+
+
+func _create_weak_point_mesh(_wp: Node3D) -> Node3D:
+	var root = Node3D.new()
+	var body = Node3D.new()
+	body.name = "Body"
+	var orb = _mesh_sphere(5.0, Color(1.0, 0.85, 0.2), Vector3(0, 8, 0))
+	orb.name = "Mesh"
+	orb.material_override = _unlit_mat(Color(1.0, 0.85, 0.2))
+	body.add_child(orb)
+	root.add_child(body)
+	var base_mat = _unlit_mat(Color(1.0, 0.85, 0.2)).duplicate()
+	root.set_meta("base_mat", base_mat)
+	return root
+
+
 func _get_crystal_mat() -> ShaderMaterial:
 	var m = ShaderMaterial.new()
 	m.shader = _crystal_shader
@@ -2184,7 +2323,15 @@ func _sync_3d_meshes():
 	for a in get_tree().get_nodes_in_group("aliens"):
 		if not is_instance_valid(a): continue
 		if a not in alien_meshes:
-			var new_mesh = _create_alien_mesh(a)
+			var new_mesh: Node3D
+			if a.is_in_group("spider_boss"):
+				new_mesh = _create_spider_boss_mesh(a)
+			elif a.is_in_group("shield_generators"):
+				new_mesh = _create_shield_generator_mesh(a)
+			elif a.is_in_group("weak_points"):
+				new_mesh = _create_weak_point_mesh(a)
+			else:
+				new_mesh = _create_alien_mesh(a)
 			add_child(new_mesh)
 			alien_meshes[a] = new_mesh
 			a.visible = false
@@ -2195,6 +2342,46 @@ func _sync_3d_meshes():
 		if body and "move_direction" in a and a.move_direction.length_squared() > 0.01:
 			var target_rot = atan2(-a.move_direction.x, -a.move_direction.z)
 			body.rotation.y = lerp_angle(body.rotation.y, target_rot, minf(8.0 * get_process_delta_time(), 1.0))
+		# Spider boss leg animation — alternating tetrapod gait
+		if a.is_in_group("spider_boss") and body:
+			var leg_time = a.leg_anim_time if "leg_anim_time" in a else 0.0
+			var is_moving = "move_direction" in a and a.move_direction.length_squared() > 0.01
+			var _move_speed_mult = a.move_direction.length() if is_moving else 0.0
+			# 8 legs in 4 pairs, alternating tetrapod gait:
+			# Group A (0L, 1R, 2L, 3R) and Group B (0R, 1L, 2R, 3L) alternate
+			var leg_names = ["Leg0L", "Leg0R", "Leg1L", "Leg1R", "Leg2L", "Leg2R", "Leg3L", "Leg3R"]
+			# Phase offsets: Group A = 0, Group B = PI (opposite phase)
+			var gait_phases = [0.0, PI, PI, 0.0, 0.0, PI, PI, 0.0]
+			var leg_sides = [-1, 1, -1, 1, -1, 1, -1, 1]  # -1=left, 1=right
+			var gait_speed = 5.0  # Cycles per second when moving
+			for li in range(leg_names.size()):
+				var hip = body.get_node_or_null(leg_names[li])
+				if not hip:
+					continue
+				var upper = hip.get_node_or_null("Upper")
+				var knee = hip.get_node_or_null("Knee")
+				if not upper or not knee:
+					continue
+				var phase = gait_phases[li]
+				var side = leg_sides[li]
+				if is_moving:
+					# Walking: hip swings forward/back, knee bends up on lift
+					var cycle = sin(leg_time * gait_speed + phase)
+					var lift = maxf(0.0, sin(leg_time * gait_speed + phase))  # Only lift on positive phase
+					# Hip rotation — swing forward/back along movement direction
+					upper.rotation.x = cycle * 0.25  # Forward/back swing
+					# Knee lift — leg lifts up during swing phase
+					knee.rotation.z = -lift * 0.4 * side  # Bend knee upward during step
+					knee.position.y = 10 + lift * 15.0  # Lift knee node
+				else:
+					# Idle: subtle breathing motion
+					upper.rotation.x = sin(leg_time * 0.8 + phase * 0.5) * 0.03
+					knee.rotation.z = 0.0
+					knee.position.y = 10
+			# Weak point glow visibility (Phase 1 only)
+			var wp_parent = body.get_node_or_null("WeakPoints")
+			if wp_parent:
+				wp_parent.visible = a.current_phase == a.Phase.ARMOR if "current_phase" in a else false
 		# Hit flash
 		var mesh_node = body.get_node_or_null("Mesh") if body else null
 		if mesh_node and mesh_node is MeshInstance3D:
@@ -2213,6 +2400,12 @@ func _sync_3d_meshes():
 		_ensure_burn_fx(mr, has_burn)
 		_ensure_frozen_fx(mr, has_slow, alien_sz)
 		_ensure_poison_fx(mr, has_poison)
+
+	# ---- Spider Boss Shield Beams ----
+	_sync_spider_boss_beams()
+
+	# ---- Spider Boss Telegraph Circles ----
+	_sync_spider_telegraph_rings()
 
 	# ---- Resources (shrink as they're mined) ----
 	_clean_mesh_dict(resource_meshes)
@@ -2695,6 +2888,13 @@ func _spawn_wave():
 	if is_instance_valid(hud_node):
 		hud_node.set_wave_direction(next_wave_direction)
 
+	# Wave 30: Spider Boss (final boss)
+	if wave_number == 30:
+		_spawn_spider_boss(rng, wave_dir)
+		if is_instance_valid(hud_node):
+			hud_node.show_wave_alert(wave_number, true)
+		return
+
 	# Slower scaling: fewer enemies early on, scale for player count
 	var mp_scale = 1.0 + (players.size() - 1) * 0.5
 	var basic_count = int((2 + wave_number) * mp_scale)
@@ -2703,7 +2903,7 @@ func _spawn_wave():
 		_spawn_aliens("fast", int(maxi(1, wave_number - 3) * mp_scale), rng, wave_dir)
 	if wave_number >= CFG.alien_ranged_start_wave:
 		_spawn_aliens("ranged", int(mini(wave_number - 5, CFG.alien_ranged_max_count) * mp_scale), rng, wave_dir)
-	if wave_number >= CFG.boss_start_wave and wave_number % CFG.boss_wave_interval == 0:
+	if wave_number >= CFG.boss_start_wave and wave_number % CFG.boss_wave_interval == 0 and wave_number != 30:
 		_spawn_boss(rng, wave_dir)
 	if is_instance_valid(hud_node):
 		hud_node.show_wave_alert(wave_number, wave_number >= CFG.boss_start_wave and wave_number % CFG.boss_wave_interval == 0)
@@ -2829,6 +3029,13 @@ func _on_game_started(start_wave: int):
 		player_node.research_damage = int(GameData.get_research_bonus("base_damage"))
 		player_node.research_mining_speed = GameData.get_research_bonus("mining_speed")
 		player_node.research_xp_gain = GameData.get_research_bonus("xp_gain")
+	# Debug boss fight mode: start_wave == -1
+	if starting_wave == -1:
+		starting_wave = 30
+		if is_instance_valid(player_node):
+			player_node.iron += 10000
+			player_node.crystal += 10000
+
 	# Start at selected wave
 	is_first_wave = true
 	if starting_wave > 1:
@@ -3039,6 +3246,211 @@ func _on_hq_destroyed():
 
 func on_boss_killed():
 	bosses_killed += 1
+
+
+# ---- Spider Boss Functions ----
+
+func _spawn_spider_boss(rng: RandomNumberGenerator, wave_dir: float):
+	var boss = Node3D.new()
+	boss.set_script(load("res://scripts/spider_boss.gd"))
+	boss.position = _get_offscreen_spawn_pos(wave_dir, rng)
+	boss.net_id = next_net_id
+	next_net_id += 1
+	aliens_node.add_child(boss)
+	alien_net_ids[boss.net_id] = boss
+	spider_boss_ref = boss
+
+
+func spawn_shield_generators(boss: Node3D):
+	shield_gen_refs.clear()
+	var spread_positions = [
+		Vector3(-200, 0, -200),
+		Vector3(200, 0, -200),
+		Vector3(-200, 0, 200),
+		Vector3(200, 0, 200),
+	]
+	for pos in spread_positions:
+		var gen = Node3D.new()
+		gen.set_script(load("res://scripts/shield_generator.gd"))
+		gen.position = pos
+		gen.spider_boss_ref = boss
+		gen.net_id = next_net_id
+		next_net_id += 1
+		aliens_node.add_child(gen)
+		alien_net_ids[gen.net_id] = gen
+		shield_gen_refs.append(gen)
+	boss.generators_alive = spread_positions.size()
+
+
+func spawn_spider_minions(spawn_center: Vector3):
+	if not is_inside_tree():
+		return
+	var rng = RandomNumberGenerator.new()
+	rng.randomize()
+	var mp_scale = 1.0 + (players.size() - 1) * 0.3
+	var basic_count = int(rng.randi_range(2, 3) * mp_scale)
+	for i in range(basic_count):
+		var alien = load("res://scenes/alien.tscn").instantiate()
+		alien.hp = CFG.alien_basic_base_hp + wave_number * CFG.alien_basic_hp_per_wave
+		alien.max_hp = alien.hp
+		alien.damage = CFG.alien_basic_base_damage + wave_number * CFG.alien_basic_damage_per_wave
+		alien.speed = CFG.alien_basic_base_speed + wave_number * CFG.alien_basic_speed_per_wave
+		alien.xp_value = CFG.alien_basic_xp
+		alien.position = spawn_center + Vector3(randf_range(-30, 30), 0, randf_range(-30, 30))
+		alien.net_id = next_net_id
+		next_net_id += 1
+		aliens_node.add_child(alien)
+		alien_net_ids[alien.net_id] = alien
+	# 1 fast alien
+	var fast = load("res://scenes/alien.tscn").instantiate()
+	fast.hp = CFG.alien_fast_base_hp + wave_number * CFG.alien_fast_hp_per_wave
+	fast.max_hp = fast.hp
+	fast.damage = CFG.alien_fast_base_damage + wave_number * CFG.alien_fast_damage_per_wave
+	fast.speed = CFG.alien_fast_base_speed + wave_number * CFG.alien_fast_speed_per_wave
+	fast.xp_value = CFG.alien_fast_xp
+	fast.alien_type = "fast"
+	fast.position = spawn_center + Vector3(randf_range(-30, 30), 0, randf_range(-30, 30))
+	fast.net_id = next_net_id
+	next_net_id += 1
+	aliens_node.add_child(fast)
+	alien_net_ids[fast.net_id] = fast
+
+
+func show_boss_hp_bar(_boss: Node3D):
+	boss_hp_bar_visible = true
+	if is_instance_valid(hud_node):
+		hud_node.show_spider_boss_hp_bar(true)
+
+
+func on_spider_boss_killed():
+	bosses_killed += 1
+	# Clean up shield beams
+	for beam in spider_boss_beams:
+		beam["active"] = false
+		beam["group"].visible = false
+	spider_boss_beams.clear()
+	# Clean up telegraph rings
+	for tc in spider_telegraph_rings:
+		if is_instance_valid(spider_telegraph_rings[tc]):
+			spider_telegraph_rings[tc].queue_free()
+	spider_telegraph_rings.clear()
+	# Clean up remaining generators
+	for gen in shield_gen_refs:
+		if is_instance_valid(gen):
+			gen.queue_free()
+	shield_gen_refs.clear()
+	spider_boss_ref = null
+	boss_hp_bar_visible = false
+	if is_instance_valid(hud_node):
+		hud_node.show_spider_boss_hp_bar(false)
+	_win_run()
+
+
+func _win_run():
+	game_over = true
+	respawn_timers.clear()
+	var player_count = maxi(players.size(), 1)
+	var prestige_share = run_prestige / player_count
+	if _client_own_research.size() > 0:
+		GameData.research = _client_own_research
+		_client_own_research = {}
+	GameData.add_prestige(prestige_share)
+	GameData.record_run(wave_number, bosses_killed)
+	if is_instance_valid(hud_node):
+		hud_node.show_victory_screen(wave_number, bosses_killed, prestige_share, GameData.prestige_points)
+	if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
+		_rpc_game_over.rpc(wave_number, bosses_killed, prestige_share)
+
+
+func _sync_spider_boss_beams():
+	# Draw beams from living shield generators to the spider boss
+	if not is_instance_valid(spider_boss_ref):
+		# Release any active beams
+		for beam in spider_boss_beams:
+			beam["active"] = false
+			beam["group"].visible = false
+		spider_boss_beams.clear()
+		return
+	if spider_boss_ref.current_phase != spider_boss_ref.Phase.SHIELDS:
+		for beam in spider_boss_beams:
+			beam["active"] = false
+			beam["group"].visible = false
+		spider_boss_beams.clear()
+		return
+	# Collect living generators
+	var living_gens: Array = []
+	for gen in shield_gen_refs:
+		if is_instance_valid(gen):
+			living_gens.append(gen)
+	# Match beam count to living generators
+	while spider_boss_beams.size() < living_gens.size():
+		var bolt = _acquire_lightning_bolt()
+		bolt["active"] = true
+		bolt["group"].visible = true
+		bolt["outer_mat"].set_shader_parameter("beam_color", Color(0.6, 0.2, 1.0, 0.5))
+		bolt["inner_mat"].set_shader_parameter("beam_color", Color(0.8, 0.5, 1.0, 0.9))
+		spider_boss_beams.append(bolt)
+	while spider_boss_beams.size() > living_gens.size():
+		var beam = spider_boss_beams.pop_back()
+		beam["active"] = false
+		beam["group"].visible = false
+	# Position each beam
+	for i in range(living_gens.size()):
+		var gen = living_gens[i]
+		var beam = spider_boss_beams[i]
+		var gen_top = gen.global_position + Vector3(0, 32, 0)
+		var boss_pos = spider_boss_ref.global_position + Vector3(0, 20, 0)
+		var mid = (gen_top + boss_pos) * 0.5
+		var dist = gen_top.distance_to(boss_pos)
+		beam["group"].position = mid
+		beam["group"].look_at(boss_pos, Vector3.UP)
+		beam["group"].rotation.x += PI / 2
+		beam["outer_mi"].mesh.height = dist
+		beam["inner_mi"].mesh.height = dist
+		beam["group"].visible = true
+		beam["light"].position = mid
+		beam["light"].visible = true
+
+
+func _sync_spider_telegraph_rings():
+	if not is_instance_valid(spider_boss_ref):
+		# Clean up all rings
+		for tc in spider_telegraph_rings:
+			if is_instance_valid(spider_telegraph_rings[tc]):
+				spider_telegraph_rings[tc].queue_free()
+		spider_telegraph_rings.clear()
+		return
+	if spider_boss_ref.current_phase != spider_boss_ref.Phase.SHIELDS:
+		for tc in spider_telegraph_rings:
+			if is_instance_valid(spider_telegraph_rings[tc]):
+				spider_telegraph_rings[tc].queue_free()
+		spider_telegraph_rings.clear()
+		return
+	# Add new rings for new telegraphs
+	for tc in spider_boss_ref.telegraph_circles:
+		if tc not in spider_telegraph_rings:
+			var ring = _create_aoe_ring(TELEGRAPH_RADIUS_3D, Color(1.0, 0.9, 0.2, 0.5), 0.15)
+			ring.position = Vector3(tc["position"].x, 0.15, tc["position"].z)
+			add_child(ring)
+			spider_telegraph_rings[tc] = ring
+	# Update existing rings (fade yellow → red)
+	var to_remove: Array = []
+	for tc in spider_telegraph_rings:
+		if tc not in spider_boss_ref.telegraph_circles:
+			to_remove.append(tc)
+		else:
+			var progress = 1.0 - tc["timer"] / tc["lifetime"]
+			var ring_mi = spider_telegraph_rings[tc]
+			if is_instance_valid(ring_mi) and ring_mi.material_override:
+				var col = Color(1.0, 1.0 - progress * 0.8, 0.2 - progress * 0.2, 0.4 + progress * 0.3)
+				ring_mi.material_override.set_shader_parameter("ring_color", col)
+	for tc in to_remove:
+		if is_instance_valid(spider_telegraph_rings[tc]):
+			spider_telegraph_rings[tc].queue_free()
+		spider_telegraph_rings.erase(tc)
+
+
+const TELEGRAPH_RADIUS_3D: float = 60.0
 
 
 func restart_game(start_wave: int = 1):
