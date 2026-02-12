@@ -3,7 +3,7 @@
 [ext_resource type="Script" uid="uid://vak1p1gshcdi" path="res://scripts/player.gd" id="1"]
 [ext_resource type="AudioStream" uid="uid://c605m7wnf8mmk" path="res://sfx/mining_laser_sound.wav" id="2_g2els"]
 
-[node name="Player" type="Node2D" unique_id=1671698601]
+[node name="Player" type="Node3D" unique_id=1671698601]
 script = ExtResource("1")
 
 [node name="MiningSFXPlayer" type="AudioStreamPlayer2D" parent="." unique_id=44345520]

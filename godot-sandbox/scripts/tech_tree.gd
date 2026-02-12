@@ -28,7 +28,6 @@ const NODE_LAYOUT = {
 
 	# Bottom row - Building unlocks
 	"unlock_lightning": Vector2(-100, 300),
-	"unlock_slow": Vector2(100, 300),
 
 	# Right branch - Repair
 	"unlock_repair": Vector2(200, 100),
@@ -39,27 +38,76 @@ const NODE_LAYOUT = {
 	"chain_damage": Vector2(-200, 400),
 	"chain_retention": Vector2(-100, 400),
 	"chain_count": Vector2(0, 400),
+
+	# Building unlocks
+	"unlock_wall": Vector2(-180, 200),
+
+	# Wall upgrades
+	"wall_health": Vector2(-250, 300),
+
+	# Factory upgrades
+	"factory_rate": Vector2(240, 50),
+
+	# Turret upgrades
+	"turret_spread": Vector2(100, 300),
+	"turret_ice": Vector2(200, 300),
+	"turret_fire": Vector2(300, 300),
+	"turret_acid": Vector2(400, 300),
+
+	# Economy / Mining
+	"cost_efficiency": Vector2(-240, 50),
+	"mining_yield": Vector2(-80, -300),
+	"mining_range": Vector2(80, -300),
+
+	# Building durability
+	"building_health": Vector2(-320, 300),
+
+	# Battery unlock
+	"unlock_battery": Vector2(240, -50),
+
+	# Repair Drone
+	"unlock_repair_drone": Vector2(360, 100),
+	"repair_drone_range": Vector2(440, 200),
+	"repair_drone_speed": Vector2(360, 200),
+
+	# Pickup Range
+	"pickup_range": Vector2(0, -400),
 }
 
-# Connections between nodes (prerequisites)
+# Connections between nodes: [prerequisite, child]
 const NODE_CONNECTIONS = [
 	["max_health", "xp_gain"],
 	["max_health", "mining_speed"],
 	["max_health", "move_speed"],
 	["max_health", "base_damage"],
 	["max_health", "factory_speed"],
-	["starting_iron", "base_damage"],
-	["starting_crystal", "factory_speed"],
-	["turret_damage", "starting_iron"],
-	["turret_damage", "starting_crystal"],
-	["unlock_lightning", "turret_damage"],
-	["unlock_slow", "turret_damage"],
-	["unlock_repair", "factory_speed"],
-	["repair_beams", "unlock_repair"],
-	["repair_rate", "unlock_repair"],
-	["chain_damage", "unlock_lightning"],
-	["chain_retention", "unlock_lightning"],
-	["chain_count", "unlock_lightning"],
+	["base_damage", "starting_iron"],
+	["factory_speed", "starting_crystal"],
+	["starting_iron", "turret_damage"],
+	["starting_crystal", "turret_damage"],
+	["turret_damage", "unlock_lightning"],
+	["factory_speed", "unlock_repair"],
+	["unlock_repair", "repair_beams"],
+	["unlock_repair", "repair_rate"],
+	["unlock_lightning", "chain_damage"],
+	["unlock_lightning", "chain_retention"],
+	["unlock_lightning", "chain_count"],
+	["starting_iron", "unlock_wall"],
+	["unlock_wall", "wall_health"],
+	["factory_speed", "factory_rate"],
+	["turret_damage", "turret_spread"],
+	["turret_damage", "turret_ice"],
+	["turret_damage", "turret_fire"],
+	["turret_damage", "turret_acid"],
+	["starting_iron", "cost_efficiency"],
+	["mining_speed", "mining_yield"],
+	["mining_speed", "mining_range"],
+	["xp_gain", "pickup_range"],
+	["unlock_wall", "building_health"],
+	["factory_speed", "unlock_battery"],
+	["unlock_repair", "unlock_repair_drone"],
+	["unlock_repair_drone", "repair_drone_range"],
+	["unlock_repair_drone", "repair_drone_speed"],
 ]
 
 # Node icons (simple shapes drawn procedurally)
@@ -74,13 +122,28 @@ const NODE_ICONS = {
 	"mining_speed": "mining",
 	"xp_gain": "xp",
 	"unlock_lightning": "lightning",
-	"unlock_slow": "slow",
 	"unlock_repair": "repair",
 	"repair_beams": "repair_multi",
 	"repair_rate": "repair_fast",
 	"chain_damage": "chain_power",
 	"chain_retention": "chain_conduct",
 	"chain_count": "chain_reach",
+	"unlock_wall": "wall",
+	"wall_health": "wall_hp",
+	"factory_rate": "factory_fast",
+	"turret_spread": "spread",
+	"turret_ice": "slow",
+	"turret_fire": "fire_round",
+	"turret_acid": "acid_round",
+	"cost_efficiency": "efficiency",
+	"mining_yield": "yield",
+	"mining_range": "range",
+	"building_health": "building_hp",
+	"unlock_battery": "battery",
+	"unlock_repair_drone": "repair_drone",
+	"repair_drone_range": "drone_range",
+	"repair_drone_speed": "drone_speed",
+	"pickup_range": "magnet",
 }
 
 var hovered_node: String = ""
@@ -90,10 +153,27 @@ var is_dragging: bool = false
 var drag_start_mouse: Vector2 = Vector2.ZERO
 var drag_start_pan: Vector2 = Vector2.ZERO
 const DRAG_THRESHOLD = 5.0
+const PAN_MARGIN = 60.0  # Extra margin beyond outermost nodes
 
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_STOP
+
+
+func _get_prerequisites(key: String) -> Array:
+	var prereqs = []
+	for conn in NODE_CONNECTIONS:
+		if conn[1] == key:
+			prereqs.append(conn[0])
+	return prereqs
+
+
+func _has_prerequisites(key: String) -> bool:
+	for conn in NODE_CONNECTIONS:
+		if conn[1] == key:
+			if GameData.research.get(conn[0], 0) <= 0:
+				return false
+	return true
 
 
 func _process(_delta):
@@ -107,7 +187,9 @@ func _draw():
 	for conn in NODE_CONNECTIONS:
 		var from_pos = tree_center + pan_offset + NODE_LAYOUT[conn[0]]
 		var to_pos = tree_center + pan_offset + NODE_LAYOUT[conn[1]]
-		draw_line(from_pos, to_pos, Color(0.4, 0.4, 0.5), 2.0)
+		var prereq_level = GameData.research.get(conn[0], 0)
+		var line_color = Color(0.3, 0.7, 0.4, 0.6) if prereq_level > 0 else Color(0.3, 0.3, 0.35, 0.5)
+		draw_line(from_pos, to_pos, line_color, 2.0)
 
 	# Draw nodes
 	for key in NODE_LAYOUT.keys():
@@ -124,34 +206,45 @@ func _draw_node(key: String, pos: Vector2):
 	var level = GameData.research.get(key, 0)
 	var max_level = data.get("max", 5)
 	var cost = GameData.get_research_cost(key)
-	var can_afford = GameData.prestige_points >= cost and level < max_level
+	var prereqs_met = _has_prerequisites(key)
+	var can_afford = GameData.prestige_points >= cost and level < max_level and prereqs_met
 	var is_maxed = level >= max_level
 
 	# Determine border color
 	var border_color: Color
 	if is_maxed:
 		border_color = Color(0.3, 1.0, 0.4)  # Green - fully owned
+	elif not prereqs_met:
+		border_color = Color(0.3, 0.3, 0.35)  # Gray - prerequisites not met
 	elif level > 0:
 		border_color = Color(0.9, 0.8, 0.2)  # Yellow - partially owned
 	elif can_afford:
 		border_color = Color(0.9, 0.8, 0.2)  # Yellow - can buy
 	else:
-		border_color = Color(0.8, 0.2, 0.2)  # Red - locked
+		border_color = Color(0.8, 0.2, 0.2)  # Red - can't afford
 
 	# Highlight if hovered
 	var is_hovered = hovered_node == key
 	if is_hovered:
 		border_color = border_color.lightened(0.3)
 
-	# Draw node background
+	# Draw node background (dimmed if prerequisites not met)
 	var rect = Rect2(pos.x - HALF_NODE, pos.y - HALF_NODE, NODE_SIZE, NODE_SIZE)
-	draw_rect(rect, Color(0.1, 0.1, 0.15))
+	var bg_color = Color(0.06, 0.06, 0.08) if not prereqs_met and level == 0 else Color(0.1, 0.1, 0.15)
+	draw_rect(rect, bg_color)
 
 	# Draw border
 	draw_rect(rect, border_color, false, 3.0 if is_hovered else 2.0)
 
-	# Draw icon
-	_draw_icon(pos, NODE_ICONS.get(key, ""), is_maxed)
+	# Draw lock icon if prerequisites not met and not purchased
+	if not prereqs_met and level == 0:
+		# Small lock overlay
+		var lock_color = Color(0.4, 0.4, 0.45, 0.7)
+		draw_arc(pos + Vector2(0, -4), 6, PI, TAU, 8, lock_color, 2.0)
+		draw_rect(Rect2(pos.x - 7, pos.y - 4, 14, 10), lock_color)
+	else:
+		# Draw icon
+		_draw_icon(pos, NODE_ICONS.get(key, ""), is_maxed)
 
 	# Draw level indicator dots below
 	if max_level <= 10:
@@ -232,14 +325,10 @@ func _draw_icon(pos: Vector2, icon_type: String, is_owned: bool):
 			draw_circle(pos + Vector2(-s*0.1, -s*0.1), s*0.12, Color(1.0, 1.0, 1.0))
 		"lightning":
 			# Lightning bolt
-			draw_colored_polygon(PackedVector2Array([
-				pos + Vector2(-s*0.3, -s*0.8),
-				pos + Vector2(s*0.3, -s*0.1),
-				pos + Vector2(-s*0.1, -s*0.1),
-				pos + Vector2(s*0.3, s*0.8),
-				pos + Vector2(-s*0.3, s*0.1),
-				pos + Vector2(s*0.1, s*0.1),
-			]), Color(0.5, 0.7, 1.0))
+			var lc = Color(0.5, 0.7, 1.0)
+			draw_line(pos + Vector2(-s*0.3, -s*0.8), pos + Vector2(s*0.2, -s*0.1), lc, 4.0)
+			draw_line(pos + Vector2(s*0.2, -s*0.1), pos + Vector2(-s*0.2, s*0.1), lc, 4.0)
+			draw_line(pos + Vector2(-s*0.2, s*0.1), pos + Vector2(s*0.3, s*0.8), lc, 4.0)
 		"slow":
 			# Ice crystal / snowflake
 			for i in range(3):
@@ -276,14 +365,9 @@ func _draw_icon(pos: Vector2, icon_type: String, is_owned: bool):
 		"chain_power":
 			# Lightning bolt with plus sign (more damage)
 			var cc = Color(0.5, 0.7, 1.0)
-			draw_colored_polygon(PackedVector2Array([
-				pos + Vector2(-s*0.2, -s*0.8),
-				pos + Vector2(s*0.2, -s*0.1),
-				pos + Vector2(0, -s*0.1),
-				pos + Vector2(s*0.2, s*0.6),
-				pos + Vector2(-s*0.2, s*0.1),
-				pos + Vector2(0, s*0.1),
-			]), cc)
+			draw_line(pos + Vector2(-s*0.2, -s*0.8), pos + Vector2(s*0.15, -s*0.1), cc, 3.5)
+			draw_line(pos + Vector2(s*0.15, -s*0.1), pos + Vector2(-s*0.15, s*0.1), cc, 3.5)
+			draw_line(pos + Vector2(-s*0.15, s*0.1), pos + Vector2(s*0.2, s*0.6), cc, 3.5)
 			# Plus sign
 			draw_line(pos + Vector2(s*0.4, -s*0.5), pos + Vector2(s*0.8, -s*0.5), Color(1.0, 0.9, 0.3), 2.5)
 			draw_line(pos + Vector2(s*0.6, -s*0.7), pos + Vector2(s*0.6, -s*0.3), Color(1.0, 0.9, 0.3), 2.5)
@@ -311,6 +395,121 @@ func _draw_icon(pos: Vector2, icon_type: String, is_owned: bool):
 				var p2 = pos + Vector2.from_angle(ca) * s * 0.8
 				draw_line(p1, p2, rc, 2.0)
 				draw_circle(p2, s*0.15, rc)
+		"wall":
+			# Brick wall shape
+			var wc2 = Color(0.6, 0.55, 0.45)
+			draw_rect(Rect2(pos.x - s*0.7, pos.y - s*0.5, s*1.4, s), wc2)
+			draw_line(pos + Vector2(-s*0.7, 0), pos + Vector2(s*0.7, 0), Color(0.4, 0.35, 0.3), 1.5)
+			draw_line(pos + Vector2(0, -s*0.5), pos + Vector2(0, 0), Color(0.4, 0.35, 0.3), 1.5)
+			draw_line(pos + Vector2(-s*0.35, 0), pos + Vector2(-s*0.35, s*0.5), Color(0.4, 0.35, 0.3), 1.5)
+			draw_line(pos + Vector2(s*0.35, 0), pos + Vector2(s*0.35, s*0.5), Color(0.4, 0.35, 0.3), 1.5)
+		"wall_hp":
+			# Brick with heart/plus
+			var whc = Color(0.6, 0.55, 0.45)
+			draw_rect(Rect2(pos.x - s*0.6, pos.y - s*0.4, s*1.2, s*0.8), whc)
+			draw_line(pos + Vector2(-s*0.2, 0), pos + Vector2(s*0.2, 0), Color(0.3, 1.0, 0.4), 3.0)
+			draw_line(pos + Vector2(0, -s*0.2), pos + Vector2(0, s*0.2), Color(0.3, 1.0, 0.4), 3.0)
+		"factory_fast":
+			# Gear with speed lines
+			draw_circle(pos, s*0.4, Color(0.8, 0.6, 0.3))
+			for fi in range(6):
+				var fa = TAU * fi / 6.0
+				draw_line(pos + Vector2.from_angle(fa) * s*0.3, pos + Vector2.from_angle(fa) * s*0.6, Color(0.8, 0.6, 0.3), 2.5)
+			draw_line(pos + Vector2(s*0.4, s*0.3), pos + Vector2(s*0.8, s*0.3), Color(1.0, 0.9, 0.3), 2.0)
+			draw_line(pos + Vector2(s*0.3, s*0.5), pos + Vector2(s*0.7, s*0.5), Color(1.0, 0.9, 0.3), 2.0)
+		"spread":
+			# Multiple barrel lines from turret
+			var sc2 = Color(0.5, 0.5, 0.6)
+			draw_circle(pos, s*0.4, sc2)
+			draw_line(pos, pos + Vector2(s*0.8, 0), sc2, 2.5)
+			draw_line(pos, pos + Vector2(s*0.7, -s*0.4), sc2, 2.5)
+			draw_line(pos, pos + Vector2(s*0.7, s*0.4), sc2, 2.5)
+		"ice_round":
+			# Bullet with snowflake
+			draw_circle(pos + Vector2(-s*0.3, 0), s*0.25, Color(0.4, 0.4, 0.5))
+			draw_line(pos + Vector2(-s*0.3, 0), pos + Vector2(s*0.3, 0), Color(0.4, 0.4, 0.5), 3.0)
+			for ii in range(3):
+				var ia = TAU * ii / 3.0
+				var ip1 = pos + Vector2(s*0.3, 0) + Vector2.from_angle(ia) * s * 0.35
+				var ip2 = pos + Vector2(s*0.3, 0) + Vector2.from_angle(ia + PI) * s * 0.35
+				draw_line(ip1, ip2, Color(0.5, 0.85, 1.0), 2.0)
+		"fire_round":
+			# Bullet with flame
+			draw_circle(pos + Vector2(-s*0.3, 0), s*0.25, Color(0.4, 0.4, 0.5))
+			draw_line(pos + Vector2(-s*0.3, 0), pos + Vector2(s*0.1, 0), Color(0.4, 0.4, 0.5), 3.0)
+			draw_colored_polygon(PackedVector2Array([
+				pos + Vector2(s*0.1, s*0.3),
+				pos + Vector2(s*0.3, -s*0.1),
+				pos + Vector2(s*0.5, s*0.3),
+				pos + Vector2(s*0.6, -s*0.4),
+				pos + Vector2(s*0.8, s*0.3),
+				pos + Vector2(s*0.45, s*0.6),
+			]), Color(1.0, 0.5, 0.1))
+		"acid_round":
+			# Bullet with droplets
+			draw_circle(pos + Vector2(-s*0.3, 0), s*0.25, Color(0.4, 0.4, 0.5))
+			draw_line(pos + Vector2(-s*0.3, 0), pos + Vector2(s*0.1, 0), Color(0.4, 0.4, 0.5), 3.0)
+			draw_circle(pos + Vector2(s*0.3, -s*0.2), s*0.15, Color(0.3, 0.9, 0.2))
+			draw_circle(pos + Vector2(s*0.5, s*0.1), s*0.12, Color(0.3, 0.9, 0.2))
+			draw_circle(pos + Vector2(s*0.2, s*0.3), s*0.1, Color(0.3, 0.9, 0.2))
+		"efficiency":
+			# Coins/discount - circle with % sign
+			draw_circle(pos, s*0.6, Color(0.9, 0.75, 0.3))
+			draw_circle(pos, s*0.4, Color(0.7, 0.55, 0.2))
+			draw_line(pos + Vector2(-s*0.2, s*0.3), pos + Vector2(s*0.2, -s*0.3), Color(1.0, 0.9, 0.5), 2.0)
+		"yield":
+			# Pile of ore nuggets
+			draw_circle(pos + Vector2(-s*0.3, s*0.2), s*0.3, Color(0.7, 0.6, 0.4))
+			draw_circle(pos + Vector2(s*0.3, s*0.2), s*0.3, Color(0.7, 0.6, 0.4))
+			draw_circle(pos + Vector2(0, -s*0.1), s*0.35, Color(0.8, 0.7, 0.5))
+			draw_circle(pos + Vector2(0, -s*0.1), s*0.15, Color(1.0, 0.9, 0.6))
+		"range":
+			# Expanding circle with arrow
+			draw_arc(pos, s*0.4, 0, TAU, 16, Color(0.5, 0.9, 0.5), 1.5)
+			draw_arc(pos, s*0.7, 0, TAU, 16, Color(0.5, 0.9, 0.5, 0.5), 1.5)
+			draw_line(pos + Vector2(s*0.3, 0), pos + Vector2(s*0.8, 0), Color(0.5, 0.9, 0.5), 2.0)
+			draw_colored_polygon(PackedVector2Array([
+				pos + Vector2(s*0.8, -s*0.2),
+				pos + Vector2(s, 0),
+				pos + Vector2(s*0.8, s*0.2),
+			]), Color(0.5, 0.9, 0.5))
+		"building_hp":
+			# Building with shield/plus
+			draw_rect(Rect2(pos.x - s*0.5, pos.y - s*0.3, s, s*0.8), Color(0.5, 0.5, 0.55))
+			draw_line(pos + Vector2(-s*0.2, 0), pos + Vector2(s*0.2, 0), Color(0.3, 1.0, 0.4), 3.0)
+			draw_line(pos + Vector2(0, -s*0.2), pos + Vector2(0, s*0.2), Color(0.3, 1.0, 0.4), 3.0)
+		"battery":
+			# Battery shape
+			draw_rect(Rect2(pos.x - s*0.4, pos.y - s*0.3, s*0.8, s*0.8), Color(0.4, 0.4, 0.5))
+			draw_rect(Rect2(pos.x - s*0.15, pos.y - s*0.5, s*0.3, s*0.25), Color(0.5, 0.5, 0.6))
+			draw_rect(Rect2(pos.x - s*0.3, pos.y + s*0.05, s*0.6, s*0.3), Color(0.3, 0.8, 0.4, 0.7))
+		"repair_drone":
+			# Small drone shape
+			draw_circle(pos, s*0.4, Color(0.4, 0.5, 0.4))
+			for di in range(4):
+				var da = TAU * di / 4.0 + PI/4.0
+				var arm_end = pos + Vector2.from_angle(da) * s*0.7
+				draw_line(pos, arm_end, Color(0.5, 0.6, 0.5), 2.0)
+				draw_circle(arm_end, s*0.15, Color(0.3, 0.8, 0.4))
+		"drone_range":
+			# Drone with expanding circle
+			draw_circle(pos, s*0.3, Color(0.4, 0.5, 0.4))
+			draw_arc(pos, s*0.6, 0, TAU, 16, Color(0.3, 0.8, 0.4, 0.6), 1.5)
+			draw_arc(pos, s*0.85, 0, TAU, 16, Color(0.3, 0.8, 0.4, 0.3), 1.5)
+		"drone_speed":
+			# Drone with speed lines
+			draw_circle(pos, s*0.3, Color(0.4, 0.5, 0.4))
+			draw_line(pos + Vector2(-s*0.6, 0), pos + Vector2(-s*0.3, 0), Color(0.3, 0.8, 0.4), 2.0)
+			draw_line(pos + Vector2(s*0.4, s*0.2), pos + Vector2(s*0.8, s*0.2), Color(1.0, 0.9, 0.3), 2.0)
+			draw_line(pos + Vector2(s*0.3, s*0.5), pos + Vector2(s*0.7, s*0.5), Color(1.0, 0.9, 0.3), 2.0)
+		"magnet":
+			# U-shaped magnet
+			var mc2 = Color(1.0, 0.85, 0.3)
+			draw_arc(pos + Vector2(0, s*0.1), s*0.5, PI, TAU, 12, mc2, 3.0)
+			draw_line(pos + Vector2(-s*0.5, s*0.1), pos + Vector2(-s*0.5, -s*0.6), Color(1.0, 0.3, 0.3), 3.0)
+			draw_line(pos + Vector2(s*0.5, s*0.1), pos + Vector2(s*0.5, -s*0.6), Color(0.3, 0.5, 1.0), 3.0)
+			# Field lines
+			draw_arc(pos + Vector2(0, s*0.1), s*0.8, PI + 0.3, TAU - 0.3, 8, Color(1.0, 0.9, 0.3, 0.3), 1.5)
 
 
 func _draw_tooltip(key: String):
@@ -319,22 +518,36 @@ func _draw_tooltip(key: String):
 	var max_level = data.get("max", 5)
 	var cost = GameData.get_research_cost(key)
 	var is_maxed = level >= max_level
+	var prereqs_met = _has_prerequisites(key)
 
 	var name_text = data.get("name", key)
 	var desc_text = data.get("desc", "")
 	var level_text = "Level: %d / %d" % [level, max_level]
 	var cost_text = "MAXED" if is_maxed else "Cost: %d P" % cost
 
+	# Build prerequisite text if needed
+	var prereq_text = ""
+	if not prereqs_met and not is_maxed:
+		var missing = []
+		for conn in NODE_CONNECTIONS:
+			if conn[1] == key and GameData.research.get(conn[0], 0) <= 0:
+				var prereq_data = GameData.RESEARCH_DATA.get(conn[0], {})
+				missing.append(prereq_data.get("name", conn[0]))
+		prereq_text = "Requires: " + ", ".join(missing)
+
 	var font = ThemeDB.fallback_font
 	var pos = tree_center + pan_offset + NODE_LAYOUT[key]
 
 	# Position tooltip to the right of node, or left if too close to edge
 	var tooltip_x = pos.x + HALF_NODE + 15
-	var tooltip_width = 180.0
+	var tooltip_width = 200.0
 	if tooltip_x + tooltip_width > size.x - 20:
 		tooltip_x = pos.x - HALF_NODE - tooltip_width - 15
 
-	var tooltip_rect = Rect2(tooltip_x, pos.y - 40, tooltip_width, 90)
+	var tooltip_height = 90.0
+	if prereq_text != "":
+		tooltip_height += 18.0
+	var tooltip_rect = Rect2(tooltip_x, pos.y - 40, tooltip_width, tooltip_height)
 
 	# Background
 	draw_rect(tooltip_rect, Color(0.05, 0.05, 0.1, 0.95))
@@ -347,8 +560,38 @@ func _draw_tooltip(key: String):
 	draw_string(font, Vector2(text_x, text_y + 20), desc_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(0.7, 0.7, 0.7))
 	draw_string(font, Vector2(text_x, text_y + 38), level_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Color(0.8, 0.8, 0.8))
 
-	var cost_color = Color(0.3, 1.0, 0.5) if is_maxed else (Color(1.0, 0.9, 0.3) if GameData.prestige_points >= cost else Color(1.0, 0.4, 0.4))
+	var cost_color = Color(0.3, 1.0, 0.5) if is_maxed else (Color(1.0, 0.9, 0.3) if GameData.prestige_points >= cost and prereqs_met else Color(1.0, 0.4, 0.4))
 	draw_string(font, Vector2(text_x, text_y + 56), cost_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, cost_color)
+
+	if prereq_text != "":
+		draw_string(font, Vector2(text_x, text_y + 74), prereq_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, Color(1.0, 0.5, 0.3))
+
+
+func _clamp_pan():
+	# Calculate tree center (average of all node positions) and extents
+	var avg = Vector2.ZERO
+	var min_pos = Vector2(INF, INF)
+	var max_pos = Vector2(-INF, -INF)
+	for pos in NODE_LAYOUT.values():
+		avg += pos
+		min_pos.x = minf(min_pos.x, pos.x)
+		min_pos.y = minf(min_pos.y, pos.y)
+		max_pos.x = maxf(max_pos.x, pos.x)
+		max_pos.y = maxf(max_pos.y, pos.y)
+	avg /= NODE_LAYOUT.size()
+
+	# Tree half-extent with padding
+	var tree_half = (max_pos - min_pos) / 2.0 + Vector2(HALF_NODE + PAN_MARGIN, HALF_NODE + PAN_MARGIN)
+	var view_half = size / 2.0
+
+	# Center offset: pan_offset that places tree center at screen center
+	var center_pan = -avg
+
+	# Allow panning only as far as needed to see edges
+	var max_pan_x = maxf(0.0, tree_half.x - view_half.x)
+	var max_pan_y = maxf(0.0, tree_half.y - view_half.y)
+	pan_offset.x = clampf(pan_offset.x, center_pan.x - max_pan_x, center_pan.x + max_pan_x)
+	pan_offset.y = clampf(pan_offset.y, center_pan.y - max_pan_y, center_pan.y + max_pan_y)
 
 
 func _gui_input(event: InputEvent):
@@ -367,6 +610,7 @@ func _gui_input(event: InputEvent):
 				is_dragging = true
 			if is_dragging:
 				pan_offset = drag_start_pan + (event.position - drag_start_mouse)
+				_clamp_pan()
 		_update_hovered_node(event.position)
 
 
@@ -380,5 +624,7 @@ func _update_hovered_node(mouse_pos: Vector2):
 
 
 func _try_purchase(key: String):
+	if not _has_prerequisites(key):
+		return
 	if GameData.buy_research(key):
 		node_purchased.emit(key)

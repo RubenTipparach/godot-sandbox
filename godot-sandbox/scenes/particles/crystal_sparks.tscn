@@ -1,0 +1,40 @@
+[gd_scene format=3 uid="uid://d11uhhk6kkhgy"]
+
+[sub_resource type="ParticleProcessMaterial" id="spark_mat"]
+direction = Vector3(0, 1, 0)
+initial_velocity_min = 15.0
+initial_velocity_max = 40.0
+gravity = Vector3(0, -60, 0)
+scale_min = 0.5
+scale_max = 1.5
+color = Color(0.4, 0.7, 1, 1)
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_fgxkg"]
+load_path = "res://.godot/imported/spark.png-3248e6181afa5058aa6b2b994f3301ad.s3tc.ctex"
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_c82u2"]
+transparency = 1
+albedo_color = Color(0.011764706, 0.8039216, 1, 1)
+albedo_texture = SubResource("CompressedTexture2D_fgxkg")
+texture_filter = 0
+billboard_mode = 1
+
+[sub_resource type="QuadMesh" id="QuadMesh_sn0yc"]
+material = SubResource("StandardMaterial3D_c82u2")
+size = Vector2(10, 10)
+
+[node name="CrystalSparks" type="GPUParticles3D" unique_id=100330545]
+transform = Transform3D(4.46, 0, 0, 0, 4.46, 0, 0, 0, 4.46, 0, 0, 0)
+cast_shadow = 0
+amount = 12
+lifetime = 0.05
+speed_scale = 0.24
+explosiveness = 0.2
+randomness = 0.12
+process_material = SubResource("spark_mat")
+draw_pass_1 = SubResource("QuadMesh_sn0yc")
+
+[node name="SpotLight3D" type="SpotLight3D" parent="." unique_id=632655016]
+transform = Transform3D(0.17513135, 0, 0, 0, -7.655235e-09, 0.17513135, 0, -0.17513135, -7.655235e-09, 0, 1.5761824, 0)
+spot_range = 11.57
+spot_attenuation = -1.07

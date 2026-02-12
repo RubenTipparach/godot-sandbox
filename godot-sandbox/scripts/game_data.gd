@@ -6,6 +6,7 @@ var prestige_points: int = 0
 var highest_wave: int = 0
 var total_bosses_killed: int = 0
 var total_runs: int = 0
+var player_name: String = ""
 
 # Prestige unlocks: starting wave levels
 var unlocked_start_waves: Array = [1]  # Always can start at wave 1
@@ -30,13 +31,29 @@ var research: Dictionary = {
 	"mining_speed": 0,
 	"xp_gain": 0,
 	"unlock_lightning": 0,
-	"unlock_slow": 0,
 	"unlock_repair": 0,
 	"repair_beams": 0,
 	"repair_rate": 0,
 	"chain_damage": 0,
 	"chain_retention": 0,
 	"chain_count": 0,
+	"unlock_wall": 0,
+	"wall_health": 0,
+	"factory_rate": 0,
+	"turret_ice": 0,
+	"turret_fire": 0,
+	"turret_acid": 0,
+	"turret_spread": 0,
+	"unlock_battery": 0,
+	"cost_efficiency": 0,
+	"mining_yield": 0,
+	"mining_range": 0,
+	"building_health": 0,
+	"unlock_repair_drone": 0,
+	"repair_drone_range": 0,
+	"repair_drone_speed": 0,
+	"turret_poison": 0,
+	"pickup_range": 0,
 }
 
 const RESEARCH_DATA = {
@@ -50,13 +67,29 @@ const RESEARCH_DATA = {
 	"mining_speed": {"name": "Excavation", "desc": "+10% mining speed", "max": 5, "cost": [10, 20, 35, 55, 80]},
 	"xp_gain": {"name": "Wisdom", "desc": "+10% XP gain", "max": 5, "cost": [15, 30, 50, 80, 120]},
 	"unlock_lightning": {"name": "Lightning Tech", "desc": "Unlock Lightning Tower", "max": 1, "cost": [20]},
-	"unlock_slow": {"name": "Cryo Tech", "desc": "Unlock Slow Tower", "max": 1, "cost": [20]},
-	"unlock_repair": {"name": "Repair Beams", "desc": "Repair nearby buildings", "max": 1, "cost": [25]},
+	"unlock_repair": {"name": "Repair Beams", "desc": "Repair nearby buildings", "max": 1, "cost": [5]},
 	"repair_beams": {"name": "Multi-Repair", "desc": "+1 repair beam", "max": 4, "cost": [15, 30, 50, 80]},
 	"repair_rate": {"name": "Rapid Repair", "desc": "+2 HP per tick", "max": 5, "cost": [10, 20, 35, 55, 80]},
 	"chain_damage": {"name": "Arc Power", "desc": "+3 chain damage", "max": 5, "cost": [12, 25, 45, 70, 100]},
 	"chain_retention": {"name": "Conductivity", "desc": "+8% chain retention", "max": 5, "cost": [15, 30, 50, 80, 120]},
 	"chain_count": {"name": "Arc Reach", "desc": "+1 chain bounce", "max": 3, "cost": [20, 40, 70]},
+	"unlock_wall": {"name": "Fortification", "desc": "Double wall HP", "max": 1, "cost": [10]},
+	"wall_health": {"name": "Reinforced Walls", "desc": "+20 wall HP", "max": 5, "cost": [8, 15, 25, 40, 60]},
+	"factory_rate": {"name": "Production Line", "desc": "+15% factory rate", "max": 5, "cost": [10, 20, 35, 55, 80]},
+	"turret_ice": {"name": "Cryo Tech", "desc": "Unlock Slow Tower", "max": 1, "cost": [20]},
+	"turret_fire": {"name": "Flame Tech", "desc": "Unlock Flame Turret", "max": 1, "cost": [15]},
+	"turret_acid": {"name": "Acid Tech", "desc": "Unlock Acid Turret", "max": 1, "cost": [20]},
+	"turret_spread": {"name": "Multi-Barrel", "desc": "+1 turret bullet", "max": 4, "cost": [20, 40, 70, 110]},
+	"unlock_battery": {"name": "Battery Tech", "desc": "Unlock Battery building", "max": 1, "cost": [15]},
+	"cost_efficiency": {"name": "Cost Efficiency", "desc": "-8% building costs", "max": 5, "cost": [10, 20, 35, 55, 80]},
+	"mining_yield": {"name": "Rich Veins", "desc": "+15% mining yield", "max": 5, "cost": [10, 20, 35, 55, 80]},
+	"mining_range": {"name": "Long Reach", "desc": "+15 mining range", "max": 5, "cost": [10, 20, 35, 55, 80]},
+	"building_health": {"name": "Reinforcement", "desc": "+10% building HP", "max": 5, "cost": [12, 25, 45, 70, 100]},
+	"unlock_repair_drone": {"name": "Repair Drone", "desc": "Unlock Repair Drone", "max": 1, "cost": [25]},
+	"turret_poison": {"name": "Toxin Tech", "desc": "Unlock Poison Turret", "max": 1, "cost": [25]},
+	"repair_drone_range": {"name": "Drone Range", "desc": "+20 drone repair range", "max": 5, "cost": [10, 20, 35, 55, 80]},
+	"repair_drone_speed": {"name": "Drone Efficiency", "desc": "+1 HP/tick repair", "max": 5, "cost": [10, 20, 35, 55, 80]},
+	"pickup_range": {"name": "Magnetism", "desc": "+10 pickup range", "max": 5, "cost": [8, 15, 25, 40, 60]},
 }
 
 
@@ -96,11 +129,7 @@ func record_run(wave_reached: int, bosses_killed: int):
 		highest_wave = wave_reached
 	total_bosses_killed += bosses_killed
 	total_runs += 1
-	# Award prestige based on wave reached
-	var earned = wave_reached / 2
-	if bosses_killed > 0:
-		earned += bosses_killed * 3
-	prestige_points += earned
+	# Prestige is now earned by collecting physical orb drops during gameplay
 	# Auto-unlock starting waves based on progress
 	_auto_unlock_waves(wave_reached)
 	save_data()
@@ -154,13 +183,29 @@ func get_research_bonus(key: String) -> float:
 		"mining_speed": return level * 0.10
 		"xp_gain": return level * 0.10
 		"unlock_lightning": return level * 1.0
-		"unlock_slow": return level * 1.0
 		"unlock_repair": return level * 1.0
 		"repair_beams": return level * 1.0
 		"repair_rate": return level * 2.0
 		"chain_damage": return level * 3.0
 		"chain_retention": return level * 0.08
 		"chain_count": return level * 1.0
+		"unlock_wall": return level * 1.0
+		"wall_health": return level * 20.0
+		"factory_rate": return level * 0.15
+		"turret_ice": return level * 1.0
+		"turret_fire": return level * 1.0
+		"turret_acid": return level * 1.0
+		"turret_spread": return level * 1.0
+		"unlock_battery": return level * 1.0
+		"cost_efficiency": return level * 0.08
+		"mining_yield": return level * 0.15
+		"mining_range": return level * 15.0
+		"building_health": return level * 0.10
+		"unlock_repair_drone": return level * 1.0
+		"turret_poison": return level * 1.0
+		"repair_drone_range": return level * 20.0
+		"repair_drone_speed": return level * 1.0
+		"pickup_range": return level * 10.0
 	return 0.0
 
 
@@ -174,6 +219,7 @@ func save_data():
 			"total_runs": total_runs,
 			"unlocked_waves": unlocked_start_waves,
 			"research": research,
+			"player_name": player_name,
 		}
 		file.store_var(data)
 		file.close()
@@ -193,6 +239,7 @@ func load_data():
 				unlocked_start_waves = data.get("unlocked_waves", [1])
 				if not 1 in unlocked_start_waves:
 					unlocked_start_waves.insert(0, 1)
+				player_name = data.get("player_name", "")
 				var saved_research = data.get("research", {})
 				for key in research.keys():
 					research[key] = saved_research.get(key, 0)

@@ -1,0 +1,17 @@
+[gd_resource type="Resource" script_class="GameConfig" format=3 uid="uid://dq3xtk3go2udo"]
+
+[ext_resource type="Script" uid="uid://nolurbkmlnul" path="res://scripts/game_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+ambient_light_color = Color(0.019792689, 0.017433463, 0.014217252, 1)
+directional_light_energy = 0.1
+player_light_energy = 10.0
+building_light_energy = 30.0
+hq_light_energy = 30.0
+resource_iron_light_color = Color(0.95, 0.3, 0.15, 1)
+resource_iron_light_energy = 5.0
+resource_iron_light_range = 45.0
+resource_crystal_light_color = Color(0.3, 0.5, 1.0, 1)
+resource_crystal_light_energy = 6.0
+resource_crystal_light_range = 55.0

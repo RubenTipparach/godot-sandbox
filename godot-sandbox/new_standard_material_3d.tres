@@ -1,0 +1,7 @@
+[gd_resource type="StandardMaterial3D" format=3 uid="uid://ddfrdkgporc2b"]
+
+[ext_resource type="Texture2D" uid="uid://cklk0l7kva0hp" path="res://resources/dirt_grass.png" id="1_lquvc"]
+
+[resource]
+shading_mode = 2
+albedo_texture = ExtResource("1_lquvc")

@@ -2,5 +2,5 @@
 
 [ext_resource type="Script" path="res://scripts/pylon.gd" id="1"]
 
-[node name="Pylon" type="Node2D"]
+[node name="Pylon" type="Node3D"]
 script = ExtResource("1")

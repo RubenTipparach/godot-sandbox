@@ -1,0 +1,33 @@
+[gd_scene format=3 uid="uid://dyqmesh5ymxqo"]
+
+[ext_resource type="Texture2D" uid="uid://l5frs8cjg8r7" path="res://resources/sprites/spark.png" id="1_yd2sb"]
+
+[sub_resource type="ParticleProcessMaterial" id="spark_mat"]
+direction = Vector3(0, 1, 0)
+initial_velocity_min = 15.0
+initial_velocity_max = 40.0
+gravity = Vector3(0, -60, 0)
+scale_min = 0.5
+scale_max = 1.5
+color = Color(1, 0.8, 0.3, 1)
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_8rraf"]
+transparency = 1
+albedo_texture = ExtResource("1_yd2sb")
+texture_filter = 0
+billboard_mode = 1
+
+[sub_resource type="QuadMesh" id="QuadMesh_sn0yc"]
+material = SubResource("StandardMaterial3D_8rraf")
+size = Vector2(10, 10)
+
+[node name="LaserSparks" type="GPUParticles3D" unique_id=1473758670]
+transform = Transform3D(5.71, 0, 0, 0, 5.71, 0, 0, 0, 5.71, 0, 0, 0)
+cast_shadow = 0
+amount = 12
+lifetime = 0.09
+speed_scale = 0.62
+explosiveness = 0.2
+randomness = 0.12
+process_material = SubResource("spark_mat")
+draw_pass_1 = SubResource("QuadMesh_sn0yc")

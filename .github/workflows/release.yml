@@ -1,0 +1,166 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version tag (e.g. v1.0.0)'
+        required: false
+        type: string
+
+env:
+  EXPORT_NAME: godot-sandbox
+  VERSION: ${{ github.event.inputs.version || github.ref_name }}
+
+jobs:
+  build-windows:
+    name: Windows Build
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup export templates
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates/
+          mv /root/.local/share/godot/export_templates/* ~/.local/share/godot/export_templates/ || true
+
+      - name: Inject version into game config
+        run: |
+          sed -i 's/game_version: String = "dev"/game_version: String = "'"${{ env.VERSION }}"'"/' godot-sandbox/scripts/game_config.gd
+
+      - name: Inject version into export preset
+        run: |
+          sed -i 's|application/product_version=""|application/product_version="${{ env.VERSION }}"|' export_presets.cfg
+          sed -i 's|application/file_version=""|application/file_version="${{ env.VERSION }}"|' export_presets.cfg
+        working-directory: godot-sandbox
+
+      - name: Windows Build
+        run: |
+          mkdir -v -p build/windows
+          godot --headless --verbose --export-release "Windows" build/windows/MiningDefense.exe
+        working-directory: godot-sandbox
+
+      - name: Create zip
+        run: |
+          cd godot-sandbox/build/windows
+          zip -r ../../../${{ env.EXPORT_NAME }}-windows-${{ env.VERSION }}.zip .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: ${{ env.EXPORT_NAME }}-windows-${{ env.VERSION }}.zip
+
+  build-linux:
+    name: Linux Build
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup export templates
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates/
+          mv /root/.local/share/godot/export_templates/* ~/.local/share/godot/export_templates/ || true
+
+      - name: Inject version into game config
+        run: |
+          sed -i 's/game_version: String = "dev"/game_version: String = "'"${{ env.VERSION }}"'"/' godot-sandbox/scripts/game_config.gd
+
+      - name: Linux Build
+        run: |
+          mkdir -v -p build/linux
+          godot --headless --verbose --export-release "Linux" build/linux/MiningDefense.x86_64
+        working-directory: godot-sandbox
+
+      - name: Create zip
+        run: |
+          cd godot-sandbox/build/linux
+          zip -r ../../../${{ env.EXPORT_NAME }}-linux-${{ env.VERSION }}.zip .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: ${{ env.EXPORT_NAME }}-linux-${{ env.VERSION }}.zip
+
+  build-mac:
+    name: macOS Build
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup export templates
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates/
+          mv /root/.local/share/godot/export_templates/* ~/.local/share/godot/export_templates/ || true
+
+      - name: Inject version into game config
+        run: |
+          sed -i 's/game_version: String = "dev"/game_version: String = "'"${{ env.VERSION }}"'"/' godot-sandbox/scripts/game_config.gd
+
+      - name: macOS Build
+        run: |
+          mkdir -v -p build/mac
+          godot --headless --verbose --export-release "macOS" build/mac/MiningDefense.zip
+        working-directory: godot-sandbox
+
+      - name: Rename zip
+        run: |
+          mv godot-sandbox/build/mac/MiningDefense.zip ${{ env.EXPORT_NAME }}-mac-${{ env.VERSION }}.zip
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-build
+          path: ${{ env.EXPORT_NAME }}-mac-${{ env.VERSION }}.zip
+
+  create-release:
+    name: Create GitHub Release
+    needs: [build-windows, build-linux, build-mac]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows build
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+
+      - name: Download Linux build
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-build
+
+      - name: Download macOS build
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-build
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          name: Mining Defense ${{ env.VERSION }}
+          generate_release_notes: true
+          files: |
+            ${{ env.EXPORT_NAME }}-windows-${{ env.VERSION }}.zip
+            ${{ env.EXPORT_NAME }}-linux-${{ env.VERSION }}.zip
+            ${{ env.EXPORT_NAME }}-mac-${{ env.VERSION }}.zip

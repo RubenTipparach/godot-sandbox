@@ -17,13 +17,16 @@ config/icon="res://icon.svg"
 
 [autoload]
 
+WebDebug="*res://scripts/web_debug.gd"
 GameData="*res://scripts/game_data.gd"
+NetworkManager="*res://scripts/network_manager.gd"
 MusicPlayer="*uid://cjyl1eyw0e4yk"
 
 [display]
 
 window/size/viewport_width=1280
 window/size/viewport_height=720
+window/size/mode=2
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
@@ -38,4 +41,5 @@ main="the main node"
 [rendering]
 
 rendering_device/driver.windows="d3d12"
+textures/vram_compression/import_etc2_astc=true
 environment/defaults/default_clear_color=Color(0.12, 0.11, 0.1, 1)
