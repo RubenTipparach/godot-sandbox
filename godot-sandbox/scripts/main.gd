@@ -91,6 +91,7 @@ var run_prestige: int = 0  # Prestige collected this run (host-authoritative)
 var _client_own_research: Dictionary = {}  # Client's own research, saved before host override
 var _waiting_for_clients: bool = false
 var clients_ready: Dictionary = {}  # peer_id -> bool
+var local_coop: bool = false  # Local co-op mode (shared screen, camera averages players)
 
 # Upgrade voting (multiplayer)
 var vote_active: bool = false
@@ -859,11 +860,40 @@ func _process(delta):
 	# Update mouse world position from 3D camera raycast
 	_update_mouse_world()
 
-	# Update 3D camera to follow player (position only, fixed angle)
+	# Update 3D camera to follow player(s)
 	if is_instance_valid(camera_3d) and is_instance_valid(player_node):
-		var p2d = player_node.global_position
-		var cam_target = Vector3(p2d.x, 0, p2d.z)
-		var cam_offset = Vector3(0, 600, 350)
+		var cam_target: Vector3
+		var cam_height: float = 600.0
+		var cam_back: float = 350.0
+		if local_coop and players.size() > 1:
+			# Average position of all alive players, adjust zoom to fit
+			var avg_pos = Vector3.ZERO
+			var alive_count = 0
+			var min_pos = Vector3(INF, 0, INF)
+			var max_pos = Vector3(-INF, 0, -INF)
+			for pid in players:
+				var p = players[pid]
+				if is_instance_valid(p) and not p.is_dead:
+					avg_pos += p.global_position
+					alive_count += 1
+					min_pos.x = minf(min_pos.x, p.global_position.x)
+					min_pos.z = minf(min_pos.z, p.global_position.z)
+					max_pos.x = maxf(max_pos.x, p.global_position.x)
+					max_pos.z = maxf(max_pos.z, p.global_position.z)
+			if alive_count > 0:
+				avg_pos /= alive_count
+			else:
+				avg_pos = player_node.global_position
+			cam_target = Vector3(avg_pos.x, 0, avg_pos.z)
+			# Scale camera height to show 70% of the spread between players
+			var spread = maxf(max_pos.x - min_pos.x, max_pos.z - min_pos.z)
+			var target_view = spread / 0.7  # 70% view size
+			cam_height = maxf(600.0, 600.0 + target_view * 0.8)
+			cam_back = cam_height * 0.583  # Maintain angle ratio
+		else:
+			var p2d = player_node.global_position
+			cam_target = Vector3(p2d.x, 0, p2d.z)
+		var cam_offset = Vector3(0, cam_height, cam_back)
 		camera_3d.position = camera_3d.position.lerp(cam_target + cam_offset, 8.0 * delta)
 
 	# Sync 3D lights for buildings and player
@@ -1284,6 +1314,8 @@ func _sync_3d_lights():
 		for le in entries:
 			le["group"].visible = false
 			le["light"].visible = false
+			if le.has("sparks"):
+				le["sparks"].emitting = false
 			le["active"] = false
 	lightning_beam_active.clear()
 	for b in get_tree().get_nodes_in_group("lightnings"):
@@ -1307,10 +1339,20 @@ func _sync_3d_lights():
 				bolt_side = bolt_dir.cross(Vector3.FORWARD).normalized()
 			var bolt_fwd = bolt_side.cross(bolt_dir).normalized()
 			var bolt_basis = Basis(bolt_side, bolt_dir * bolt_dist, bolt_fwd)
-			le["mi"].global_transform = Transform3D(bolt_basis, bolt_mid)
+			# Render both inner and outer cylinders with animated shader
+			if le.has("outer_mi"):
+				le["outer_mi"].global_transform = Transform3D(bolt_basis, bolt_mid)
+				le["outer_mat"].set_shader_parameter("time_offset", bpos.x * 0.01 + randf() * 0.5)
+			if le.has("inner_mi"):
+				le["inner_mi"].global_transform = Transform3D(bolt_basis, bolt_mid)
+				le["inner_mat"].set_shader_parameter("time_offset", bpos.z * 0.01 + randf() * 0.5)
 			le["group"].visible = true
-			le["light"].position = bolt_mid
+			le["light"].position = bolt_end
 			le["light"].visible = true
+			# Sparks at impact point
+			if le.has("sparks"):
+				le["sparks"].global_position = bolt_end
+				le["sparks"].emitting = true
 			le["active"] = true
 			bolt_entries.append(le)
 		if not bolt_entries.is_empty():
@@ -1385,33 +1427,58 @@ func _acquire_lightning_bolt() -> Dictionary:
 	for e in _lightning_pool:
 		if not e["active"]:
 			return e
-	# Pool exhausted — create new bolt entry
+	# Pool exhausted — create new bolt entry with dual cylinders + sparks
 	var le = {}
 	var bolt_group = Node3D.new()
 	bolt_group.visible = false
 	add_child(bolt_group)
 	le["group"] = bolt_group
-	var bolt_mi = MeshInstance3D.new()
-	var bolt_cm = CylinderMesh.new()
-	bolt_cm.top_radius = 0.5
-	bolt_cm.bottom_radius = 0.5
-	bolt_cm.height = 1.0
-	bolt_cm.radial_segments = 4
-	bolt_mi.mesh = bolt_cm
-	var bolt_mat = StandardMaterial3D.new()
-	bolt_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	bolt_mat.albedo_color = Color(0.7, 0.85, 1.0)
-	bolt_mat.emission_enabled = true
-	bolt_mat.emission = Color(0.6, 0.8, 1.0)
-	bolt_mat.emission_energy_multiplier = 4.0
-	bolt_mi.material_override = bolt_mat
-	bolt_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	bolt_group.add_child(bolt_mi)
-	le["mi"] = bolt_mi
+	# Outer glow cylinder (shader-animated)
+	var mi_outer = MeshInstance3D.new()
+	var cm_outer = CylinderMesh.new()
+	cm_outer.top_radius = 2.5
+	cm_outer.bottom_radius = 2.5
+	cm_outer.height = 1.0
+	cm_outer.radial_segments = 6
+	mi_outer.mesh = cm_outer
+	mi_outer.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var outer_mat = ShaderMaterial.new()
+	outer_mat.shader = _laser_shader
+	outer_mat.set_shader_parameter("beam_color", Color(0.4, 0.7, 1.0, 0.4))
+	mi_outer.material_override = outer_mat
+	bolt_group.add_child(mi_outer)
+	le["outer_mi"] = mi_outer
+	le["outer_mat"] = outer_mat
+	# Inner core cylinder (bright white-blue)
+	var mi_inner = MeshInstance3D.new()
+	var cm_inner = CylinderMesh.new()
+	cm_inner.top_radius = 0.8
+	cm_inner.bottom_radius = 0.8
+	cm_inner.height = 1.0
+	cm_inner.radial_segments = 4
+	mi_inner.mesh = cm_inner
+	mi_inner.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var inner_mat = ShaderMaterial.new()
+	inner_mat.shader = _laser_shader
+	inner_mat.set_shader_parameter("beam_color", Color(0.9, 0.95, 1.0, 0.9))
+	mi_inner.material_override = inner_mat
+	bolt_group.add_child(mi_inner)
+	le["inner_mi"] = mi_inner
+	le["inner_mat"] = inner_mat
+	le["mi"] = mi_outer  # Keep "mi" key for backward compat
+	# Impact sparks
+	var sparks = preload("res://scenes/particles/laser_sparks.tscn").instantiate()
+	sparks.emitting = false
+	bolt_group.add_child(sparks)
+	le["sparks"] = sparks
+	if sparks.process_material:
+		sparks.process_material = sparks.process_material.duplicate()
+		sparks.process_material.color = Color(0.5, 0.8, 1.0)
+	# Light
 	var bolt_light = OmniLight3D.new()
-	bolt_light.light_color = Color(0.6, 0.8, 1.0)
-	bolt_light.light_energy = 3.0
-	bolt_light.omni_range = 30.0
+	bolt_light.light_color = Color(0.5, 0.7, 1.0)
+	bolt_light.light_energy = 4.0
+	bolt_light.omni_range = 40.0
 	bolt_light.omni_attenuation = 1.2
 	bolt_light.shadow_enabled = false
 	bolt_light.visible = false
@@ -2720,20 +2787,22 @@ func _on_player_level_up():
 
 func _try_show_upgrade():
 	if is_instance_valid(hud_node) and not hud_node.is_upgrade_showing():
-		if NetworkManager.is_multiplayer_active() and NetworkManager.is_host():
-			_start_vote_round()
-		elif not NetworkManager.is_multiplayer_active():
+		if is_instance_valid(player_node):
 			hud_node.show_upgrade_selection(player_node.upgrades)
 			get_tree().paused = true
 
 
 func _on_upgrade_chosen(upgrade_key: String):
-	if NetworkManager.is_multiplayer_active() and vote_active:
-		# Submit vote instead of applying immediately
-		if NetworkManager.is_host():
-			_receive_vote(multiplayer.get_unique_id(), upgrade_key)
-		else:
-			_rpc_submit_vote.rpc_id(1, upgrade_key, vote_round)
+	if NetworkManager.is_multiplayer_active():
+		# Each player picks their own upgrade independently
+		if is_instance_valid(player_node):
+			player_node.apply_upgrade(upgrade_key)
+		pending_upgrades -= 1
+		get_tree().paused = false
+		upgrade_cooldown = 0.4
+		# Notify host so it can track the upgrade
+		if not NetworkManager.is_host():
+			_rpc_player_upgrade.rpc_id(1, upgrade_key)
 		return
 	# Single player path
 	if is_instance_valid(player_node):
@@ -3456,6 +3525,14 @@ func _rpc_vote_resolved(key: String):
 		player_node.apply_upgrade(key)
 	if is_instance_valid(hud_node):
 		hud_node.hide_vote_panel(key)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_player_upgrade(upgrade_key: String):
+	# Host receives a client's individual upgrade choice and applies it to that player
+	var sender_id = multiplayer.get_remote_sender_id()
+	if players.has(sender_id) and is_instance_valid(players[sender_id]):
+		players[sender_id].apply_upgrade(upgrade_key)
 
 
 func _respawn_player(pid: int):

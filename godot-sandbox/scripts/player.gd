@@ -114,6 +114,15 @@ func _toggle_build_mode(type: String):
 	if build_mode == type:
 		cancel_build_mode()
 	else:
+		# Show warning if can't afford, but still enter build mode
+		var cost = get_building_cost(type)
+		if iron < cost["iron"] or crystal < cost["crystal"]:
+			var parts: Array = []
+			if cost["iron"] > iron:
+				parts.append("%d more iron" % (cost["iron"] - iron))
+			if cost["crystal"] > crystal:
+				parts.append("%d more crystal" % (cost["crystal"] - crystal))
+			_show_build_error("Need " + " & ".join(parts))
 		enter_build_mode(type)
 
 
