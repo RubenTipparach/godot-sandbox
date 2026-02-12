@@ -1,7 +1,7 @@
 [gd_scene format=3 uid="uid://drvag4f5ho13i"]
 
 [ext_resource type="Script" uid="uid://c3oeipauoim0u" path="res://scripts/factory.gd" id="1"]
-[ext_resource type="PackedScene" uid="uid://bhigihv6g7w5j" path="res://scenes/factory_building.tscn" id="2_lmr8u"]
+[ext_resource type="PackedScene" path="res://scenes/factory_building.tscn" id="2_lmr8u"]
 
 [node name="Factory" type="Node3D" unique_id=480534457]
 script = ExtResource("1")

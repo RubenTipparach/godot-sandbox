@@ -16,7 +16,9 @@ const MINING_LASER_SOUND_END = preload("uid://ckujswy7m8f0r")
 
 ## SHIP VISUALS ##
 @onready var player_ship: Node3D = $PlayerShip
-@onready var gun_node: Node3D = $PlayerShip/gun
+@onready var gun_node: Node3D = $PlayerShip/Model/gun
+@export var hp_bar_y_offset: float = 18.0
+@export var turret_lerp_speed: float = 20.0
 
 var health: int = CFG.player_health
 var max_health: int = CFG.player_health
@@ -25,6 +27,7 @@ var crystal: int = 0
 var shoot_timer: float = 0.0
 var facing_angle: float = 0.0
 var gun_angle: float = 0.0
+var gun_visual_angle: float = 0.0
 var invuln_timer: float = 0.0
 var auto_mine_timer: float = 0.0
 var mine_targets: Array = []
@@ -101,7 +104,7 @@ var _remote_target_pos: Vector3 = Vector3.ZERO
 func _ready():
 	add_to_group("player")
 	# Set bullet origin from the ship's gun marker
-	var bo = get_node_or_null("PlayerShip/gun/BulletOrigin")
+	var bo = get_node_or_null("PlayerShip/Model/gun/BulletOrigin")
 	if bo:
 		bullet_origin = bo
 
@@ -320,8 +323,11 @@ func _update_ship_visual():
 		player_ship.rotation.y = -facing_angle - PI / 2
 		player_ship.visible = not is_dead
 	if gun_node:
-		# -PI/2 accounts for the barrel geometry extending along local -X
-		gun_node.rotation.y = -(gun_angle - facing_angle) - PI / 2
+		# Gun aims independently; rotation is relative to the ship
+		var target_y = -(gun_angle - facing_angle) - PI / 2
+		var diff = wrapf(target_y - gun_visual_angle, -PI, PI)
+		gun_visual_angle += diff * minf(1.0, turret_lerp_speed * get_process_delta_time())
+		gun_node.rotation.y = gun_visual_angle
 
 
 func _process_nuke(delta):
