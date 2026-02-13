@@ -11,6 +11,7 @@ var HUD_THEME = {
 	"player": {
 		"bg": Color(0, 0, 0, 0.65),
 		"health": Color(0.4, 1.0, 0.4),
+		"hq_health": Color(0.3, 0.9, 0.9),
 		"level": Color(0.9, 0.8, 0.3),
 		"prestige": Color(1.0, 0.85, 0.3),
 		"xp_bar_bg": Color(0.15, 0.15, 0.25),
@@ -18,24 +19,18 @@ var HUD_THEME = {
 	},
 	"resources": {
 		"bg": Color(0, 0, 0, 0.65),
-		"iron": Color(0.8, 0.75, 0.65),
-		"crystal": Color(0.5, 0.7, 1.0),
-		"energy": Color(0.5, 0.8, 1.0),
-		"energy_rate": Color(0.5, 0.7, 0.9),
+		"iron": Color(1.0, 0.4, 0.4),
+		"crystal": Color(0.4, 0.6, 1.0),
+		"energy": Color(0.4, 1.0, 0.5),
+		"energy_rate": Color(0.3, 0.9, 0.4),
 		"bar_bg": Color(0.15, 0.15, 0.25),
-		"bar_fill": Color(0.3, 0.6, 1.0),
+		"bar_fill": Color(0.3, 0.9, 0.4),
 	},
 	"wave": {
 		"bg": Color(0, 0, 0, 0.65),
-		"title": Color.WHITE,
-		"timer": Color(1.0, 0.4, 0.4),
-		"alien_count": Color(1.0, 0.5, 0.4),
-	},
-	"hq": {
-		"bg": Color(0, 0, 0, 0.65),
-		"health": Color(0.5, 0.8, 1.0),
-		"bar_bg": Color(0.15, 0.15, 0.25),
-		"bar_fill": Color(0.3, 0.8, 1.0),
+		"title": Color(1.0, 0.7, 0.2),
+		"timer": Color(1.0, 0.7, 0.2),
+		"alien_count": Color(1.0, 0.7, 0.2),
 	},
 	"build_bar": {
 		"bg": Color(0, 0, 0, 0.7),
@@ -133,9 +128,10 @@ var building_info_label: Label = null
 var recycle_btn: Button = null
 var toggle_power_btn: Button = null
 var hq_health_label: Label
+var hp_bar_bg: ColorRect
+var hp_bar_fill: ColorRect
 var hq_bar_bg: ColorRect
 var hq_bar_fill: ColorRect
-var hq_panel: PanelContainer
 var settings_panel: Control = null
 var auto_fire_btn: Button = null
 var auto_aim_btn: Button = null
@@ -301,6 +297,27 @@ func _ready():
 	player_panel.add_child(player_vbox)
 
 	health_label = _lbl(player_vbox, 16, HUD_THEME["player"]["health"])
+	hp_bar_bg = ColorRect.new()
+	hp_bar_bg.custom_minimum_size = Vector2(170, 6)
+	hp_bar_bg.color = Color(0.15, 0.15, 0.25)
+	player_vbox.add_child(hp_bar_bg)
+	hp_bar_fill = ColorRect.new()
+	hp_bar_fill.color = HUD_THEME["player"]["health"]
+	hp_bar_fill.position = Vector2.ZERO
+	hp_bar_fill.size = Vector2(170, 6)
+	hp_bar_bg.add_child(hp_bar_fill)
+
+	hq_health_label = _lbl(player_vbox, 14, HUD_THEME["player"]["hq_health"])
+	hq_bar_bg = ColorRect.new()
+	hq_bar_bg.custom_minimum_size = Vector2(170, 6)
+	hq_bar_bg.color = Color(0.15, 0.15, 0.25)
+	player_vbox.add_child(hq_bar_bg)
+	hq_bar_fill = ColorRect.new()
+	hq_bar_fill.color = HUD_THEME["player"]["hq_health"]
+	hq_bar_fill.position = Vector2.ZERO
+	hq_bar_fill.size = Vector2(170, 6)
+	hq_bar_bg.add_child(hq_bar_fill)
+
 	level_label = _lbl(player_vbox, 15, HUD_THEME["player"]["level"])
 
 	xp_bar_bg = ColorRect.new()
@@ -359,27 +376,6 @@ func _ready():
 	start_wave_btn.pressed.connect(_on_start_wave_pressed)
 	wave_vbox.add_child(start_wave_btn)
 	alien_count_label = _lbl(wave_vbox, 13, HUD_THEME["wave"]["alien_count"])
-
-	# --- HQ Health Panel ---
-	hq_panel = PanelContainer.new()
-	hq_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hq_panel.add_theme_stylebox_override("panel", _make_style(HUD_THEME["hq"]["bg"]))
-	left_col.add_child(hq_panel)
-	var hq_vbox = VBoxContainer.new()
-	hq_vbox.add_theme_constant_override("separation", 2)
-	hq_panel.add_child(hq_vbox)
-
-	hq_health_label = _lbl(hq_vbox, 15, HUD_THEME["hq"]["health"])
-
-	hq_bar_bg = ColorRect.new()
-	hq_bar_bg.custom_minimum_size = Vector2(170, 8)
-	hq_bar_bg.color = HUD_THEME["hq"]["bar_bg"]
-	hq_vbox.add_child(hq_bar_bg)
-	hq_bar_fill = ColorRect.new()
-	hq_bar_fill.color = HUD_THEME["hq"]["bar_fill"]
-	hq_bar_fill.position = Vector2.ZERO
-	hq_bar_fill.size = Vector2(170, 8)
-	hq_bar_bg.add_child(hq_bar_fill)
 
 	# Horizontal build bar at bottom center
 	var build_bar = PanelContainer.new()
@@ -3021,16 +3017,24 @@ func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active
 	if not is_instance_valid(player):
 		return
 	var _main = get_tree().current_scene
-	if _main and "local_coop" in _main and _main.local_coop:
-		var all_p = get_tree().get_nodes_in_group("player").filter(func(x): return is_instance_valid(x))
-		var lines: Array = []
-		for i in range(all_p.size()):
-			var p = all_p[i]
-			if "health" in p and "max_health" in p:
-				lines.append("P%d HP: %d / %d" % [i + 1, p.health, p.max_health])
-		health_label.text = "\n".join(lines)
+	var all_p = get_tree().get_nodes_in_group("player").filter(func(x): return is_instance_valid(x))
+	var is_coop = _main and "local_coop" in _main and _main.local_coop and all_p.size() > 1
+	if is_coop:
+		# In co-op, player HP is shown on the right panel per-player; hide from here
+		health_label.visible = false
+		hp_bar_bg.visible = false
 	else:
+		health_label.visible = true
+		hp_bar_bg.visible = true
 		health_label.text = "HP: %d / %d" % [player.health, player.max_health]
+		var hp_ratio = float(player.health) / float(player.max_health) if player.max_health > 0 else 0.0
+		hp_bar_fill.size.x = 170.0 * hp_ratio
+		if hp_ratio < 0.25:
+			hp_bar_fill.color = Color(1.0, 0.1, 0.1)
+		elif hp_ratio < 0.5:
+			hp_bar_fill.color = Color(1.0, 0.5, 0.1)
+		else:
+			hp_bar_fill.color = HUD_THEME["player"]["health"]
 
 	var iron_rate = rates.get("iron", 0.0)
 	var crystal_rate = rates.get("crystal", 0.0)
@@ -3072,29 +3076,29 @@ func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active
 	alien_count_label.text = "Aliens: %d" % ac
 	alien_count_label.visible = ac > 0
 
-	# HQ health display
+	# HQ health display (inline under player HP)
 	var hq_nodes = get_tree().get_nodes_in_group("hq")
 	if hq_nodes.size() > 0 and is_instance_valid(hq_nodes[0]):
 		var hq = hq_nodes[0]
-		hq_panel.visible = true
+		hq_health_label.visible = true
+		hq_bar_bg.visible = true
 		hq_health_label.text = "HQ: %d / %d" % [hq.hp, hq.max_hp]
-		var hp_ratio = float(hq.hp) / float(hq.max_hp)
-		hq_bar_fill.size.x = 170.0 * hp_ratio
-		if hp_ratio < 0.25:
-			# Critical - fast flash red
+		var hq_ratio = float(hq.hp) / float(hq.max_hp)
+		hq_bar_fill.size.x = 170.0 * hq_ratio
+		if hq_ratio < 0.25:
 			var flash = 0.5 + sin(Time.get_ticks_msec() * 0.01) * 0.5
 			hq_bar_fill.color = Color(1.0, 0.1, 0.1)
 			hq_health_label.add_theme_color_override("font_color", Color(1.0, 0.2 + flash * 0.3, 0.2))
-		elif hp_ratio < 0.5:
-			# Warning - slow flash orange
+		elif hq_ratio < 0.5:
 			var flash = 0.5 + sin(Time.get_ticks_msec() * 0.005) * 0.5
 			hq_bar_fill.color = Color(1.0, 0.5, 0.1)
 			hq_health_label.add_theme_color_override("font_color", Color(1.0, 0.6 + flash * 0.2, 0.2))
 		else:
-			hq_bar_fill.color = Color(0.3, 0.8, 1.0)
-			hq_health_label.add_theme_color_override("font_color", Color(0.5, 0.8, 1.0))
+			hq_bar_fill.color = HUD_THEME["player"]["hq_health"]
+			hq_health_label.add_theme_color_override("font_color", HUD_THEME["player"]["hq_health"])
 	else:
-		hq_panel.visible = false
+		hq_health_label.visible = false
+		hq_bar_bg.visible = false
 
 	# Energy display
 	power_label.text = "Energy: %d / %d" % [int(power_bank), int(max_power_bank)]
@@ -3112,9 +3116,9 @@ func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active
 		power_bar_fill.size.x = 0.0
 	var net = power_gen - power_cons
 	if net >= 0:
-		power_bar_fill.color = Color(0.3, 0.6, 1.0)
+		power_bar_fill.color = Color(0.3, 0.9, 0.4)
 		power_rate_label.text = "+%.0f/s" % net
-		power_rate_label.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5))
+		power_rate_label.add_theme_color_override("font_color", Color(0.3, 0.9, 0.4))
 	else:
 		power_bar_fill.color = Color(1.0, 0.4, 0.2)
 		power_rate_label.text = "%.0f/s" % net
@@ -3155,7 +3159,6 @@ func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active
 				pi["panel"].visible = true
 				var display_name: String
 				if is_local_coop:
-					var all_p = get_tree().get_nodes_in_group("player").filter(func(x): return is_instance_valid(x))
 					var pidx = all_p.find(pp)
 					display_name = "P%d" % (pidx + 1) if pidx >= 0 else "Player"
 				else:
