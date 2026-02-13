@@ -2,21 +2,21 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c4oqt1avfuu36"
-path.s3tc="res://.godot/imported/pylon_1.png-3cb247b723ae798a65af034a3d2ac7f4.s3tc.ctex"
-path.etc2="res://.godot/imported/pylon_1.png-3cb247b723ae798a65af034a3d2ac7f4.etc2.ctex"
+uid="uid://f0lb1ta2qxf4"
+path.s3tc="res://.godot/imported/pylon2_1.png-6888482d804c2860310277e5e172dc22.s3tc.ctex"
+path.etc2="res://.godot/imported/pylon2_1.png-6888482d804c2860310277e5e172dc22.etc2.ctex"
 metadata={
 "imported_formats": ["s3tc_bptc", "etc2_astc"],
 "vram_texture": true
 }
 generator_parameters={
-"md5": "99d1ead739f64a88d9655b3b0c9fceff"
+"md5": "70039aeb42933298f76587e0ade9eb19"
 }
 
 [deps]
 
-source_file="res://resources/models/pylon_1.png"
-dest_files=["res://.godot/imported/pylon_1.png-3cb247b723ae798a65af034a3d2ac7f4.s3tc.ctex", "res://.godot/imported/pylon_1.png-3cb247b723ae798a65af034a3d2ac7f4.etc2.ctex"]
+source_file="res://resources/models/pylon2_1.png"
+dest_files=["res://.godot/imported/pylon2_1.png-6888482d804c2860310277e5e172dc22.s3tc.ctex", "res://.godot/imported/pylon2_1.png-6888482d804c2860310277e5e172dc22.etc2.ctex"]
 
 [params]
 

@@ -2688,6 +2688,7 @@ func _building_controller_input(event):
 				_on_recycle_pressed()
 
 
+
 func _update_building_tooltip():
 	if not _game_started or get_tree().paused:
 		building_tooltip.visible = false
@@ -3019,7 +3020,17 @@ func _style_button(btn: Button, color: Color):
 func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active: bool = false, power_gen: float = 0.0, power_cons: float = 0.0, _power_on: bool = true, rates: Dictionary = {}, power_bank: float = 0.0, max_power_bank: float = 0.0, prestige_earned: int = 0):
 	if not is_instance_valid(player):
 		return
-	health_label.text = "HP: %d / %d" % [player.health, player.max_health]
+	var _main = get_tree().current_scene
+	if _main and "local_coop" in _main and _main.local_coop:
+		var all_p = get_tree().get_nodes_in_group("player").filter(func(x): return is_instance_valid(x))
+		var lines: Array = []
+		for i in range(all_p.size()):
+			var p = all_p[i]
+			if "health" in p and "max_health" in p:
+				lines.append("P%d HP: %d / %d" % [i + 1, p.health, p.max_health])
+		health_label.text = "\n".join(lines)
+	else:
+		health_label.text = "HP: %d / %d" % [player.health, player.max_health]
 
 	var iron_rate = rates.get("iron", 0.0)
 	var crystal_rate = rates.get("crystal", 0.0)
