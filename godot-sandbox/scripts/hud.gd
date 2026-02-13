@@ -474,7 +474,7 @@ func _ready():
 	minimap_node.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	gameplay_hud.add_child(minimap_node)
 
-	# Partner health panels (MP only, top-right below minimap) - up to 3 partners
+	# Player/partner health panels (top-right below minimap) - up to 4 players
 	var partner_vbox = VBoxContainer.new()
 	partner_vbox.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	partner_vbox.offset_left = -170
@@ -483,7 +483,7 @@ func _ready():
 	partner_vbox.add_theme_constant_override("separation", 4)
 	partner_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	gameplay_hud.add_child(partner_vbox)
-	for i in range(3):
+	for _i in range(4):
 		var pp = PanelContainer.new()
 		pp.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		pp.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
@@ -932,7 +932,7 @@ func _build_start_menu(root: Control):
 	wave_container.add_theme_constant_override("separation", 15)
 	wave_select_container.add_child(wave_container)
 
-	for wave in [1, 5, 10, 15, 20]:
+	for wave in [1, 5, 10, 15, 20, 25]:
 		var btn = Button.new()
 		btn.text = "Wave %d" % wave
 		btn.custom_minimum_size = Vector2(100, 50)
@@ -2499,6 +2499,7 @@ func _input(event):
 	_local_coop_input(event)
 	_upgrade_controller_input(event)
 	_menu_controller_input(event)
+	_building_controller_input(event)
 
 
 func _upgrade_controller_input(event):
@@ -2639,6 +2640,52 @@ func _auto_select_menu():
 			_highlight_menu_button(_wave_buttons, 0)
 		elif menu_buttons_container and menu_buttons_container.visible:
 			_highlight_menu_button(_start_buttons, 0)
+
+
+func _building_controller_input(event):
+	if not _game_started or get_tree().paused:
+		return
+	if not (event is InputEventJoypadButton and event.pressed):
+		return
+	if _upgrade_showing:
+		return
+	# Find the player for this controller
+	var player: Node3D = null
+	var all_players = get_tree().get_nodes_in_group("player")
+	if all_players.size() == 1:
+		player = all_players[0]
+	else:
+		for p in all_players:
+			if is_instance_valid(p) and "device_id" in p and p.device_id == event.device:
+				player = p
+				break
+	if not player or not is_instance_valid(player) or player.is_dead:
+		return
+	match event.button_index:
+		JOY_BUTTON_Y:
+			# Find nearest building to this player
+			var closest: Node3D = null
+			var closest_dist: float = 60.0
+			for b in get_tree().get_nodes_in_group("buildings"):
+				if not is_instance_valid(b): continue
+				var dist = player.global_position.distance_to(b.global_position)
+				if dist < closest_dist:
+					closest_dist = dist
+					closest = b
+			if closest:
+				if player.is_in_build_mode():
+					player.cancel_build_mode()
+				selected_building = closest
+			else:
+				selected_building = null
+				if building_info_panel:
+					building_info_panel.visible = false
+		JOY_BUTTON_A:
+			if selected_building and is_instance_valid(selected_building) and not player.is_in_build_mode():
+				_on_toggle_power_pressed()
+		JOY_BUTTON_B:
+			if selected_building and is_instance_valid(selected_building) and not player.is_in_build_mode():
+				_on_recycle_pressed()
 
 
 func _update_building_tooltip():
@@ -2972,17 +3019,7 @@ func _style_button(btn: Button, color: Color):
 func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active: bool = false, power_gen: float = 0.0, power_cons: float = 0.0, _power_on: bool = true, rates: Dictionary = {}, power_bank: float = 0.0, max_power_bank: float = 0.0, prestige_earned: int = 0):
 	if not is_instance_valid(player):
 		return
-	var _main = get_tree().current_scene
-	if _main and "local_coop" in _main and _main.local_coop:
-		var all_p = get_tree().get_nodes_in_group("player").filter(func(x): return is_instance_valid(x))
-		var lines: Array = []
-		for i in range(all_p.size()):
-			var p = all_p[i]
-			if "health" in p and "max_health" in p:
-				lines.append("P%d HP: %d / %d" % [i + 1, p.health, p.max_health])
-		health_label.text = "\n".join(lines)
-	else:
-		health_label.text = "HP: %d / %d" % [player.health, player.max_health]
+	health_label.text = "HP: %d / %d" % [player.health, player.max_health]
 
 	var iron_rate = rates.get("iron", 0.0)
 	var crystal_rate = rates.get("crystal", 0.0)
@@ -3089,32 +3126,35 @@ func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active
 	# Prestige earned this run
 	prestige_hud_label.text = "Prestige: %d" % prestige_earned
 
-	# Partner health in MP or local co-op (up to 3 other players)
+	# Player/partner health panels (top-right below minimap)
 	var main = get_tree().current_scene
 	var is_local_coop = main and "local_coop" in main and main.local_coop
 	if NetworkManager.is_multiplayer_active() or is_local_coop:
-		var partners: Array = []
+		var panel_players: Array = []
 		for p in get_tree().get_nodes_in_group("player"):
-			if is_instance_valid(p) and p != player:
-				partners.append(p)
+			if not is_instance_valid(p): continue
+			if is_local_coop:
+				panel_players.append(p)  # All players in co-op
+			elif p != player:
+				panel_players.append(p)  # Only partners in MP
 		for i in range(partner_panels.size()):
-			if i < partners.size():
-				var partner = partners[i]
+			if i < panel_players.size():
+				var pp = panel_players[i]
 				var pi = partner_panels[i]
 				pi["panel"].visible = true
 				var display_name: String
 				if is_local_coop:
-					# Show "P1", "P2", etc. based on device order
-					var dev_idx = local_coop_devices.find(partner.device_id) if "device_id" in partner else -1
-					display_name = "P%d" % (dev_idx + 1) if dev_idx >= 0 else "Player"
+					var all_p = get_tree().get_nodes_in_group("player").filter(func(x): return is_instance_valid(x))
+					var pidx = all_p.find(pp)
+					display_name = "P%d" % (pidx + 1) if pidx >= 0 else "Player"
 				else:
-					display_name = partner.player_name if partner.player_name != "" else ("Host" if partner.peer_id == 1 else "P%d" % partner.peer_id)
-				if partner.is_dead:
+					display_name = pp.player_name if pp.player_name != "" else ("Host" if pp.peer_id == 1 else "P%d" % pp.peer_id)
+				if pp.is_dead:
 					pi["label"].text = "%s: DEAD" % display_name
 					pi["label"].add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
 				else:
-					pi["label"].text = "%s HP: %d/%d" % [display_name, partner.health, partner.max_health]
-					pi["label"].add_theme_color_override("font_color", partner.player_color)
+					pi["label"].text = "%s HP: %d/%d" % [display_name, pp.health, pp.max_health]
+					pi["label"].add_theme_color_override("font_color", pp.player_color)
 			else:
 				partner_panels[i]["panel"].visible = false
 	else:

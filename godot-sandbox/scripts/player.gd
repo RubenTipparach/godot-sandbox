@@ -202,13 +202,15 @@ func _process(delta):
 	var joystick_node = null
 	var look_joystick_node = null
 
-	if device_id >= 0:
+	var _single_player = get_tree().get_nodes_in_group("player").size() <= 1
+	var _joy_dev = device_id if device_id >= 0 else 0
+	if device_id >= 0 or _single_player:
 		# Controller input: left stick for movement
-		var lx = Input.get_joy_axis(device_id, JOY_AXIS_LEFT_X)
-		var ly = Input.get_joy_axis(device_id, JOY_AXIS_LEFT_Y)
+		var lx = Input.get_joy_axis(_joy_dev, JOY_AXIS_LEFT_X)
+		var ly = Input.get_joy_axis(_joy_dev, JOY_AXIS_LEFT_Y)
 		if Vector2(lx, ly).length() > 0.2:
 			input = Vector3(lx, 0, ly)
-	else:
+	if input == Vector3.ZERO and device_id < 0:
 		var joysticks = get_tree().get_nodes_in_group("mobile_joystick")
 		for j in joysticks:
 			if j.joystick_type == "move":
@@ -234,20 +236,23 @@ func _process(delta):
 	position.z = clampf(position.z, -CFG.map_half_size, CFG.map_half_size)
 
 	# Ship body facing and gun aiming
-	if device_id >= 0:
+	var _aim_handled = false
+	if device_id >= 0 or _single_player:
 		# Controller: right stick for facing/aiming
-		var rx = Input.get_joy_axis(device_id, JOY_AXIS_RIGHT_X)
-		var ry = Input.get_joy_axis(device_id, JOY_AXIS_RIGHT_Y)
+		var rx = Input.get_joy_axis(_joy_dev, JOY_AXIS_RIGHT_X)
+		var ry = Input.get_joy_axis(_joy_dev, JOY_AXIS_RIGHT_Y)
 		if Vector2(rx, ry).length() > 0.2:
 			facing_angle = atan2(ry, rx)
 			gun_angle = facing_angle
-		else:
-			# Auto-aim gun at nearest enemy when right stick is idle
+			_aim_handled = true
+		elif device_id >= 0:
+			# Auto-aim gun at nearest enemy when right stick is idle (co-op controller)
 			var nearest_alien = _find_nearest_alien()
 			if nearest_alien:
 				var aim_dir = nearest_alien.global_position - global_position
 				gun_angle = atan2(aim_dir.z, aim_dir.x)
-	else:
+			_aim_handled = true
+	if not _aim_handled:
 		# Keyboard/Mobile: face mouse or look joystick
 		if look_joystick_node and look_joystick_node.input_vector != Vector2.ZERO:
 			facing_angle = atan2(look_joystick_node.input_vector.y, look_joystick_node.input_vector.x)
@@ -299,13 +304,13 @@ func _process(delta):
 	else:
 		repair_targets.clear()
 
-	if device_id >= 0:
+	if device_id >= 0 or _single_player:
 		# Controller: building cycle handled via _input() (bumpers LB/RB, A to place, B to cancel)
 		# Update build preview position to player's snapped position
 		if build_mode != "":
 			build_mode_cooldown = maxf(0.0, build_mode_cooldown - delta)
 			pending_build_world_pos = global_position.snapped(Vector3(40, 0, 40))
-	else:
+	if device_id < 0:
 		# Hotkey building (select build mode, click to place)
 		if Input.is_action_just_pressed("build_power_plant"):
 			_toggle_build_mode("power_plant")
@@ -884,20 +889,27 @@ func _spawn_death_particles():
 # --- Controller building cycle (local co-op) ---
 
 func _input(event):
-	if device_id < 0 or not is_local or is_dead:
+	if not is_local or is_dead:
 		return
-	if event is InputEventJoypadButton and event.device == device_id and event.pressed:
-		match event.button_index:
-			JOY_BUTTON_LEFT_SHOULDER:
-				_cycle_building(-1)
-			JOY_BUTTON_RIGHT_SHOULDER:
-				_cycle_building(1)
-			JOY_BUTTON_A:
-				if build_mode != "":
-					_try_build_at_player_pos()
-			JOY_BUTTON_B:
-				if build_mode != "":
-					cancel_build_mode()
+	if not (event is InputEventJoypadButton and event.pressed):
+		return
+	# Co-op: only respond to our assigned device
+	if device_id >= 0 and event.device != device_id:
+		return
+	# Keyboard player in co-op: don't handle joypad (other players own them)
+	if device_id < 0 and get_tree().get_nodes_in_group("player").size() > 1:
+		return
+	match event.button_index:
+		JOY_BUTTON_LEFT_SHOULDER:
+			_cycle_building(-1)
+		JOY_BUTTON_RIGHT_SHOULDER:
+			_cycle_building(1)
+		JOY_BUTTON_A:
+			if build_mode != "":
+				_try_build_at_player_pos()
+		JOY_BUTTON_B:
+			if build_mode != "":
+				cancel_build_mode()
 
 
 func _get_available_buildings() -> Array:
