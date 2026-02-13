@@ -115,6 +115,22 @@ var debug_btn: Button = null
 var debug_layer: CanvasLayer = null
 var disconnect_panel: Control = null
 
+# Local co-op
+var local_coop_lobby: Control = null
+var local_coop_slots: Array = []  # Array of {"panel": PanelContainer, "label": Label, "status": Label}
+var local_coop_devices: Array = []  # Joined device IDs
+var local_coop_start_btn: Button = null
+var controller_hints_panel: Control = null  # On-screen controls hint during gameplay
+var _player_build_labels: Dictionary = {}  # player Node3D -> Label3D (floating build indicator)
+var _upgrade_selected_idx: int = 0  # Controller-selected upgrade card index
+
+const PLAYER_COLORS: Array = [
+	Color(0.2, 0.9, 0.3),   # Green
+	Color(0.4, 0.6, 1.0),   # Blue
+	Color(1.0, 0.5, 0.2),   # Orange
+	Color(0.9, 0.3, 0.8),   # Purple
+]
+
 const UPGRADE_DATA = {
 	"chain_lightning": {"name": "Chain Lightning", "color": Color(0.3, 0.7, 1.0), "max": 5},
 	"shotgun": {"name": "Shotgun Blast", "color": Color(1.0, 0.6, 0.2), "max": 5},
@@ -477,10 +493,12 @@ func _ready():
 	_build_pause_menu(root)
 	_build_settings_panel(root)
 	_build_lobby_panel(root)
+	_build_local_coop_lobby(root)
 	_build_building_tooltip(root)
 	_build_building_info_panel(root)
 	_build_loading_panel(root)
 	_build_disconnect_panel(root)
+	_build_controller_hints(root)
 
 	# Detect mobile and add virtual controls
 	is_mobile = _detect_mobile()
@@ -1543,6 +1561,252 @@ func show_disconnect_panel():
 		disconnect_panel.visible = true
 
 
+# --- Local Co-Op Lobby ---
+
+func _build_local_coop_lobby(root: Control):
+	local_coop_lobby = Control.new()
+	local_coop_lobby.set_anchors_preset(Control.PRESET_FULL_RECT)
+	local_coop_lobby.visible = false
+	local_coop_lobby.process_mode = Node.PROCESS_MODE_ALWAYS
+	root.add_child(local_coop_lobby)
+
+	var bg = ColorRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0, 0, 0, 1.0)
+	bg.mouse_filter = Control.MOUSE_FILTER_STOP
+	local_coop_lobby.add_child(bg)
+
+	var title = Label.new()
+	title.text = "LOCAL CO-OP"
+	title.add_theme_font_size_override("font_size", 42)
+	title.add_theme_color_override("font_color", Color(0.9, 0.8, 0.3))
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	title.offset_top = 60
+	title.offset_left = -300
+	title.offset_right = 300
+	local_coop_lobby.add_child(title)
+
+	var subtitle = Label.new()
+	subtitle.text = "Press A on your Xbox controller to join"
+	subtitle.add_theme_font_size_override("font_size", 18)
+	subtitle.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
+	subtitle.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	subtitle.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	subtitle.offset_top = 115
+	subtitle.offset_left = -300
+	subtitle.offset_right = 300
+	local_coop_lobby.add_child(subtitle)
+
+	# 4 controller slot panels
+	var slots_hbox = HBoxContainer.new()
+	slots_hbox.set_anchors_preset(Control.PRESET_CENTER)
+	slots_hbox.offset_left = -460
+	slots_hbox.offset_right = 460
+	slots_hbox.offset_top = -80
+	slots_hbox.offset_bottom = 80
+	slots_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	slots_hbox.add_theme_constant_override("separation", 20)
+	local_coop_lobby.add_child(slots_hbox)
+
+	for i in range(4):
+		var slot = PanelContainer.new()
+		slot.custom_minimum_size = Vector2(200, 140)
+		var slot_style = StyleBoxFlat.new()
+		slot_style.bg_color = Color(0.12, 0.12, 0.15, 0.9)
+		slot_style.set_corner_radius_all(8)
+		slot_style.border_width_bottom = 3
+		slot_style.border_width_top = 3
+		slot_style.border_width_left = 3
+		slot_style.border_width_right = 3
+		slot_style.border_color = Color(0.3, 0.3, 0.35)
+		slot_style.content_margin_left = 12
+		slot_style.content_margin_right = 12
+		slot_style.content_margin_top = 12
+		slot_style.content_margin_bottom = 12
+		slot.add_theme_stylebox_override("panel", slot_style)
+		slots_hbox.add_child(slot)
+
+		var vb = VBoxContainer.new()
+		vb.add_theme_constant_override("separation", 8)
+		vb.alignment = BoxContainer.ALIGNMENT_CENTER
+		slot.add_child(vb)
+
+		var player_label = Label.new()
+		player_label.text = "Player %d" % (i + 1)
+		player_label.add_theme_font_size_override("font_size", 22)
+		player_label.add_theme_color_override("font_color", PLAYER_COLORS[i])
+		player_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vb.add_child(player_label)
+
+		var status_label = Label.new()
+		status_label.text = "Press A to join"
+		status_label.add_theme_font_size_override("font_size", 16)
+		status_label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.55))
+		status_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vb.add_child(status_label)
+
+		local_coop_slots.append({"panel": slot, "label": player_label, "status": status_label, "style": slot_style})
+
+	# Controls hint in lobby
+	var controls_label = Label.new()
+	controls_label.text = "Controls:   [LS] Move   [RS] Rotate   [LB/RB] Select Building   [A] Place   [B] Cancel"
+	controls_label.add_theme_font_size_override("font_size", 14)
+	controls_label.add_theme_color_override("font_color", Color(0.5, 0.5, 0.6))
+	controls_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	controls_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	controls_label.offset_top = -150
+	controls_label.offset_left = -400
+	controls_label.offset_right = 400
+	controls_label.offset_bottom = -130
+	local_coop_lobby.add_child(controls_label)
+
+	# Start button
+	local_coop_start_btn = Button.new()
+	local_coop_start_btn.text = "Continue"
+	local_coop_start_btn.custom_minimum_size = Vector2(200, 50)
+	local_coop_start_btn.add_theme_font_size_override("font_size", 22)
+	local_coop_start_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.4))
+	local_coop_start_btn.disabled = true
+	local_coop_start_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	local_coop_start_btn.offset_top = -100
+	local_coop_start_btn.offset_left = -100
+	local_coop_start_btn.offset_right = 100
+	local_coop_start_btn.offset_bottom = -50
+	local_coop_start_btn.pressed.connect(_on_local_coop_continue)
+	_style_button(local_coop_start_btn, Color(0.15, 0.45, 0.2))
+	local_coop_lobby.add_child(local_coop_start_btn)
+
+	# Back button
+	var back_btn = Button.new()
+	back_btn.text = "Back"
+	back_btn.custom_minimum_size = Vector2(150, 45)
+	back_btn.add_theme_font_size_override("font_size", 18)
+	back_btn.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	back_btn.offset_top = -45
+	back_btn.offset_left = -75
+	back_btn.offset_right = 75
+	back_btn.offset_bottom = 0
+	back_btn.pressed.connect(_on_local_coop_back)
+	local_coop_lobby.add_child(back_btn)
+
+
+func _update_local_coop_lobby():
+	for i in range(4):
+		var slot = local_coop_slots[i]
+		if i < local_coop_devices.size():
+			# This slot is joined
+			slot["status"].text = "Ready!"
+			slot["status"].add_theme_color_override("font_color", PLAYER_COLORS[i])
+			slot["style"].border_color = PLAYER_COLORS[i]
+		else:
+			slot["status"].text = "Press A to join"
+			slot["status"].add_theme_color_override("font_color", Color(0.5, 0.5, 0.55))
+			slot["style"].border_color = Color(0.3, 0.3, 0.35)
+
+	if local_coop_start_btn:
+		local_coop_start_btn.disabled = local_coop_devices.size() == 0
+
+
+func _on_local_coop_continue():
+	if local_coop_devices.size() == 0:
+		return
+	# Go to wave select
+	local_coop_lobby.visible = false
+	start_menu.visible = true
+	menu_buttons_container.visible = false
+	wave_select_container.visible = true
+	_update_start_menu()
+
+
+func _on_local_coop_back():
+	local_coop_lobby.visible = false
+	local_coop_devices.clear()
+	start_menu.visible = true
+	menu_buttons_container.visible = true
+	wave_select_container.visible = false
+
+
+func _local_coop_input(event):
+	# Called from _input to handle controller joins in the lobby
+	if not local_coop_lobby or not local_coop_lobby.visible:
+		return
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_A:
+		var dev = event.device
+		if dev not in local_coop_devices and local_coop_devices.size() < 4:
+			local_coop_devices.append(dev)
+			SFXManager.play("pickup")
+			_update_local_coop_lobby()
+	# B button to leave lobby (remove last joined device matching this controller)
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_B:
+		var dev = event.device
+		if dev in local_coop_devices:
+			local_coop_devices.erase(dev)
+			_update_local_coop_lobby()
+	# Start button on any joined controller to continue
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_START:
+		if event.device in local_coop_devices and local_coop_devices.size() > 0:
+			_on_local_coop_continue()
+
+
+# --- Controller Hints (on-screen during gameplay) ---
+
+func _build_controller_hints(_root: Control):
+	controller_hints_panel = PanelContainer.new()
+	controller_hints_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	controller_hints_panel.visible = false
+	var style = StyleBoxFlat.new()
+	style.bg_color = Color(0, 0, 0, 0.6)
+	style.set_corner_radius_all(6)
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	style.content_margin_top = 6
+	style.content_margin_bottom = 6
+	controller_hints_panel.add_theme_stylebox_override("panel", style)
+	controller_hints_panel.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	controller_hints_panel.offset_left = -250
+	controller_hints_panel.offset_top = -100
+	controller_hints_panel.offset_right = -10
+	controller_hints_panel.offset_bottom = -10
+	# Add to gameplay_hud so it only shows during gameplay
+	if gameplay_hud:
+		gameplay_hud.add_child(controller_hints_panel)
+	else:
+		_root.add_child(controller_hints_panel)
+
+	var vb = VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 2)
+	controller_hints_panel.add_child(vb)
+
+	var lines = [
+		["[LS]", "Move", Color(0.7, 0.9, 0.7)],
+		["[RS]", "Rotate / Aim", Color(0.7, 0.9, 0.7)],
+		["[LB] [RB]", "Select Building", Color(0.9, 0.8, 0.3)],
+		["[A]", "Place Building", Color(0.4, 0.8, 1.0)],
+		["[B]", "Cancel Build", Color(1.0, 0.5, 0.4)],
+	]
+	for line in lines:
+		var hb = HBoxContainer.new()
+		hb.add_theme_constant_override("separation", 8)
+		vb.add_child(hb)
+		var key_lbl = Label.new()
+		key_lbl.text = line[0]
+		key_lbl.add_theme_font_size_override("font_size", 13)
+		key_lbl.add_theme_color_override("font_color", line[2])
+		key_lbl.custom_minimum_size = Vector2(80, 0)
+		hb.add_child(key_lbl)
+		var desc_lbl = Label.new()
+		desc_lbl.text = line[1]
+		desc_lbl.add_theme_font_size_override("font_size", 13)
+		desc_lbl.add_theme_color_override("font_color", Color(0.8, 0.8, 0.85))
+		hb.add_child(desc_lbl)
+
+
+func show_controller_hints(show: bool):
+	if controller_hints_panel:
+		controller_hints_panel.visible = show
+
+
 func _detect_mobile() -> bool:
 	if OS.has_feature("mobile"):
 		return true
@@ -1651,9 +1915,10 @@ func _on_single_player_pressed():
 
 func _on_local_coop_pressed():
 	_menu_mode = "local_coop"
-	menu_buttons_container.visible = false
-	wave_select_container.visible = true
-	_update_start_menu()
+	start_menu.visible = false
+	local_coop_lobby.visible = true
+	local_coop_devices.clear()
+	_update_local_coop_lobby()
 
 
 func _on_online_coop_pressed():
@@ -1677,8 +1942,14 @@ func _show_lobby_mode_picker():
 
 func _on_wave_select_back():
 	wave_select_container.visible = false
-	menu_buttons_container.visible = true
-	_menu_mode = ""
+	if _menu_mode == "local_coop":
+		# Go back to local co-op lobby
+		start_menu.visible = false
+		local_coop_lobby.visible = true
+		_update_local_coop_lobby()
+	else:
+		menu_buttons_container.visible = true
+		_menu_mode = ""
 
 
 func show_alert(msg: String, color: Color = Color(1.0, 0.9, 0.3), duration: float = 3.0):
@@ -2164,6 +2435,42 @@ func _process(delta):
 		_update_debug_overlay()
 
 
+func _input(event):
+	_local_coop_input(event)
+	_upgrade_controller_input(event)
+
+
+func _upgrade_controller_input(event):
+	if not _upgrade_showing or not upgrade_panel or not upgrade_panel.visible:
+		return
+	if not (event is InputEventJoypadButton and event.pressed):
+		return
+	# Navigate upgrade cards with shoulder buttons or D-pad
+	match event.button_index:
+		JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_LEFT_SHOULDER:
+			_upgrade_selected_idx = maxi(0, _upgrade_selected_idx - 1)
+			_highlight_upgrade_card(_upgrade_selected_idx)
+		JOY_BUTTON_DPAD_RIGHT, JOY_BUTTON_RIGHT_SHOULDER:
+			_upgrade_selected_idx = mini(2, _upgrade_selected_idx + 1)
+			_highlight_upgrade_card(_upgrade_selected_idx)
+		JOY_BUTTON_A:
+			# Confirm selected upgrade
+			var key = card_info[_upgrade_selected_idx]["key"]
+			if key != "":
+				upgrade_panel.visible = false
+				_upgrade_showing = false
+				upgrade_chosen.emit(key)
+
+
+func _highlight_upgrade_card(idx: int):
+	for i in range(card_info.size()):
+		var card = card_info[i]["panel"]
+		if i == idx:
+			card.add_theme_stylebox_override("panel", _make_card_style(Color(0.6, 0.7, 0.9)))
+		else:
+			card.add_theme_stylebox_override("panel", _make_card_style(Color(0.4, 0.4, 0.5)))
+
+
 func _update_building_tooltip():
 	if not _game_started or get_tree().paused:
 		building_tooltip.visible = false
@@ -2602,8 +2909,10 @@ func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active
 	# Prestige earned this run
 	prestige_hud_label.text = "Prestige: %d" % prestige_earned
 
-	# Partner health in MP (up to 3 other players)
-	if NetworkManager.is_multiplayer_active():
+	# Partner health in MP or local co-op (up to 3 other players)
+	var main = get_tree().current_scene
+	var is_local_coop = main and "local_coop" in main and main.local_coop
+	if NetworkManager.is_multiplayer_active() or is_local_coop:
 		var partners: Array = []
 		for p in get_tree().get_nodes_in_group("player"):
 			if is_instance_valid(p) and p != player:
@@ -2613,7 +2922,13 @@ func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active
 				var partner = partners[i]
 				var pi = partner_panels[i]
 				pi["panel"].visible = true
-				var display_name = partner.player_name if partner.player_name != "" else ("Host" if partner.peer_id == 1 else "P%d" % partner.peer_id)
+				var display_name: String
+				if is_local_coop:
+					# Show "P1", "P2", etc. based on device order
+					var dev_idx = local_coop_devices.find(partner.device_id) if "device_id" in partner else -1
+					display_name = "P%d" % (dev_idx + 1) if dev_idx >= 0 else "Player"
+				else:
+					display_name = partner.player_name if partner.player_name != "" else ("Host" if partner.peer_id == 1 else "P%d" % partner.peer_id)
 				if partner.is_dead:
 					pi["label"].text = "%s: DEAD" % display_name
 					pi["label"].add_theme_color_override("font_color", Color(1.0, 0.3, 0.3))
@@ -2627,7 +2942,7 @@ func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active
 			pi["panel"].visible = false
 
 	# Respawn countdown
-	if player.is_dead and respawn_countdown > 0 and NetworkManager.is_multiplayer_active():
+	if player.is_dead and respawn_countdown > 0 and (NetworkManager.is_multiplayer_active() or is_local_coop):
 		respawn_label.text = "Respawning in %d..." % ceili(respawn_countdown)
 		respawn_label.visible = true
 	else:
@@ -2736,6 +3051,8 @@ func show_upgrade_selection(current_upgrades: Dictionary):
 
 	upgrade_panel.visible = true
 	_upgrade_showing = true
+	_upgrade_selected_idx = 0
+	_highlight_upgrade_card(0)
 
 
 func _desc(key: String, lv: int) -> String:

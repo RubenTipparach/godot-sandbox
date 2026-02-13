@@ -106,6 +106,7 @@ var _client_own_research: Dictionary = {}  # Client's own research, saved before
 var _waiting_for_clients: bool = false
 var clients_ready: Dictionary = {}  # peer_id -> bool
 var local_coop: bool = false  # Local co-op mode (shared screen, camera averages players)
+var _player_build_labels: Dictionary = {}  # player Node3D -> Label (screen-space build indicator)
 
 # Upgrade voting (multiplayer)
 var vote_active: bool = false
@@ -1031,6 +1032,10 @@ func _process(delta):
 
 	# Sync screen-space HP bars
 	_sync_hp_bars()
+
+	# Sync player build mode labels (local co-op only)
+	if local_coop:
+		_sync_player_build_labels()
 
 	# Update spider boss HP bar
 	if boss_hp_bar_visible and is_instance_valid(spider_boss_ref) and is_instance_valid(hud_node):
@@ -2090,6 +2095,52 @@ func _sync_hp_bars():
 			if is_instance_valid(hp_bar_nodes[node]):
 				hp_bar_nodes[node].queue_free()
 			hp_bar_nodes.erase(node)
+
+
+func _sync_player_build_labels():
+	if not is_instance_valid(camera_3d) or not is_instance_valid(hp_bar_layer):
+		return
+	var build_names = {
+		"turret": "Turret", "factory": "Factory", "wall": "Wall",
+		"lightning": "Lightning", "slow": "Slow Tower", "pylon": "Pylon",
+		"power_plant": "Power Plant", "battery": "Battery",
+		"flame_turret": "Flame Turret", "acid_turret": "Acid Turret",
+		"repair_drone": "Repair Drone", "poison_turret": "Poison Turret"
+	}
+	var active_players: Dictionary = {}
+	for pid in players:
+		var p = players[pid]
+		if not is_instance_valid(p) or p.is_dead or not p.is_local:
+			continue
+		if p.build_mode == "":
+			continue
+		active_players[p] = true
+		if p not in _player_build_labels:
+			var lbl = Label.new()
+			lbl.add_theme_font_size_override("font_size", 14)
+			lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			hp_bar_layer.add_child(lbl)
+			_player_build_labels[p] = lbl
+		var lbl = _player_build_labels[p]
+		var bname = build_names.get(p.build_mode, p.build_mode)
+		var cost = p.get_building_cost(p.build_mode)
+		var can = p.can_afford(p.build_mode)
+		lbl.text = "[%s]  %dFe %dCr" % [bname, cost["iron"], cost["crystal"]]
+		lbl.add_theme_color_override("font_color", p.player_color if can else Color(1.0, 0.4, 0.3))
+		var world_pos = Vector3(p.global_position.x, p.hp_bar_y_offset + 12, p.global_position.z)
+		if camera_3d.is_position_behind(world_pos):
+			lbl.visible = false
+		else:
+			var sp = camera_3d.unproject_position(world_pos)
+			lbl.position = Vector2(sp.x - 80, sp.y - 10)
+			lbl.visible = true
+	# Hide labels for players no longer in build mode
+	for p in _player_build_labels.keys():
+		if not is_instance_valid(p) or p not in active_players:
+			if is_instance_valid(_player_build_labels[p]):
+				_player_build_labels[p].queue_free()
+			_player_build_labels.erase(p)
 
 
 # ---- Building Mesh Factories ----
@@ -3245,9 +3296,13 @@ func _sync_build_preview():
 		_apply_ghost_material(build_preview_mesh, ghost_mat)
 		add_child(build_preview_mesh)
 		build_preview_type = bmode
-	# Position at snapped mouse world pos
+	# Position at snapped mouse world pos (or player position for mobile/controller)
 	var bp: Vector3
-	if "is_mobile" in player_node and player_node.is_mobile and "pending_build_world_pos" in player_node and player_node.pending_build_world_pos != Vector3.ZERO:
+	var use_pending = false
+	if "pending_build_world_pos" in player_node and player_node.pending_build_world_pos != Vector3.ZERO:
+		if ("is_mobile" in player_node and player_node.is_mobile) or ("device_id" in player_node and player_node.device_id >= 0):
+			use_pending = true
+	if use_pending:
 		bp = player_node.pending_build_world_pos
 	else:
 		bp = mouse_world_2d.snapped(Vector3(40, 0, 40))
@@ -3389,9 +3444,15 @@ func _on_upgrade_chosen(upgrade_key: String):
 		if not NetworkManager.is_host():
 			_rpc_player_upgrade.rpc_id(1, upgrade_key)
 		return
-	# Single player path
+	# Single player / local co-op path
 	if is_instance_valid(player_node):
 		player_node.apply_upgrade(upgrade_key)
+	# Apply personal upgrades to all local co-op players
+	if local_coop:
+		for pid in players:
+			var p = players[pid]
+			if p != player_node and is_instance_valid(p) and p.is_local:
+				p.apply_upgrade(upgrade_key)
 	pending_upgrades -= 1
 	get_tree().paused = false
 	upgrade_cooldown = 0.4
@@ -3442,6 +3503,23 @@ func _on_game_started(start_wave: int):
 	next_wave_direction = randf() * TAU
 	if is_instance_valid(hud_node):
 		hud_node.set_wave_direction(next_wave_direction)
+
+	# Local co-op: spawn additional local players for each joined controller
+	if local_coop and is_instance_valid(hud_node) and hud_node.local_coop_devices.size() > 0:
+		var devices = hud_node.local_coop_devices
+		# Primary player uses first controller
+		if is_instance_valid(player_node):
+			player_node.device_id = devices[0]
+			player_node.player_color = PLAYER_COLORS[0]
+			player_node.auto_fire = true
+			player_node.auto_aim = true
+		# Spawn additional local players for other controllers
+		for i in range(1, devices.size()):
+			var color_idx = i % PLAYER_COLORS.size()
+			var p = _spawn_local_coop_player(devices[i], PLAYER_COLORS[color_idx])
+			p.resource_owner = player_node
+		# Show controller hints during gameplay
+		hud_node.show_controller_hints(true)
 
 	# Multiplayer setup
 	if NetworkManager.is_multiplayer_active():
@@ -3579,17 +3657,18 @@ func _debug_dump():
 
 
 func on_player_died(dead_player: Node3D = null):
-	# In MP, respawn after 10s unless ALL players are dead
-	if NetworkManager.is_multiplayer_active():
+	# In local co-op or MP, respawn after 10s unless ALL players are dead
+	if local_coop or NetworkManager.is_multiplayer_active():
 		var all_dead = true
 		for p in players.values():
 			if is_instance_valid(p) and not p.is_dead:
 				all_dead = false
 				break
 		if not all_dead:
-			# Start respawn timer for the dead player (host only)
-			if dead_player and NetworkManager.is_host():
-				respawn_timers[dead_player.peer_id] = 10.0
+			# Start respawn timer for the dead player
+			if dead_player:
+				if local_coop or NetworkManager.is_host():
+					respawn_timers[dead_player.peer_id] = 10.0
 			return
 	# Big mushroom cloud at player death + surrounding explosions
 	if is_instance_valid(dead_player):
@@ -4117,6 +4196,34 @@ func _get_color_index_for_peer(peer_id: int) -> int:
 	if peer_id == 1:
 		return 0
 	return clampi(peer_id - 1, 1, PLAYER_COLORS.size() - 1)
+
+
+func _spawn_local_coop_player(dev_id: int, color: Color) -> Node3D:
+	var player_scene = load("res://scenes/player.tscn")
+	var p = player_scene.instantiate()
+	var fake_pid = dev_id + 100  # Offset to avoid conflicts with network peer IDs
+	p.name = "LocalPlayer_%d" % dev_id
+	p.peer_id = fake_pid
+	p.is_local = true
+	p.device_id = dev_id
+	p.player_color = color
+	p.auto_fire = true
+	p.auto_aim = true
+	# Distribute spawn positions in a circle
+	var player_index = players.size()
+	var total = maxi(players.size() + 1, 2)
+	var angle = TAU * player_index / total
+	p.position = Vector3(cos(angle), 0, sin(angle)) * 60.0
+	game_world_2d.add_child(p)
+	players[fake_pid] = p
+	# Apply research bonuses
+	p.max_health += int(GameData.get_research_bonus("max_health"))
+	p.health = p.max_health
+	p.research_move_speed = GameData.get_research_bonus("move_speed")
+	p.research_damage = int(GameData.get_research_bonus("base_damage"))
+	p.research_mining_speed = GameData.get_research_bonus("mining_speed")
+	p.research_xp_gain = GameData.get_research_bonus("xp_gain")
+	return p
 
 
 func _spawn_remote_player(pid: int, color: Color):
