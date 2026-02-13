@@ -5,6 +5,49 @@ const CFG = preload("res://resources/game_config.tres")
 signal upgrade_chosen(upgrade_key: String)
 signal game_started(wave: int)
 
+# ── HUD Color Theme ──────────────────────────────────────────────────
+# Each panel's colors grouped together for easy tweaking.
+var HUD_THEME = {
+	"player": {
+		"bg": Color(0, 0, 0, 0.65),
+		"health": Color(0.4, 1.0, 0.4),
+		"level": Color(0.9, 0.8, 0.3),
+		"prestige": Color(1.0, 0.85, 0.3),
+		"xp_bar_bg": Color(0.15, 0.15, 0.25),
+		"xp_bar_fill": Color(0.3, 0.8, 1.0),
+	},
+	"resources": {
+		"bg": Color(0, 0, 0, 0.65),
+		"iron": Color(0.8, 0.75, 0.65),
+		"crystal": Color(0.5, 0.7, 1.0),
+		"energy": Color(0.5, 0.8, 1.0),
+		"energy_rate": Color(0.5, 0.7, 0.9),
+		"bar_bg": Color(0.15, 0.15, 0.25),
+		"bar_fill": Color(0.3, 0.6, 1.0),
+	},
+	"wave": {
+		"bg": Color(0, 0, 0, 0.65),
+		"title": Color.WHITE,
+		"timer": Color(1.0, 0.4, 0.4),
+		"alien_count": Color(1.0, 0.5, 0.4),
+	},
+	"hq": {
+		"bg": Color(0, 0, 0, 0.65),
+		"health": Color(0.5, 0.8, 1.0),
+		"bar_bg": Color(0.15, 0.15, 0.25),
+		"bar_fill": Color(0.3, 0.8, 1.0),
+	},
+	"build_bar": {
+		"bg": Color(0, 0, 0, 0.7),
+		"tooltip_bg": Color(0.1, 0.1, 0.15, 0.95),
+		"tooltip_name": Color(1.0, 1.0, 1.0),
+		"tooltip_desc": Color(0.6, 0.6, 0.7),
+	},
+	"warnings": {
+		"low_power": Color(1.0, 0.3, 0.1),
+	},
+}
+
 var iron_label: Label
 var crystal_label: Label
 var health_label: Label
@@ -123,6 +166,11 @@ var local_coop_start_btn: Button = null
 var controller_hints_panel: Control = null  # On-screen controls hint during gameplay
 var _player_build_labels: Dictionary = {}  # player Node3D -> Label3D (floating build indicator)
 var _upgrade_selected_idx: int = 0  # Controller-selected upgrade card index
+var _menu_selected_idx: int = 0  # Controller-selected menu button index
+var _pause_buttons: Array = []
+var _start_buttons: Array = []
+var _wave_buttons: Array = []
+var _menu_original_styles: Dictionary = {}  # Button -> original StyleBoxFlat
 
 const PLAYER_COLORS: Array = [
 	Color(0.2, 0.9, 0.3),   # Green
@@ -246,63 +294,63 @@ func _ready():
 	# --- Player Panel: Health, XP, Level, Prestige ---
 	var player_panel = PanelContainer.new()
 	player_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	player_panel.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
+	player_panel.add_theme_stylebox_override("panel", _make_style(HUD_THEME["player"]["bg"]))
 	left_col.add_child(player_panel)
 	var player_vbox = VBoxContainer.new()
 	player_vbox.add_theme_constant_override("separation", 2)
 	player_panel.add_child(player_vbox)
 
-	health_label = _lbl(player_vbox, 16, Color(0.4, 1.0, 0.4))
-	level_label = _lbl(player_vbox, 15, Color(0.9, 0.8, 0.3))
+	health_label = _lbl(player_vbox, 16, HUD_THEME["player"]["health"])
+	level_label = _lbl(player_vbox, 15, HUD_THEME["player"]["level"])
 
 	xp_bar_bg = ColorRect.new()
 	xp_bar_bg.custom_minimum_size = Vector2(170, 8)
-	xp_bar_bg.color = Color(0.15, 0.15, 0.25)
+	xp_bar_bg.color = HUD_THEME["player"]["xp_bar_bg"]
 	player_vbox.add_child(xp_bar_bg)
 	xp_bar_fill = ColorRect.new()
-	xp_bar_fill.color = Color(0.3, 0.8, 1.0)
+	xp_bar_fill.color = HUD_THEME["player"]["xp_bar_fill"]
 	xp_bar_fill.position = Vector2.ZERO
 	xp_bar_fill.size = Vector2(0, 8)
 	xp_bar_bg.add_child(xp_bar_fill)
 
-	prestige_hud_label = _lbl(player_vbox, 13, Color(1.0, 0.85, 0.3))
+	prestige_hud_label = _lbl(player_vbox, 13, HUD_THEME["player"]["prestige"])
 
 	# --- Resources Panel: Iron, Crystal, Energy ---
 	var res_panel = PanelContainer.new()
 	res_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	res_panel.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
+	res_panel.add_theme_stylebox_override("panel", _make_style(HUD_THEME["resources"]["bg"]))
 	left_col.add_child(res_panel)
 	var res_vbox = VBoxContainer.new()
 	res_vbox.add_theme_constant_override("separation", 2)
 	res_panel.add_child(res_vbox)
 
-	iron_label = _lbl(res_vbox, 15, Color(0.8, 0.75, 0.65))
-	crystal_label = _lbl(res_vbox, 15, Color(0.5, 0.7, 1.0))
-	power_label = _lbl(res_vbox, 14, Color(0.5, 0.8, 1.0))
+	iron_label = _lbl(res_vbox, 15, HUD_THEME["resources"]["iron"])
+	crystal_label = _lbl(res_vbox, 15, HUD_THEME["resources"]["crystal"])
+	power_label = _lbl(res_vbox, 14, HUD_THEME["resources"]["energy"])
 
 	power_bar_bg = ColorRect.new()
 	power_bar_bg.custom_minimum_size = Vector2(170, 8)
-	power_bar_bg.color = Color(0.15, 0.15, 0.25)
+	power_bar_bg.color = HUD_THEME["resources"]["bar_bg"]
 	res_vbox.add_child(power_bar_bg)
 	power_bar_fill = ColorRect.new()
-	power_bar_fill.color = Color(0.3, 0.6, 1.0)
+	power_bar_fill.color = HUD_THEME["resources"]["bar_fill"]
 	power_bar_fill.position = Vector2.ZERO
 	power_bar_fill.size = Vector2(0, 8)
 	power_bar_bg.add_child(power_bar_fill)
 
-	power_rate_label = _lbl(res_vbox, 11, Color(0.5, 0.7, 0.9))
+	power_rate_label = _lbl(res_vbox, 11, HUD_THEME["resources"]["energy_rate"])
 
 	# --- Wave Panel: Wave, Timer, Alien count ---
 	var wave_panel = PanelContainer.new()
 	wave_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	wave_panel.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
+	wave_panel.add_theme_stylebox_override("panel", _make_style(HUD_THEME["wave"]["bg"]))
 	left_col.add_child(wave_panel)
 	var wave_vbox = VBoxContainer.new()
 	wave_vbox.add_theme_constant_override("separation", 2)
 	wave_panel.add_child(wave_vbox)
 
-	wave_label = _lbl(wave_vbox, 16, Color.WHITE)
-	timer_label = _lbl(wave_vbox, 17, Color(1.0, 0.4, 0.4))
+	wave_label = _lbl(wave_vbox, 16, HUD_THEME["wave"]["title"])
+	timer_label = _lbl(wave_vbox, 17, HUD_THEME["wave"]["timer"])
 	start_wave_btn = Button.new()
 	start_wave_btn.text = "Start Wave"
 	start_wave_btn.custom_minimum_size = Vector2(120, 28)
@@ -310,25 +358,25 @@ func _ready():
 	start_wave_btn.visible = false
 	start_wave_btn.pressed.connect(_on_start_wave_pressed)
 	wave_vbox.add_child(start_wave_btn)
-	alien_count_label = _lbl(wave_vbox, 13, Color(1.0, 0.5, 0.4))
+	alien_count_label = _lbl(wave_vbox, 13, HUD_THEME["wave"]["alien_count"])
 
 	# --- HQ Health Panel ---
 	hq_panel = PanelContainer.new()
 	hq_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hq_panel.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.65)))
+	hq_panel.add_theme_stylebox_override("panel", _make_style(HUD_THEME["hq"]["bg"]))
 	left_col.add_child(hq_panel)
 	var hq_vbox = VBoxContainer.new()
 	hq_vbox.add_theme_constant_override("separation", 2)
 	hq_panel.add_child(hq_vbox)
 
-	hq_health_label = _lbl(hq_vbox, 15, Color(0.5, 0.8, 1.0))
+	hq_health_label = _lbl(hq_vbox, 15, HUD_THEME["hq"]["health"])
 
 	hq_bar_bg = ColorRect.new()
 	hq_bar_bg.custom_minimum_size = Vector2(170, 8)
-	hq_bar_bg.color = Color(0.15, 0.15, 0.25)
+	hq_bar_bg.color = HUD_THEME["hq"]["bar_bg"]
 	hq_vbox.add_child(hq_bar_bg)
 	hq_bar_fill = ColorRect.new()
-	hq_bar_fill.color = Color(0.3, 0.8, 1.0)
+	hq_bar_fill.color = HUD_THEME["hq"]["bar_fill"]
 	hq_bar_fill.position = Vector2.ZERO
 	hq_bar_fill.size = Vector2(170, 8)
 	hq_bar_bg.add_child(hq_bar_fill)
@@ -336,7 +384,7 @@ func _ready():
 	# Horizontal build bar at bottom center
 	var build_bar = PanelContainer.new()
 	build_bar.mouse_filter = Control.MOUSE_FILTER_PASS
-	build_bar.add_theme_stylebox_override("panel", _make_style(Color(0, 0, 0, 0.7)))
+	build_bar.add_theme_stylebox_override("panel", _make_style(HUD_THEME["build_bar"]["bg"]))
 	build_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	build_bar.offset_top = -56; build_bar.offset_bottom = -10
 	build_bar.offset_left = -260; build_bar.offset_right = 260
@@ -363,7 +411,7 @@ func _ready():
 	# Instant build bar tooltip (bypasses Godot's tooltip delay)
 	build_bar_tooltip = PanelContainer.new()
 	var tt_style = StyleBoxFlat.new()
-	tt_style.bg_color = Color(0.1, 0.1, 0.15, 0.95)
+	tt_style.bg_color = HUD_THEME["build_bar"]["tooltip_bg"]
 	tt_style.set_corner_radius_all(4)
 	tt_style.content_margin_left = 8
 	tt_style.content_margin_right = 8
@@ -380,7 +428,7 @@ func _ready():
 	tt_vbox.add_child(tt_hbox)
 	build_bar_tooltip_name = Label.new()
 	build_bar_tooltip_name.add_theme_font_size_override("font_size", 14)
-	build_bar_tooltip_name.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0))
+	build_bar_tooltip_name.add_theme_color_override("font_color", HUD_THEME["build_bar"]["tooltip_name"])
 	tt_hbox.add_child(build_bar_tooltip_name)
 	build_bar_tooltip_iron = Label.new()
 	build_bar_tooltip_iron.add_theme_font_size_override("font_size", 14)
@@ -393,7 +441,7 @@ func _ready():
 	tt_hbox.add_child(build_bar_tooltip_power)
 	build_bar_tooltip_desc = Label.new()
 	build_bar_tooltip_desc.add_theme_font_size_override("font_size", 12)
-	build_bar_tooltip_desc.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
+	build_bar_tooltip_desc.add_theme_color_override("font_color", HUD_THEME["build_bar"]["tooltip_desc"])
 	tt_vbox.add_child(build_bar_tooltip_desc)
 	gameplay_hud.add_child(build_bar_tooltip)
 
@@ -401,7 +449,7 @@ func _ready():
 	power_warning_label = Label.new()
 	power_warning_label.text = "LOW POWER"
 	power_warning_label.add_theme_font_size_override("font_size", 18)
-	power_warning_label.add_theme_color_override("font_color", Color(1.0, 0.3, 0.1))
+	power_warning_label.add_theme_color_override("font_color", HUD_THEME["warnings"]["low_power"])
 	power_warning_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	power_warning_label.offset_left = 250
 	power_warning_label.offset_top = 110
@@ -856,6 +904,7 @@ func _build_start_menu(root: Control):
 	settings_btn.add_theme_font_size_override("font_size", 20)
 	settings_btn.pressed.connect(_on_open_settings_from_menu)
 	menu_buttons_container.add_child(settings_btn)
+	_start_buttons = [sp_btn, lc_btn, oc_btn, settings_btn]
 
 	# Wave selection sub-view (shown when Single Player or Local Co-Op is picked)
 	wave_select_container = Control.new()
@@ -915,6 +964,11 @@ func _build_start_menu(root: Control):
 	wave_back_btn.offset_bottom = 155
 	wave_back_btn.pressed.connect(_on_wave_select_back)
 	wave_select_container.add_child(wave_back_btn)
+	_wave_buttons = []
+	for wb in start_wave_buttons:
+		_wave_buttons.append(wb["button"])
+	_wave_buttons.append(wave_research_btn)
+	_wave_buttons.append(wave_back_btn)
 
 	var debug_toggle_btn = Button.new()
 	debug_toggle_btn.text = "Debug"
@@ -1094,6 +1148,7 @@ func _build_pause_menu(root: Control):
 	settings_btn.add_theme_font_size_override("font_size", 20)
 	settings_btn.pressed.connect(_on_open_settings)
 	vbox.add_child(settings_btn)
+	_pause_buttons = [resume_btn, restart_btn, quit_btn, prestige_btn, settings_btn]
 
 
 func _build_settings_panel(root: Control):
@@ -1911,6 +1966,7 @@ func _on_single_player_pressed():
 	menu_buttons_container.visible = false
 	wave_select_container.visible = true
 	_update_start_menu()
+	_auto_select_menu()
 
 
 func _on_local_coop_pressed():
@@ -1950,6 +2006,7 @@ func _on_wave_select_back():
 	else:
 		menu_buttons_container.visible = true
 		_menu_mode = ""
+		_auto_select_menu()
 
 
 func show_alert(msg: String, color: Color = Color(1.0, 0.9, 0.3), duration: float = 3.0):
@@ -2087,6 +2144,7 @@ func _on_settings_back():
 		pause_menu.visible = true
 	else:
 		start_menu.visible = true
+	_auto_select_menu()
 
 
 func _on_toggle_auto_fire():
@@ -2184,11 +2242,13 @@ func toggle_pause():
 		_on_settings_back()
 		return
 	if pause_menu.visible:
+		_highlight_menu_button(_pause_buttons, -1)
 		pause_menu.visible = false
 		get_tree().paused = false
 	else:
 		pause_menu.visible = true
 		get_tree().paused = true
+		_auto_select_menu()
 
 
 func set_wave_direction(angle: float):
@@ -2438,6 +2498,7 @@ func _process(delta):
 func _input(event):
 	_local_coop_input(event)
 	_upgrade_controller_input(event)
+	_menu_controller_input(event)
 
 
 func _upgrade_controller_input(event):
@@ -2469,6 +2530,115 @@ func _highlight_upgrade_card(idx: int):
 			card.add_theme_stylebox_override("panel", _make_card_style(Color(0.6, 0.7, 0.9)))
 		else:
 			card.add_theme_stylebox_override("panel", _make_card_style(Color(0.4, 0.4, 0.5)))
+
+
+func _menu_controller_input(event):
+	if not (event is InputEventJoypadButton and event.pressed):
+		return
+	# Don't handle if other input handlers are active
+	if _upgrade_showing:
+		return
+	if local_coop_lobby and local_coop_lobby.visible:
+		return
+
+	# Determine which menu is active
+	var buttons: Array = []
+	if pause_menu and pause_menu.visible:
+		buttons = _pause_buttons
+	elif settings_panel and settings_panel.visible:
+		return  # Settings has sliders, skip for now
+	elif start_menu and start_menu.visible:
+		if wave_select_container and wave_select_container.visible:
+			buttons = _wave_buttons
+		elif menu_buttons_container and menu_buttons_container.visible:
+			buttons = _start_buttons
+	else:
+		return
+
+	if buttons.size() == 0:
+		return
+
+	_menu_selected_idx = clampi(_menu_selected_idx, 0, buttons.size() - 1)
+
+	match event.button_index:
+		JOY_BUTTON_DPAD_UP:
+			if buttons == _wave_buttons and _menu_selected_idx < 5:
+				pass  # Already on wave row, can't go higher
+			elif buttons == _wave_buttons and _menu_selected_idx >= 5:
+				_menu_selected_idx = clampi(_menu_selected_idx - 5, 0, 4)
+			else:
+				_menu_selected_idx = maxi(0, _menu_selected_idx - 1)
+			_highlight_menu_button(buttons, _menu_selected_idx)
+		JOY_BUTTON_DPAD_DOWN:
+			if buttons == _wave_buttons and _menu_selected_idx < 5:
+				_menu_selected_idx = 5  # Jump to Research
+			elif buttons == _wave_buttons and _menu_selected_idx == 5:
+				_menu_selected_idx = 6  # Research -> Back
+			else:
+				_menu_selected_idx = mini(buttons.size() - 1, _menu_selected_idx + 1)
+			_highlight_menu_button(buttons, _menu_selected_idx)
+		JOY_BUTTON_DPAD_LEFT:
+			if buttons == _wave_buttons and _menu_selected_idx < 5:
+				_menu_selected_idx = maxi(0, _menu_selected_idx - 1)
+				_highlight_menu_button(buttons, _menu_selected_idx)
+		JOY_BUTTON_DPAD_RIGHT:
+			if buttons == _wave_buttons and _menu_selected_idx < 5:
+				_menu_selected_idx = mini(4, _menu_selected_idx + 1)
+				_highlight_menu_button(buttons, _menu_selected_idx)
+		JOY_BUTTON_A:
+			var btn = buttons[_menu_selected_idx]
+			if is_instance_valid(btn) and btn is Button and not btn.disabled:
+				btn.pressed.emit()
+		JOY_BUTTON_B:
+			_menu_b_pressed()
+
+
+func _menu_b_pressed():
+	if settings_panel and settings_panel.visible:
+		_on_settings_back()
+	elif pause_menu and pause_menu.visible:
+		_on_pause_resume()
+	elif start_menu and start_menu.visible:
+		if wave_select_container and wave_select_container.visible:
+			_on_wave_select_back()
+
+
+func _highlight_menu_button(buttons: Array, idx: int):
+	for i in range(buttons.size()):
+		var btn = buttons[i]
+		if not is_instance_valid(btn) or not (btn is Button):
+			continue
+		if i == idx:
+			if btn not in _menu_original_styles:
+				_menu_original_styles[btn] = btn.get_theme_stylebox("normal").duplicate() if btn.has_theme_stylebox_override("normal") else null
+			var focused = StyleBoxFlat.new()
+			focused.bg_color = Color(0.25, 0.35, 0.5, 0.95)
+			focused.border_color = Color(0.5, 0.85, 1.0)
+			focused.set_border_width_all(3)
+			focused.set_corner_radius_all(6)
+			focused.content_margin_left = 12
+			focused.content_margin_right = 12
+			focused.content_margin_top = 8
+			focused.content_margin_bottom = 8
+			btn.add_theme_stylebox_override("normal", focused)
+		else:
+			if btn in _menu_original_styles:
+				if _menu_original_styles[btn] != null:
+					btn.add_theme_stylebox_override("normal", _menu_original_styles[btn])
+				else:
+					btn.remove_theme_stylebox_override("normal")
+				_menu_original_styles.erase(btn)
+
+
+func _auto_select_menu():
+	_menu_selected_idx = 0
+	if pause_menu and pause_menu.visible:
+		_highlight_menu_button(_pause_buttons, 0)
+	elif start_menu and start_menu.visible:
+		if wave_select_container and wave_select_container.visible:
+			_highlight_menu_button(_wave_buttons, 0)
+		elif menu_buttons_container and menu_buttons_container.visible:
+			_highlight_menu_button(_start_buttons, 0)
 
 
 func _update_building_tooltip():
@@ -2802,7 +2972,17 @@ func _style_button(btn: Button, color: Color):
 func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active: bool = false, power_gen: float = 0.0, power_cons: float = 0.0, _power_on: bool = true, rates: Dictionary = {}, power_bank: float = 0.0, max_power_bank: float = 0.0, prestige_earned: int = 0):
 	if not is_instance_valid(player):
 		return
-	health_label.text = "HP: %d / %d" % [player.health, player.max_health]
+	var _main = get_tree().current_scene
+	if _main and "local_coop" in _main and _main.local_coop:
+		var all_p = get_tree().get_nodes_in_group("player").filter(func(x): return is_instance_valid(x))
+		var lines: Array = []
+		for i in range(all_p.size()):
+			var p = all_p[i]
+			if "health" in p and "max_health" in p:
+				lines.append("P%d HP: %d / %d" % [i + 1, p.health, p.max_health])
+		health_label.text = "\n".join(lines)
+	else:
+		health_label.text = "HP: %d / %d" % [player.health, player.max_health]
 
 	var iron_rate = rates.get("iron", 0.0)
 	var crystal_rate = rates.get("crystal", 0.0)
@@ -2962,6 +3142,33 @@ func update_hud(player: Node3D, wave_timer: float, wave_number: int, wave_active
 func _update_build_costs(player: Node3D):
 	if not player.has_method("get_building_cost"):
 		return
+
+	# Collect all players' build selections for badge display
+	var all_player_selections: Dictionary = {}  # build_type -> Array of {"label": "P1", "color": Color}
+	var all_players = get_tree().get_nodes_in_group("player")
+	var main = get_tree().current_scene
+	var is_local_coop = main and "local_coop" in main and main.local_coop
+	var multi_player = all_players.size() > 1
+
+	if multi_player:
+		var sorted_players: Array = []
+		for p in all_players:
+			if is_instance_valid(p) and not p.is_dead:
+				sorted_players.append(p)
+		for i in range(sorted_players.size()):
+			var p = sorted_players[i]
+			if "build_mode" not in p or p.build_mode == "":
+				continue
+			var label: String
+			if is_local_coop and "device_id" in p:
+				var dev_idx = local_coop_devices.find(p.device_id) if local_coop_devices.size() > 0 else -1
+				label = "P%d" % (dev_idx + 1) if dev_idx >= 0 else "P%d" % (i + 1)
+			else:
+				label = "P%d" % (i + 1)
+			if p.build_mode not in all_player_selections:
+				all_player_selections[p.build_mode] = []
+			all_player_selections[p.build_mode].append({"label": label, "color": p.player_color})
+
 	for info in build_cost_labels:
 		var build_type = info["type"]
 		var cost = player.get_building_cost(build_type)
@@ -2975,6 +3182,9 @@ func _update_build_costs(player: Node3D):
 		# Update icon state for visual feedback
 		info["icon"].can_afford = can_afford
 		info["icon"].is_active = is_active
+
+		# Set active players for badge rendering (only in multi-player)
+		info["icon"].active_players = all_player_selections.get(build_type, [])
 
 		# Check research locks
 		match build_type:

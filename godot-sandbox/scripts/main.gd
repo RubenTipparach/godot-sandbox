@@ -107,6 +107,7 @@ var _waiting_for_clients: bool = false
 var clients_ready: Dictionary = {}  # peer_id -> bool
 var local_coop: bool = false  # Local co-op mode (shared screen, camera averages players)
 var _player_build_labels: Dictionary = {}  # player Node3D -> Label (screen-space build indicator)
+var _other_build_previews: Dictionary = {}  # player Node3D -> {"mesh": Node3D, "type": String}
 
 # Upgrade voting (multiplayer)
 var vote_active: bool = false
@@ -1049,6 +1050,7 @@ func _process(delta):
 
 	# Sync 3D build placement preview
 	_sync_build_preview()
+	_sync_other_build_previews()
 
 	# Sync nuke explosion visual
 	_sync_nuke_visual()
@@ -2036,6 +2038,19 @@ func _create_hp_bar_ui() -> Control:
 	fill.size = Vector2(40, 6)
 	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	container.add_child(fill)
+	# Player name label (hidden by default, shown only for players)
+	var name_label = Label.new()
+	name_label.name = "NameLabel"
+	name_label.visible = false
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_label.position = Vector2(-10, -16)
+	name_label.size = Vector2(60, 14)
+	name_label.add_theme_font_size_override("font_size", 11)
+	name_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.9))
+	name_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	name_label.add_theme_constant_override("outline_size", 3)
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	container.add_child(name_label)
 	return container
 
 
@@ -2055,10 +2070,15 @@ func _sync_hp_bars():
 			if b in building_meshes:
 				h = 30.0
 			entities.append({"node": b, "hp": b.hp, "max_hp": b.max_hp, "y_offset": h, "bar_w": 40})
-	for p in get_tree().get_nodes_in_group("player"):
-		if is_instance_valid(p) and "health" in p and "max_health" in p:
+	var all_players = get_tree().get_nodes_in_group("player").filter(func(x): return is_instance_valid(x))
+	for pi in range(all_players.size()):
+		var p = all_players[pi]
+		if "health" in p and "max_health" in p:
 			var hp_y: float = p.hp_bar_y_offset
-			entities.append({"node": p, "hp": p.health, "max_hp": p.max_health, "y_offset": hp_y, "bar_w": 32, "always": true})
+			var pname: String = p.player_name if "player_name" in p else ""
+			if pname == "" or pname == "Player":
+				pname = "Player %d" % (pi + 1)
+			entities.append({"node": p, "hp": p.health, "max_hp": p.max_health, "y_offset": hp_y, "bar_w": 32, "always": true, "player_label": pname})
 	for a in get_tree().get_nodes_in_group("aliens"):
 		if is_instance_valid(a) and "hp" in a and "max_hp" in a:
 			entities.append({"node": a, "hp": a.hp, "max_hp": a.max_hp, "y_offset": 16, "bar_w": 28})
@@ -2089,6 +2109,14 @@ func _sync_hp_bars():
 		var ratio = clampf(float(e["hp"]) / float(e["max_hp"]), 0, 1)
 		fill_rect.size.x = bw * ratio
 		fill_rect.color = Color(1.0 - ratio, ratio, 0.1)
+		# Show player name label above HP bar
+		var name_label = bar.get_node_or_null("NameLabel")
+		if name_label:
+			if e.has("player_label"):
+				name_label.visible = true
+				name_label.text = e["player_label"]
+			else:
+				name_label.visible = false
 	# Clean up bars for dead/removed entities or full-health entities
 	for node in hp_bar_nodes.keys():
 		if not is_instance_valid(node) or node not in active_set:
@@ -2128,12 +2156,20 @@ func _sync_player_build_labels():
 		var can = p.can_afford(p.build_mode)
 		lbl.text = "[%s]  %dFe %dCr" % [bname, cost["iron"], cost["crystal"]]
 		lbl.add_theme_color_override("font_color", p.player_color if can else Color(1.0, 0.4, 0.3))
-		var world_pos = Vector3(p.global_position.x, p.hp_bar_y_offset + 12, p.global_position.z)
+		# Position below the building placement location, not above the player
+		var build_pos: Vector3
+		if p == player_node and p.device_id < 0:
+			build_pos = mouse_world_2d.snapped(Vector3(40, 0, 40))
+		elif p.pending_build_world_pos != Vector3.ZERO:
+			build_pos = p.pending_build_world_pos
+		else:
+			build_pos = p.global_position.snapped(Vector3(40, 0, 40))
+		var world_pos = Vector3(build_pos.x, 0, build_pos.z)
 		if camera_3d.is_position_behind(world_pos):
 			lbl.visible = false
 		else:
 			var sp = camera_3d.unproject_position(world_pos)
-			lbl.position = Vector2(sp.x - 80, sp.y - 10)
+			lbl.position = Vector2(sp.x - 80, sp.y + 25)
 			lbl.visible = true
 	# Hide labels for players no longer in build mode
 	for p in _player_build_labels.keys():
@@ -3009,7 +3045,12 @@ func _sync_aoe_rings():
 			aoe_meshes[key].visible = false
 
 	# --- Energy merged disc (only during build mode) ---
-	var in_build_mode = is_instance_valid(player_node) and "build_mode" in player_node and player_node.build_mode != ""
+	var in_build_mode = false
+	for pid in players:
+		var p = players[pid]
+		if is_instance_valid(p) and p.is_local and "build_mode" in p and p.build_mode != "":
+			in_build_mode = true
+			break
 	if in_build_mode:
 		var sources: Array = []
 		var max_sources = 32
@@ -3314,6 +3355,56 @@ func _sync_build_preview():
 	_set_ghost_color(build_preview_mesh, ghost_col)
 
 
+func _sync_other_build_previews():
+	var active: Dictionary = {}
+	var name_map = {
+		"turret": "Turret", "factory": "Factory", "wall": "Wall",
+		"lightning": "Lightning Tower", "slow": "Slow Tower", "pylon": "Pylon",
+		"power_plant": "Power Plant", "battery": "Battery",
+		"flame_turret": "Flame Turret", "acid_turret": "Acid Turret",
+		"repair_drone": "Repair Drone", "poison_turret": "Poison Turret"
+	}
+	for pid in players:
+		var p = players[pid]
+		if not is_instance_valid(p) or p == player_node or p.is_dead:
+			continue
+		if not p.is_local:
+			continue
+		var bmode = p.build_mode if "build_mode" in p else ""
+		if bmode == "":
+			continue
+		active[p] = true
+		var bp = p.pending_build_world_pos if p.pending_build_world_pos != Vector3.ZERO else p.global_position.snapped(Vector3(40, 0, 40))
+		var pcol = p.player_color if "player_color" in p else Color(0.5, 0.5, 1.0)
+		if p in _other_build_previews:
+			var entry = _other_build_previews[p]
+			if entry["type"] != bmode:
+				if is_instance_valid(entry["mesh"]):
+					entry["mesh"].queue_free()
+				_other_build_previews.erase(p)
+			else:
+				entry["mesh"].position = bp
+				entry["mesh"].visible = true
+				_set_ghost_color(entry["mesh"], Color(pcol.r, pcol.g, pcol.b, 0.35))
+				continue
+		# Create new ghost for this player
+		var mesh = _create_building_mesh(name_map.get(bmode, ""))
+		var ghost_mat = StandardMaterial3D.new()
+		ghost_mat.albedo_color = Color(pcol.r, pcol.g, pcol.b, 0.35)
+		ghost_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		ghost_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_apply_ghost_material(mesh, ghost_mat)
+		add_child(mesh)
+		mesh.position = bp
+		_other_build_previews[p] = {"mesh": mesh, "type": bmode}
+	# Clean up ghosts for players no longer building
+	for p in _other_build_previews.keys():
+		if not is_instance_valid(p) or p not in active:
+			if is_instance_valid(_other_build_previews[p]["mesh"]):
+				_other_build_previews[p]["mesh"].queue_free()
+			_other_build_previews.erase(p)
+
+
 func _spawn_wave():
 	var rng = RandomNumberGenerator.new()
 	rng.randomize()
@@ -3559,6 +3650,9 @@ func _on_game_started(start_wave: int):
 
 func _input(event):
 	if event.is_action_pressed("pause"):
+		if is_instance_valid(hud_node):
+			hud_node.toggle_pause()
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_START:
 		if is_instance_valid(hud_node):
 			hud_node.toggle_pause()
 	# Debug dump: Ctrl+Shift+Home
