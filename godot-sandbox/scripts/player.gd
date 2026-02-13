@@ -56,6 +56,7 @@ var pending_build_world_pos: Vector3 = Vector3.ZERO  # Mobile: ghost position se
 
 # Local co-op controller support
 var device_id: int = -1  # -1 = keyboard/mouse, 0+ = gamepad device index
+var input_mode: String = "keyboard"  # "keyboard" or "controller" — auto-detected from last input
 var resource_owner: Node3D = null  # Local co-op: primary player holds shared resources
 var build_cycle_index: int = -1  # Current index in available buildings list
 
@@ -202,14 +203,17 @@ func _process(delta):
 	var joystick_node = null
 	var look_joystick_node = null
 
-	var _single_player = get_tree().get_nodes_in_group("player").size() <= 1
+	# Auto-detect input mode: co-op controllers are always "controller"
 	var _joy_dev = device_id if device_id >= 0 else 0
-	if device_id >= 0 or _single_player:
+	var _use_controller = device_id >= 0 or input_mode == "controller"
+	if _use_controller:
 		# Controller input: left stick for movement
 		var lx = Input.get_joy_axis(_joy_dev, JOY_AXIS_LEFT_X)
 		var ly = Input.get_joy_axis(_joy_dev, JOY_AXIS_LEFT_Y)
 		if Vector2(lx, ly).length() > 0.2:
 			input = Vector3(lx, 0, ly)
+			if device_id < 0:
+				input_mode = "controller"
 	if input == Vector3.ZERO and device_id < 0:
 		var joysticks = get_tree().get_nodes_in_group("mobile_joystick")
 		for j in joysticks:
@@ -226,6 +230,8 @@ func _process(delta):
 			if Input.is_action_pressed("move_down"): input.z += 1
 			if Input.is_action_pressed("move_left"): input.x -= 1
 			if Input.is_action_pressed("move_right"): input.x += 1
+			if input != Vector3.ZERO and device_id < 0:
+				input_mode = "keyboard"
 
 	if input != Vector3.ZERO:
 		move_direction = input.normalized()
@@ -237,7 +243,7 @@ func _process(delta):
 
 	# Ship body facing and gun aiming
 	var _aim_handled = false
-	if device_id >= 0 or _single_player:
+	if _use_controller:
 		# Controller: right stick for facing/aiming
 		var rx = Input.get_joy_axis(_joy_dev, JOY_AXIS_RIGHT_X)
 		var ry = Input.get_joy_axis(_joy_dev, JOY_AXIS_RIGHT_Y)
@@ -245,6 +251,8 @@ func _process(delta):
 			facing_angle = atan2(ry, rx)
 			gun_angle = facing_angle
 			_aim_handled = true
+			if device_id < 0:
+				input_mode = "controller"
 		elif device_id >= 0:
 			# Auto-aim gun at nearest enemy when right stick is idle (co-op controller)
 			var nearest_alien = _find_nearest_alien()
@@ -304,13 +312,13 @@ func _process(delta):
 	else:
 		repair_targets.clear()
 
-	if device_id >= 0 or _single_player:
+	if _use_controller:
 		# Controller: building cycle handled via _input() (bumpers LB/RB, A to place, B to cancel)
 		# Update build preview position to player's snapped position
 		if build_mode != "":
 			build_mode_cooldown = maxf(0.0, build_mode_cooldown - delta)
 			pending_build_world_pos = global_position.snapped(Vector3(40, 0, 40))
-	if device_id < 0:
+	if device_id < 0 and not _use_controller:
 		# Hotkey building (select build mode, click to place)
 		if Input.is_action_just_pressed("build_power_plant"):
 			_toggle_build_mode("power_plant")
@@ -891,6 +899,10 @@ func _spawn_death_particles():
 func _input(event):
 	if not is_local or is_dead:
 		return
+	# Auto-detect input mode from mouse movement
+	if device_id < 0 and event is InputEventMouseMotion:
+		input_mode = "keyboard"
+		return
 	if not (event is InputEventJoypadButton and event.pressed):
 		return
 	# Co-op: only respond to our assigned device
@@ -899,6 +911,9 @@ func _input(event):
 	# Keyboard player in co-op: don't handle joypad (other players own them)
 	if device_id < 0 and get_tree().get_nodes_in_group("player").size() > 1:
 		return
+	# Single player: switch to controller mode on any joypad button
+	if device_id < 0:
+		input_mode = "controller"
 	match event.button_index:
 		JOY_BUTTON_LEFT_SHOULDER:
 			_cycle_building(-1)

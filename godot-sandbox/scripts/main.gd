@@ -2181,7 +2181,47 @@ func _sync_player_build_labels():
 
 # ---- Building Mesh Factories ----
 
+# Map building display names to scene paths for artist-model detection
+const BUILDING_SCENE_PATHS: Dictionary = {
+	"HQ": "res://scenes/hq.tscn",
+	"Turret": "res://scenes/turret.tscn",
+	"Factory": "res://scenes/factory.tscn",
+	"Wall": "res://scenes/wall.tscn",
+	"Lightning Tower": "res://scenes/lightning_tower.tscn",
+	"Slow Tower": "res://scenes/slow_tower.tscn",
+	"Pylon": "res://scenes/pylon.tscn",
+	"Power Plant": "res://scenes/power_plant.tscn",
+	"Battery": "res://scenes/battery.tscn",
+	"Flame Turret": "res://scenes/flame_turret.tscn",
+	"Acid Turret": "res://scenes/acid_turret.tscn",
+	"Repair Drone": "res://scenes/repair_drone.tscn",
+	"Poison Turret": "res://scenes/poison_turret.tscn",
+}
+
+
+func _try_create_from_scene(bname: String) -> Node3D:
+	# Try to load the building's .tscn and check if it has an artist model.
+	# If so, instantiate it, strip the script, and return it as a visual-only mesh.
+	if bname not in BUILDING_SCENE_PATHS:
+		return null
+	var scene_path = BUILDING_SCENE_PATHS[bname]
+	if not ResourceLoader.exists(scene_path):
+		return null
+	var instance = load(scene_path).instantiate()
+	if not _building_has_scene_model(instance):
+		instance.queue_free()
+		return null
+	# Strip the game script so this is visual-only
+	instance.set_script(null)
+	return instance
+
+
 func _create_building_mesh(bname: String) -> Node3D:
+	# First try using the artist's scene model
+	var scene_mesh = _try_create_from_scene(bname)
+	if scene_mesh:
+		return scene_mesh
+	# Fallback: code-generated primitives for buildings without artist models
 	var root = Node3D.new()
 	match bname:
 		"HQ":
@@ -2217,10 +2257,8 @@ func _create_building_mesh(bname: String) -> Node3D:
 			root.add_child(_mesh_cyl(3, 12, Color(0.3, 0.5, 0.7), Vector3(0, 13, 0)))
 			root.add_child(_mesh_sphere(5, Color(0.4, 0.7, 1.0), Vector3(0, 24, 0)))
 		"Pylon":
-			var pylon_model = load("res://resources/models/pylon.glb").instantiate()
-			pylon_model.scale = Vector3(0.5, 0.5, 0.5)
-			pylon_model.position.y = 25
-			root.add_child(pylon_model)
+			root.add_child(_mesh_cyl(4, 30, Color(0.5, 0.5, 0.6), Vector3(0, 15, 0)))
+			root.add_child(_mesh_sphere(5, Color(0.4, 0.6, 1.0), Vector3(0, 32, 0)))
 		"Power Plant":
 			root.add_child(_mesh_box(Vector3(28, 14, 28), Color(0.65, 0.55, 0.2), Vector3(0, 7, 0)))
 			root.add_child(_mesh_cyl(6, 8, Color(0.75, 0.65, 0.25), Vector3(0, 18, 0)))
@@ -2506,6 +2544,20 @@ func _clean_mesh_dict(dict: Dictionary):
 
 # ---- Master 3D Mesh Sync ----
 
+func _building_has_scene_model(b: Node3D) -> bool:
+	# A building has an artist-provided model if its .tscn scene includes a child node
+	# (e.g. imported .glb). To add a model to any building, just add it in the .tscn.
+	for child in b.get_children():
+		if child is MeshInstance3D or child is ImporterMeshInstance3D:
+			return true
+		# Imported .glb scenes show up as Node3D with mesh children
+		if child.get_child_count() > 0 and not child.name.begins_with("_"):
+			for grandchild in child.get_children():
+				if grandchild is MeshInstance3D or grandchild is ImporterMeshInstance3D:
+					return true
+	return false
+
+
 func _sync_3d_meshes():
 	# ---- Buildings ----
 	_clean_mesh_dict(building_meshes)
@@ -2513,15 +2565,23 @@ func _sync_3d_meshes():
 		if not is_instance_valid(b): continue
 		if b.is_in_group("pylons"):
 			continue
+		# If the building's .tscn already has a model, use it directly (artist-friendly).
+		# Otherwise fall back to code-generated mesh.
+		var mr: Node3D
 		if b not in building_meshes:
-			var bname = b.get_building_name() if b.has_method("get_building_name") else ""
-			var new_mesh = _create_building_mesh(bname)
-			add_child(new_mesh)
-			building_meshes[b] = new_mesh
-			b.visible = false
-		var mr = building_meshes[b]
-		var bp = b.global_position
-		mr.position = Vector3(bp.x, 0, bp.z)
+			if _building_has_scene_model(b):
+				# Use the building's own scene — no code mesh needed
+				building_meshes[b] = b
+			else:
+				var bname = b.get_building_name() if b.has_method("get_building_name") else ""
+				var new_mesh = _create_building_mesh(bname)
+				add_child(new_mesh)
+				building_meshes[b] = new_mesh
+				b.visible = false
+		mr = building_meshes[b]
+		if mr != b:
+			var bp = b.global_position
+			mr.position = Vector3(bp.x, 0, bp.z)
 		# Turret / acid turret barrel rotation
 		var head = mr.get_node_or_null("Head")
 		if head and "target_angle" in b:
@@ -3341,7 +3401,7 @@ func _sync_build_preview():
 	var bp: Vector3
 	var use_pending = false
 	if "pending_build_world_pos" in player_node and player_node.pending_build_world_pos != Vector3.ZERO:
-		if ("is_mobile" in player_node and player_node.is_mobile) or ("device_id" in player_node and player_node.device_id >= 0) or get_tree().get_nodes_in_group("player").size() <= 1:
+		if ("is_mobile" in player_node and player_node.is_mobile) or ("device_id" in player_node and player_node.device_id >= 0) or ("input_mode" in player_node and player_node.input_mode == "controller"):
 			use_pending = true
 	if use_pending:
 		bp = player_node.pending_build_world_pos
