@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://kvwtcckwwg6p"
-path="res://.godot/imported/pylon.glb-098f10b3b0b5a1dcb534a5f46160b9eb.scn"
+uid="uid://chur4osyvxkdh"
+path="res://.godot/imported/pylon2.glb-47e3227206f784ee7f5fe7b2f1e4d058.scn"
 
 [deps]
 
-source_file="res://resources/models/pylon.glb"
-dest_files=["res://.godot/imported/pylon.glb-098f10b3b0b5a1dcb534a5f46160b9eb.scn"]
+source_file="res://resources/models/pylon2.glb"
+dest_files=["res://.godot/imported/pylon2.glb-47e3227206f784ee7f5fe7b2f1e4d058.scn"]
 
 [params]
 

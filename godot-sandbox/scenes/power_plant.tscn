@@ -1,6 +1,9 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://bnidt5axx3jke"]
 
-[ext_resource type="Script" path="res://scripts/power_plant.gd" id="1"]
+[ext_resource type="Script" uid="uid://c4l8hiosuddv8" path="res://scripts/power_plant.gd" id="1"]
+[ext_resource type="PackedScene" uid="uid://cfabgq24un3p7" path="res://resources/models/power_plant.glb" id="2_k0drf"]
 
-[node name="PowerPlant" type="Node3D"]
+[node name="PowerPlant" type="Node3D" unique_id=1721216366]
 script = ExtResource("1")
+
+[node name="default" parent="." unique_id=1620947538 instance=ExtResource("2_k0drf")]
