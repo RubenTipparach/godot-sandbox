@@ -2057,8 +2057,8 @@ func _create_hp_bar_ui() -> Control:
 func _sync_hp_bars():
 	if not is_instance_valid(camera_3d) or not is_instance_valid(hp_bar_layer):
 		return
-	# Hide HP bars when game is paused (so they don't draw over pause/upgrade menus)
-	if get_tree().paused:
+	# Hide HP bars when game is paused or game over (so they don't draw over menus)
+	if get_tree().paused or game_over:
 		hp_bar_layer.visible = false
 		return
 	hp_bar_layer.visible = true
@@ -3341,7 +3341,7 @@ func _sync_build_preview():
 	var bp: Vector3
 	var use_pending = false
 	if "pending_build_world_pos" in player_node and player_node.pending_build_world_pos != Vector3.ZERO:
-		if ("is_mobile" in player_node and player_node.is_mobile) or ("device_id" in player_node and player_node.device_id >= 0):
+		if ("is_mobile" in player_node and player_node.is_mobile) or ("device_id" in player_node and player_node.device_id >= 0) or get_tree().get_nodes_in_group("player").size() <= 1:
 			use_pending = true
 	if use_pending:
 		bp = player_node.pending_build_world_pos
