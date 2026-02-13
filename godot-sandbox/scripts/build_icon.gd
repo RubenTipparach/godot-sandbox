@@ -9,6 +9,7 @@ var iron_cost: int = 0
 var crystal_cost: int = 0
 var locked: bool = false
 var is_hovered: bool = false
+var active_players: Array = []  # [{"label": "P1", "color": Color}, ...] for badge rendering
 
 var _icon_textures: Dictionary = {}
 
@@ -163,6 +164,24 @@ func _draw():
 		draw_rect(Rect2(14, 20, 12, 10), Color(0.6, 0.5, 0.3))
 		# Lock shackle
 		draw_arc(Vector2(20, 20), 4, PI, TAU, 12, Color(0.5, 0.4, 0.25), 2.0)
+
+	# Player selection badges (co-op / multiplayer)
+	if active_players.size() > 0 and not locked:
+		var badge_font = ThemeDB.fallback_font
+		var badge_x = 1.0
+		var badge_y = 30.0
+		for ap in active_players:
+			var label_text: String = ap["label"]
+			var badge_color: Color = ap["color"]
+			var text_w = badge_font.get_string_size(label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 7).x
+			var badge_w = text_w + 3.0
+			var badge_h = 9.0
+			draw_rect(Rect2(badge_x, badge_y, badge_w, badge_h), badge_color.darkened(0.4))
+			draw_rect(Rect2(badge_x, badge_y, badge_w, badge_h), badge_color.lightened(0.2), false, 1.0)
+			draw_string(badge_font, Vector2(badge_x + 1.5, badge_y + 7.5), label_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 7, Color(1, 1, 1, 0.95))
+			badge_x += badge_w + 1.0
+			if badge_x > 38.0:
+				break
 
 	# Hotkey in corner
 	var font = ThemeDB.fallback_font

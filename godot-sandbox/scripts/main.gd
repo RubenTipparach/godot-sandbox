@@ -106,6 +106,8 @@ var _client_own_research: Dictionary = {}  # Client's own research, saved before
 var _waiting_for_clients: bool = false
 var clients_ready: Dictionary = {}  # peer_id -> bool
 var local_coop: bool = false  # Local co-op mode (shared screen, camera averages players)
+var _player_build_labels: Dictionary = {}  # player Node3D -> Label (screen-space build indicator)
+var _other_build_previews: Dictionary = {}  # player Node3D -> {"mesh": Node3D, "type": String}
 
 # Upgrade voting (multiplayer)
 var vote_active: bool = false
@@ -1032,6 +1034,10 @@ func _process(delta):
 	# Sync screen-space HP bars
 	_sync_hp_bars()
 
+	# Sync player build mode labels (local co-op only)
+	if local_coop:
+		_sync_player_build_labels()
+
 	# Update spider boss HP bar
 	if boss_hp_bar_visible and is_instance_valid(spider_boss_ref) and is_instance_valid(hud_node):
 		hud_node.update_boss_hp_bar(spider_boss_ref.hp, spider_boss_ref.max_hp)
@@ -1044,6 +1050,7 @@ func _process(delta):
 
 	# Sync 3D build placement preview
 	_sync_build_preview()
+	_sync_other_build_previews()
 
 	# Sync nuke explosion visual
 	_sync_nuke_visual()
@@ -2031,6 +2038,19 @@ func _create_hp_bar_ui() -> Control:
 	fill.size = Vector2(40, 6)
 	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	container.add_child(fill)
+	# Player name label (hidden by default, shown only for players)
+	var name_label = Label.new()
+	name_label.name = "NameLabel"
+	name_label.visible = false
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_label.position = Vector2(-10, -16)
+	name_label.size = Vector2(60, 14)
+	name_label.add_theme_font_size_override("font_size", 11)
+	name_label.add_theme_color_override("font_color", Color(1.0, 1.0, 1.0, 0.9))
+	name_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
+	name_label.add_theme_constant_override("outline_size", 3)
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	container.add_child(name_label)
 	return container
 
 
@@ -2050,10 +2070,15 @@ func _sync_hp_bars():
 			if b in building_meshes:
 				h = 30.0
 			entities.append({"node": b, "hp": b.hp, "max_hp": b.max_hp, "y_offset": h, "bar_w": 40})
-	for p in get_tree().get_nodes_in_group("player"):
-		if is_instance_valid(p) and "health" in p and "max_health" in p:
+	var all_players = get_tree().get_nodes_in_group("player").filter(func(x): return is_instance_valid(x))
+	for pi in range(all_players.size()):
+		var p = all_players[pi]
+		if "health" in p and "max_health" in p:
 			var hp_y: float = p.hp_bar_y_offset
-			entities.append({"node": p, "hp": p.health, "max_hp": p.max_health, "y_offset": hp_y, "bar_w": 32, "always": true})
+			var pname: String = p.player_name if "player_name" in p else ""
+			if pname == "" or pname == "Player":
+				pname = "Player %d" % (pi + 1)
+			entities.append({"node": p, "hp": p.health, "max_hp": p.max_health, "y_offset": hp_y, "bar_w": 32, "always": true, "player_label": pname})
 	for a in get_tree().get_nodes_in_group("aliens"):
 		if is_instance_valid(a) and "hp" in a and "max_hp" in a:
 			entities.append({"node": a, "hp": a.hp, "max_hp": a.max_hp, "y_offset": 16, "bar_w": 28})
@@ -2084,12 +2109,74 @@ func _sync_hp_bars():
 		var ratio = clampf(float(e["hp"]) / float(e["max_hp"]), 0, 1)
 		fill_rect.size.x = bw * ratio
 		fill_rect.color = Color(1.0 - ratio, ratio, 0.1)
+		# Show player name label above HP bar
+		var name_label = bar.get_node_or_null("NameLabel")
+		if name_label:
+			if e.has("player_label"):
+				name_label.visible = true
+				name_label.text = e["player_label"]
+			else:
+				name_label.visible = false
 	# Clean up bars for dead/removed entities or full-health entities
 	for node in hp_bar_nodes.keys():
 		if not is_instance_valid(node) or node not in active_set:
 			if is_instance_valid(hp_bar_nodes[node]):
 				hp_bar_nodes[node].queue_free()
 			hp_bar_nodes.erase(node)
+
+
+func _sync_player_build_labels():
+	if not is_instance_valid(camera_3d) or not is_instance_valid(hp_bar_layer):
+		return
+	var build_names = {
+		"turret": "Turret", "factory": "Factory", "wall": "Wall",
+		"lightning": "Lightning", "slow": "Slow Tower", "pylon": "Pylon",
+		"power_plant": "Power Plant", "battery": "Battery",
+		"flame_turret": "Flame Turret", "acid_turret": "Acid Turret",
+		"repair_drone": "Repair Drone", "poison_turret": "Poison Turret"
+	}
+	var active_players: Dictionary = {}
+	for pid in players:
+		var p = players[pid]
+		if not is_instance_valid(p) or p.is_dead or not p.is_local:
+			continue
+		if p.build_mode == "":
+			continue
+		active_players[p] = true
+		if p not in _player_build_labels:
+			var lbl = Label.new()
+			lbl.add_theme_font_size_override("font_size", 14)
+			lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			hp_bar_layer.add_child(lbl)
+			_player_build_labels[p] = lbl
+		var lbl = _player_build_labels[p]
+		var bname = build_names.get(p.build_mode, p.build_mode)
+		var cost = p.get_building_cost(p.build_mode)
+		var can = p.can_afford(p.build_mode)
+		lbl.text = "[%s]  %dFe %dCr" % [bname, cost["iron"], cost["crystal"]]
+		lbl.add_theme_color_override("font_color", p.player_color if can else Color(1.0, 0.4, 0.3))
+		# Position below the building placement location, not above the player
+		var build_pos: Vector3
+		if p == player_node and p.device_id < 0:
+			build_pos = mouse_world_2d.snapped(Vector3(40, 0, 40))
+		elif p.pending_build_world_pos != Vector3.ZERO:
+			build_pos = p.pending_build_world_pos
+		else:
+			build_pos = p.global_position.snapped(Vector3(40, 0, 40))
+		var world_pos = Vector3(build_pos.x, 0, build_pos.z)
+		if camera_3d.is_position_behind(world_pos):
+			lbl.visible = false
+		else:
+			var sp = camera_3d.unproject_position(world_pos)
+			lbl.position = Vector2(sp.x - 80, sp.y + 25)
+			lbl.visible = true
+	# Hide labels for players no longer in build mode
+	for p in _player_build_labels.keys():
+		if not is_instance_valid(p) or p not in active_players:
+			if is_instance_valid(_player_build_labels[p]):
+				_player_build_labels[p].queue_free()
+			_player_build_labels.erase(p)
 
 
 # ---- Building Mesh Factories ----
@@ -2958,7 +3045,12 @@ func _sync_aoe_rings():
 			aoe_meshes[key].visible = false
 
 	# --- Energy merged disc (only during build mode) ---
-	var in_build_mode = is_instance_valid(player_node) and "build_mode" in player_node and player_node.build_mode != ""
+	var in_build_mode = false
+	for pid in players:
+		var p = players[pid]
+		if is_instance_valid(p) and p.is_local and "build_mode" in p and p.build_mode != "":
+			in_build_mode = true
+			break
 	if in_build_mode:
 		var sources: Array = []
 		var max_sources = 32
@@ -3245,9 +3337,13 @@ func _sync_build_preview():
 		_apply_ghost_material(build_preview_mesh, ghost_mat)
 		add_child(build_preview_mesh)
 		build_preview_type = bmode
-	# Position at snapped mouse world pos
+	# Position at snapped mouse world pos (or player position for mobile/controller)
 	var bp: Vector3
-	if "is_mobile" in player_node and player_node.is_mobile and "pending_build_world_pos" in player_node and player_node.pending_build_world_pos != Vector3.ZERO:
+	var use_pending = false
+	if "pending_build_world_pos" in player_node and player_node.pending_build_world_pos != Vector3.ZERO:
+		if ("is_mobile" in player_node and player_node.is_mobile) or ("device_id" in player_node and player_node.device_id >= 0):
+			use_pending = true
+	if use_pending:
 		bp = player_node.pending_build_world_pos
 	else:
 		bp = mouse_world_2d.snapped(Vector3(40, 0, 40))
@@ -3257,6 +3353,56 @@ func _sync_build_preview():
 	var valid = player_node.can_place_at(bp) and player_node.can_afford(bmode)
 	var ghost_col = Color(0.3, 1.0, 0.5, 0.4) if valid else Color(1.0, 0.3, 0.3, 0.4)
 	_set_ghost_color(build_preview_mesh, ghost_col)
+
+
+func _sync_other_build_previews():
+	var active: Dictionary = {}
+	var name_map = {
+		"turret": "Turret", "factory": "Factory", "wall": "Wall",
+		"lightning": "Lightning Tower", "slow": "Slow Tower", "pylon": "Pylon",
+		"power_plant": "Power Plant", "battery": "Battery",
+		"flame_turret": "Flame Turret", "acid_turret": "Acid Turret",
+		"repair_drone": "Repair Drone", "poison_turret": "Poison Turret"
+	}
+	for pid in players:
+		var p = players[pid]
+		if not is_instance_valid(p) or p == player_node or p.is_dead:
+			continue
+		if not p.is_local:
+			continue
+		var bmode = p.build_mode if "build_mode" in p else ""
+		if bmode == "":
+			continue
+		active[p] = true
+		var bp = p.pending_build_world_pos if p.pending_build_world_pos != Vector3.ZERO else p.global_position.snapped(Vector3(40, 0, 40))
+		var pcol = p.player_color if "player_color" in p else Color(0.5, 0.5, 1.0)
+		if p in _other_build_previews:
+			var entry = _other_build_previews[p]
+			if entry["type"] != bmode:
+				if is_instance_valid(entry["mesh"]):
+					entry["mesh"].queue_free()
+				_other_build_previews.erase(p)
+			else:
+				entry["mesh"].position = bp
+				entry["mesh"].visible = true
+				_set_ghost_color(entry["mesh"], Color(pcol.r, pcol.g, pcol.b, 0.35))
+				continue
+		# Create new ghost for this player
+		var mesh = _create_building_mesh(name_map.get(bmode, ""))
+		var ghost_mat = StandardMaterial3D.new()
+		ghost_mat.albedo_color = Color(pcol.r, pcol.g, pcol.b, 0.35)
+		ghost_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		ghost_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_apply_ghost_material(mesh, ghost_mat)
+		add_child(mesh)
+		mesh.position = bp
+		_other_build_previews[p] = {"mesh": mesh, "type": bmode}
+	# Clean up ghosts for players no longer building
+	for p in _other_build_previews.keys():
+		if not is_instance_valid(p) or p not in active:
+			if is_instance_valid(_other_build_previews[p]["mesh"]):
+				_other_build_previews[p]["mesh"].queue_free()
+			_other_build_previews.erase(p)
 
 
 func _spawn_wave():
@@ -3389,9 +3535,15 @@ func _on_upgrade_chosen(upgrade_key: String):
 		if not NetworkManager.is_host():
 			_rpc_player_upgrade.rpc_id(1, upgrade_key)
 		return
-	# Single player path
+	# Single player / local co-op path
 	if is_instance_valid(player_node):
 		player_node.apply_upgrade(upgrade_key)
+	# Apply personal upgrades to all local co-op players
+	if local_coop:
+		for pid in players:
+			var p = players[pid]
+			if p != player_node and is_instance_valid(p) and p.is_local:
+				p.apply_upgrade(upgrade_key)
 	pending_upgrades -= 1
 	get_tree().paused = false
 	upgrade_cooldown = 0.4
@@ -3443,6 +3595,23 @@ func _on_game_started(start_wave: int):
 	if is_instance_valid(hud_node):
 		hud_node.set_wave_direction(next_wave_direction)
 
+	# Local co-op: spawn additional local players for each joined controller
+	if local_coop and is_instance_valid(hud_node) and hud_node.local_coop_devices.size() > 0:
+		var devices = hud_node.local_coop_devices
+		# Primary player uses first controller
+		if is_instance_valid(player_node):
+			player_node.device_id = devices[0]
+			player_node.player_color = PLAYER_COLORS[0]
+			player_node.auto_fire = true
+			player_node.auto_aim = true
+		# Spawn additional local players for other controllers
+		for i in range(1, devices.size()):
+			var color_idx = i % PLAYER_COLORS.size()
+			var p = _spawn_local_coop_player(devices[i], PLAYER_COLORS[color_idx])
+			p.resource_owner = player_node
+		# Show controller hints during gameplay
+		hud_node.show_controller_hints(true)
+
 	# Multiplayer setup
 	if NetworkManager.is_multiplayer_active():
 		NetworkManager.peer_disconnected.connect(_on_game_peer_disconnected)
@@ -3481,6 +3650,9 @@ func _on_game_started(start_wave: int):
 
 func _input(event):
 	if event.is_action_pressed("pause"):
+		if is_instance_valid(hud_node):
+			hud_node.toggle_pause()
+	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_START:
 		if is_instance_valid(hud_node):
 			hud_node.toggle_pause()
 	# Debug dump: Ctrl+Shift+Home
@@ -3579,17 +3751,18 @@ func _debug_dump():
 
 
 func on_player_died(dead_player: Node3D = null):
-	# In MP, respawn after 10s unless ALL players are dead
-	if NetworkManager.is_multiplayer_active():
+	# In local co-op or MP, respawn after 10s unless ALL players are dead
+	if local_coop or NetworkManager.is_multiplayer_active():
 		var all_dead = true
 		for p in players.values():
 			if is_instance_valid(p) and not p.is_dead:
 				all_dead = false
 				break
 		if not all_dead:
-			# Start respawn timer for the dead player (host only)
-			if dead_player and NetworkManager.is_host():
-				respawn_timers[dead_player.peer_id] = 10.0
+			# Start respawn timer for the dead player
+			if dead_player:
+				if local_coop or NetworkManager.is_host():
+					respawn_timers[dead_player.peer_id] = 10.0
 			return
 	# Big mushroom cloud at player death + surrounding explosions
 	if is_instance_valid(dead_player):
@@ -4117,6 +4290,34 @@ func _get_color_index_for_peer(peer_id: int) -> int:
 	if peer_id == 1:
 		return 0
 	return clampi(peer_id - 1, 1, PLAYER_COLORS.size() - 1)
+
+
+func _spawn_local_coop_player(dev_id: int, color: Color) -> Node3D:
+	var player_scene = load("res://scenes/player.tscn")
+	var p = player_scene.instantiate()
+	var fake_pid = dev_id + 100  # Offset to avoid conflicts with network peer IDs
+	p.name = "LocalPlayer_%d" % dev_id
+	p.peer_id = fake_pid
+	p.is_local = true
+	p.device_id = dev_id
+	p.player_color = color
+	p.auto_fire = true
+	p.auto_aim = true
+	# Distribute spawn positions in a circle
+	var player_index = players.size()
+	var total = maxi(players.size() + 1, 2)
+	var angle = TAU * player_index / total
+	p.position = Vector3(cos(angle), 0, sin(angle)) * 60.0
+	game_world_2d.add_child(p)
+	players[fake_pid] = p
+	# Apply research bonuses
+	p.max_health += int(GameData.get_research_bonus("max_health"))
+	p.health = p.max_health
+	p.research_move_speed = GameData.get_research_bonus("move_speed")
+	p.research_damage = int(GameData.get_research_bonus("base_damage"))
+	p.research_mining_speed = GameData.get_research_bonus("mining_speed")
+	p.research_xp_gain = GameData.get_research_bonus("xp_gain")
+	return p
 
 
 func _spawn_remote_player(pid: int, color: Color):

@@ -54,6 +54,17 @@ var auto_fire: bool = true   # When false, hold mouse/click to fire
 var auto_aim: bool = true    # When true, auto-aim at nearest enemy
 var pending_build_world_pos: Vector3 = Vector3.ZERO  # Mobile: ghost position set by tap
 
+# Local co-op controller support
+var device_id: int = -1  # -1 = keyboard/mouse, 0+ = gamepad device index
+var resource_owner: Node3D = null  # Local co-op: primary player holds shared resources
+var build_cycle_index: int = -1  # Current index in available buildings list
+
+const BUILDING_CYCLE_TYPES: Array = [
+	"power_plant", "pylon", "factory", "turret", "wall",
+	"lightning", "slow", "battery", "flame_turret", "acid_turret",
+	"repair_drone", "poison_turret"
+]
+
 var upgrades = {
 	"chain_lightning": 0,
 	"shotgun": 0,
@@ -110,6 +121,10 @@ func _ready():
 		bullet_origin = bo
 
 
+func _get_res() -> Node3D:
+	return resource_owner if resource_owner else self
+
+
 func enter_build_mode(building_type: String):
 	build_mode = building_type
 	build_mode_cooldown = 0.15  # Brief cooldown to prevent immediate placement from the same click
@@ -128,12 +143,13 @@ func _toggle_build_mode(type: String):
 	else:
 		# Show warning if can't afford, but still enter build mode
 		var cost = get_building_cost(type)
-		if iron < cost["iron"] or crystal < cost["crystal"]:
+		var res = _get_res()
+		if res.iron < cost["iron"] or res.crystal < cost["crystal"]:
 			var parts: Array = []
-			if cost["iron"] > iron:
-				parts.append("%d more iron" % (cost["iron"] - iron))
-			if cost["crystal"] > crystal:
-				parts.append("%d more crystal" % (cost["crystal"] - crystal))
+			if cost["iron"] > res.iron:
+				parts.append("%d more iron" % (cost["iron"] - res.iron))
+			if cost["crystal"] > res.crystal:
+				parts.append("%d more crystal" % (cost["crystal"] - res.crystal))
 			_show_build_error("Need " + " & ".join(parts))
 		enter_build_mode(type)
 
@@ -185,22 +201,30 @@ func _process(delta):
 	var input = Vector3.ZERO
 	var joystick_node = null
 	var look_joystick_node = null
-	var joysticks = get_tree().get_nodes_in_group("mobile_joystick")
-	for j in joysticks:
-		if j.joystick_type == "move":
-			joystick_node = j
-		elif j.joystick_type == "look":
-			look_joystick_node = j
-	if joysticks.size() > 0:
-		is_mobile = true
 
-	if joystick_node and joystick_node.input_vector != Vector2.ZERO:
-		input = Vector3(joystick_node.input_vector.x, 0, joystick_node.input_vector.y)
+	if device_id >= 0:
+		# Controller input: left stick for movement
+		var lx = Input.get_joy_axis(device_id, JOY_AXIS_LEFT_X)
+		var ly = Input.get_joy_axis(device_id, JOY_AXIS_LEFT_Y)
+		if Vector2(lx, ly).length() > 0.2:
+			input = Vector3(lx, 0, ly)
 	else:
-		if Input.is_action_pressed("move_up"): input.z -= 1
-		if Input.is_action_pressed("move_down"): input.z += 1
-		if Input.is_action_pressed("move_left"): input.x -= 1
-		if Input.is_action_pressed("move_right"): input.x += 1
+		var joysticks = get_tree().get_nodes_in_group("mobile_joystick")
+		for j in joysticks:
+			if j.joystick_type == "move":
+				joystick_node = j
+			elif j.joystick_type == "look":
+				look_joystick_node = j
+		if joysticks.size() > 0:
+			is_mobile = true
+		if joystick_node and joystick_node.input_vector != Vector2.ZERO:
+			input = Vector3(joystick_node.input_vector.x, 0, joystick_node.input_vector.y)
+		else:
+			if Input.is_action_pressed("move_up"): input.z -= 1
+			if Input.is_action_pressed("move_down"): input.z += 1
+			if Input.is_action_pressed("move_left"): input.x -= 1
+			if Input.is_action_pressed("move_right"): input.x += 1
+
 	if input != Vector3.ZERO:
 		move_direction = input.normalized()
 		position += move_direction * CFG.player_speed * (1.0 + upgrades["move_speed"] * CFG.move_speed_per_level + research_move_speed) * delta
@@ -209,27 +233,41 @@ func _process(delta):
 	position.x = clampf(position.x, -CFG.map_half_size, CFG.map_half_size)
 	position.z = clampf(position.z, -CFG.map_half_size, CFG.map_half_size)
 
-	# Ship body always faces mouse (or look joystick on mobile)
-	if look_joystick_node and look_joystick_node.input_vector != Vector2.ZERO:
-		facing_angle = atan2(look_joystick_node.input_vector.y, look_joystick_node.input_vector.x)
-	elif not is_mobile:
-		var mw = get_tree().current_scene.mouse_world_2d
-		var dir = mw - global_position
-		facing_angle = atan2(dir.z, dir.x)
-
-	# Gun independently aims at nearest enemy (auto-aim), falls back to mouse
-	if is_mobile or auto_aim:
-		if look_joystick_node and look_joystick_node.input_vector != Vector2.ZERO:
-			gun_angle = atan2(look_joystick_node.input_vector.y, look_joystick_node.input_vector.x)
+	# Ship body facing and gun aiming
+	if device_id >= 0:
+		# Controller: right stick for facing/aiming
+		var rx = Input.get_joy_axis(device_id, JOY_AXIS_RIGHT_X)
+		var ry = Input.get_joy_axis(device_id, JOY_AXIS_RIGHT_Y)
+		if Vector2(rx, ry).length() > 0.2:
+			facing_angle = atan2(ry, rx)
+			gun_angle = facing_angle
 		else:
+			# Auto-aim gun at nearest enemy when right stick is idle
 			var nearest_alien = _find_nearest_alien()
 			if nearest_alien:
-				var dir = nearest_alien.global_position - global_position
-				gun_angle = atan2(dir.z, dir.x)
-			elif not is_mobile:
-				gun_angle = facing_angle
+				var aim_dir = nearest_alien.global_position - global_position
+				gun_angle = atan2(aim_dir.z, aim_dir.x)
 	else:
-		gun_angle = facing_angle
+		# Keyboard/Mobile: face mouse or look joystick
+		if look_joystick_node and look_joystick_node.input_vector != Vector2.ZERO:
+			facing_angle = atan2(look_joystick_node.input_vector.y, look_joystick_node.input_vector.x)
+		elif not is_mobile:
+			var mw = get_tree().current_scene.mouse_world_2d
+			var dir = mw - global_position
+			facing_angle = atan2(dir.z, dir.x)
+		# Gun independently aims at nearest enemy (auto-aim), falls back to mouse
+		if is_mobile or auto_aim:
+			if look_joystick_node and look_joystick_node.input_vector != Vector2.ZERO:
+				gun_angle = atan2(look_joystick_node.input_vector.y, look_joystick_node.input_vector.x)
+			else:
+				var nearest_alien = _find_nearest_alien()
+				if nearest_alien:
+					var dir = nearest_alien.global_position - global_position
+					gun_angle = atan2(dir.z, dir.x)
+				elif not is_mobile:
+					gun_angle = facing_angle
+		else:
+			gun_angle = facing_angle
 	shoot_timer = maxf(0.0, shoot_timer - delta)
 	invuln_timer = maxf(0.0, invuln_timer - delta)
 	magnet_timer = maxf(0.0, magnet_timer - delta)
@@ -261,51 +299,58 @@ func _process(delta):
 	else:
 		repair_targets.clear()
 
-	# Hotkey building (select build mode, click to place)
-	if Input.is_action_just_pressed("build_power_plant"):
-		_toggle_build_mode("power_plant")
-	if Input.is_action_just_pressed("build_pylon"):
-		_toggle_build_mode("pylon")
-	if Input.is_action_just_pressed("build_factory"):
-		_toggle_build_mode("factory")
-	if Input.is_action_just_pressed("build_turret"):
-		_toggle_build_mode("turret")
-	if Input.is_action_just_pressed("build_wall"):
-		_toggle_build_mode("wall")
-	if Input.is_action_just_pressed("build_lightning"):
-		if GameData.get_research_bonus("unlock_lightning") >= 1.0:
-			_toggle_build_mode("lightning")
-	if Input.is_action_just_pressed("build_slow"):
-		if GameData.get_research_bonus("turret_ice") >= 1.0:
-			_toggle_build_mode("slow")
-	if Input.is_action_just_pressed("build_battery"):
-		if GameData.get_research_bonus("unlock_battery") >= 1.0:
-			_toggle_build_mode("battery")
-	if Input.is_action_just_pressed("build_flame_turret"):
-		if GameData.get_research_bonus("turret_fire") >= 1.0:
-			_toggle_build_mode("flame_turret")
-	if Input.is_action_just_pressed("build_acid_turret"):
-		if GameData.get_research_bonus("turret_acid") >= 1.0:
-			_toggle_build_mode("acid_turret")
-	if Input.is_action_just_pressed("build_repair_drone"):
-		if GameData.get_research_bonus("unlock_repair_drone") >= 1.0:
-			_toggle_build_mode("repair_drone")
-	if Input.is_action_just_pressed("build_poison_turret"):
-		if GameData.get_research_bonus("turret_poison") >= 1.0:
-			_toggle_build_mode("poison_turret")
+	if device_id >= 0:
+		# Controller: building cycle handled via _input() (bumpers LB/RB, A to place, B to cancel)
+		# Update build preview position to player's snapped position
+		if build_mode != "":
+			build_mode_cooldown = maxf(0.0, build_mode_cooldown - delta)
+			pending_build_world_pos = global_position.snapped(Vector3(40, 0, 40))
+	else:
+		# Hotkey building (select build mode, click to place)
+		if Input.is_action_just_pressed("build_power_plant"):
+			_toggle_build_mode("power_plant")
+		if Input.is_action_just_pressed("build_pylon"):
+			_toggle_build_mode("pylon")
+		if Input.is_action_just_pressed("build_factory"):
+			_toggle_build_mode("factory")
+		if Input.is_action_just_pressed("build_turret"):
+			_toggle_build_mode("turret")
+		if Input.is_action_just_pressed("build_wall"):
+			_toggle_build_mode("wall")
+		if Input.is_action_just_pressed("build_lightning"):
+			if GameData.get_research_bonus("unlock_lightning") >= 1.0:
+				_toggle_build_mode("lightning")
+		if Input.is_action_just_pressed("build_slow"):
+			if GameData.get_research_bonus("turret_ice") >= 1.0:
+				_toggle_build_mode("slow")
+		if Input.is_action_just_pressed("build_battery"):
+			if GameData.get_research_bonus("unlock_battery") >= 1.0:
+				_toggle_build_mode("battery")
+		if Input.is_action_just_pressed("build_flame_turret"):
+			if GameData.get_research_bonus("turret_fire") >= 1.0:
+				_toggle_build_mode("flame_turret")
+		if Input.is_action_just_pressed("build_acid_turret"):
+			if GameData.get_research_bonus("turret_acid") >= 1.0:
+				_toggle_build_mode("acid_turret")
+		if Input.is_action_just_pressed("build_repair_drone"):
+			if GameData.get_research_bonus("unlock_repair_drone") >= 1.0:
+				_toggle_build_mode("repair_drone")
+		if Input.is_action_just_pressed("build_poison_turret"):
+			if GameData.get_research_bonus("turret_poison") >= 1.0:
+				_toggle_build_mode("poison_turret")
 
-	# Build mode placement (click to place)
-	if build_mode != "":
-		build_mode_cooldown = maxf(0.0, build_mode_cooldown - delta)
-		if is_mobile:
-			pass  # Mobile: tap sets pending position via HUD, confirm button triggers placement
-		else:
-			var joystick_blocking = joystick_node != null and joystick_node.is_active
-			if Input.is_action_just_pressed("shoot") and build_mode_cooldown <= 0 and not joystick_blocking:
-				if _try_build(build_mode):
-					pass  # Stay in build mode for quick placement
-			if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
-				cancel_build_mode()
+		# Build mode placement (click to place)
+		if build_mode != "":
+			build_mode_cooldown = maxf(0.0, build_mode_cooldown - delta)
+			if is_mobile:
+				pass  # Mobile: tap sets pending position via HUD, confirm button triggers placement
+			else:
+				var joystick_blocking = joystick_node != null and joystick_node.is_active
+				if Input.is_action_just_pressed("shoot") and build_mode_cooldown <= 0 and not joystick_blocking:
+					if _try_build(build_mode):
+						pass  # Stay in build mode for quick placement
+				if Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
+					cancel_build_mode()
 
 	_collect_gems()
 	_collect_prestige_orbs()
@@ -417,10 +462,11 @@ func _mine_nearby(qty: int):
 		mine_targets.append(r)
 		var res_pos = r.global_position
 		var result = r.mine(qty)
+		var res_target = _get_res()
 		if result["type"] == "iron":
-			iron += result["amount"]
+			res_target.iron += result["amount"]
 		elif result["type"] == "crystal":
-			crystal += result["amount"]
+			res_target.crystal += result["amount"]
 		# Drop XP gem when resource is fully depleted
 		if result["amount"] > 0 and not is_instance_valid(r):
 			var gem = preload("res://scenes/xp_gem.tscn").instantiate()
@@ -463,7 +509,7 @@ func _collect_gems():
 		if not is_instance_valid(gem): continue
 		if global_position.distance_to(gem.global_position) < collect_range:
 			SFXManager.play("orepickup")
-			add_xp(gem.xp_value)
+			_get_res().add_xp(gem.xp_value)
 			gem.collect()
 
 
@@ -637,17 +683,18 @@ func _try_build_at(type: String, bp: Vector3) -> bool:
 			return false
 
 	var cost = get_building_cost(type)
-	if iron < cost["iron"] or crystal < cost["crystal"]:
+	var res = _get_res()
+	if res.iron < cost["iron"] or res.crystal < cost["crystal"]:
 		var parts: Array = []
-		if cost["iron"] > iron:
-			parts.append("%d more iron" % (cost["iron"] - iron))
-		if cost["crystal"] > crystal:
-			parts.append("%d more crystal" % (cost["crystal"] - crystal))
+		if cost["iron"] > res.iron:
+			parts.append("%d more iron" % (cost["iron"] - res.iron))
+		if cost["crystal"] > res.crystal:
+			parts.append("%d more crystal" % (cost["crystal"] - res.crystal))
 		_show_build_error("Need " + " & ".join(parts))
 		return false
 
-	iron -= cost["iron"]
-	crystal -= cost["crystal"]
+	res.iron -= cost["iron"]
+	res.crystal -= cost["crystal"]
 
 	var building: Node3D
 	match type:
@@ -707,7 +754,8 @@ func can_place_at(pos: Vector3) -> bool:
 
 func can_afford(type: String) -> bool:
 	var cost = get_building_cost(type)
-	return iron >= cost["iron"] and crystal >= cost["crystal"]
+	var res = _get_res()
+	return res.iron >= cost["iron"] and res.crystal >= cost["crystal"]
 
 
 var _build_error_cooldown: float = 0.0
@@ -759,8 +807,9 @@ func get_recycle_value(building: Node3D) -> Dictionary:
 
 func recycle_building(building: Node3D) -> Dictionary:
 	var value = get_recycle_value(building)
-	iron += value["iron"]
-	crystal += value["crystal"]
+	var res = _get_res()
+	res.iron += value["iron"]
+	res.crystal += value["crystal"]
 	building.queue_free()
 	return value
 
@@ -830,3 +879,75 @@ func _spawn_death_particles():
 			"color": [Color(0.2, 0.9, 0.3), Color(1.0, 0.8, 0.2), Color(1.0, 0.4, 0.1)][randi() % 3],
 			"size": randf_range(3, 8)
 		})
+
+
+# --- Controller building cycle (local co-op) ---
+
+func _input(event):
+	if device_id < 0 or not is_local or is_dead:
+		return
+	if event is InputEventJoypadButton and event.device == device_id and event.pressed:
+		match event.button_index:
+			JOY_BUTTON_LEFT_SHOULDER:
+				_cycle_building(-1)
+			JOY_BUTTON_RIGHT_SHOULDER:
+				_cycle_building(1)
+			JOY_BUTTON_A:
+				if build_mode != "":
+					_try_build_at_player_pos()
+			JOY_BUTTON_B:
+				if build_mode != "":
+					cancel_build_mode()
+
+
+func _get_available_buildings() -> Array:
+	var available: Array = []
+	for type in BUILDING_CYCLE_TYPES:
+		match type:
+			"lightning":
+				if GameData.get_research_bonus("unlock_lightning") >= 1.0:
+					available.append(type)
+			"slow":
+				if GameData.get_research_bonus("turret_ice") >= 1.0:
+					available.append(type)
+			"battery":
+				if GameData.get_research_bonus("unlock_battery") >= 1.0:
+					available.append(type)
+			"flame_turret":
+				if GameData.get_research_bonus("turret_fire") >= 1.0:
+					available.append(type)
+			"acid_turret":
+				if GameData.get_research_bonus("turret_acid") >= 1.0:
+					available.append(type)
+			"repair_drone":
+				if GameData.get_research_bonus("unlock_repair_drone") >= 1.0:
+					available.append(type)
+			"poison_turret":
+				if GameData.get_research_bonus("turret_poison") >= 1.0:
+					available.append(type)
+			_:
+				available.append(type)
+	return available
+
+
+func _cycle_building(direction: int):
+	var available = _get_available_buildings()
+	if available.size() == 0:
+		return
+	if build_mode == "":
+		# Enter build mode with first/last building
+		build_cycle_index = 0 if direction > 0 else available.size() - 1
+	else:
+		var current_idx = available.find(build_mode)
+		if current_idx < 0:
+			build_cycle_index = 0
+		else:
+			build_cycle_index = (current_idx + direction) % available.size()
+			if build_cycle_index < 0:
+				build_cycle_index += available.size()
+	enter_build_mode(available[build_cycle_index])
+
+
+func _try_build_at_player_pos() -> bool:
+	var bp = global_position.snapped(Vector3(40, 0, 40))
+	return _try_build_at(build_mode, bp)
