@@ -1,10 +1,10 @@
 extends Control
 
-var build_type: String = ""
-var hotkey: String = ""
+@export var build_type: String = ""
+@export var hotkey: String = ""
 var is_active: bool = false
 var can_afford: bool = true
-var display_name: String = ""
+@export var display_name: String = ""
 var iron_cost: int = 0
 var crystal_cost: int = 0
 var locked: bool = false

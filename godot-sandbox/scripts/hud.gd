@@ -273,212 +273,60 @@ func _ready():
 	debug_overlay.move_child(debug_bg, 0)
 	debug_root.add_child(debug_overlay)
 
-	# All in-game HUD elements go inside gameplay_hud (hidden during menu)
-	gameplay_hud = Control.new()
-	gameplay_hud.set_anchors_preset(Control.PRESET_FULL_RECT)
-	gameplay_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# All in-game HUD elements loaded from scene (editable in Godot editor)
+	var gameplay_hud_scene = preload("res://scenes/gameplay_hud.tscn")
+	gameplay_hud = gameplay_hud_scene.instantiate()
 	gameplay_hud.visible = false
 	root.add_child(gameplay_hud)
 
-	# Left column for stacked panels
-	var left_col = VBoxContainer.new()
-	left_col.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	left_col.position = Vector2(10, 10)
-	left_col.add_theme_constant_override("separation", 6)
-	gameplay_hud.add_child(left_col)
-
-	# --- Player Panel: Health, XP, Level, Prestige ---
-	var player_panel = PanelContainer.new()
-	player_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	player_panel.add_theme_stylebox_override("panel", _make_style(HUD_THEME["player"]["bg"]))
-	left_col.add_child(player_panel)
-	var player_vbox = VBoxContainer.new()
-	player_vbox.add_theme_constant_override("separation", 2)
-	player_panel.add_child(player_vbox)
-
-	health_label = _lbl(player_vbox, 16, HUD_THEME["player"]["health"])
-	hp_bar_bg = ColorRect.new()
-	hp_bar_bg.custom_minimum_size = Vector2(170, 6)
-	hp_bar_bg.color = Color(0.15, 0.15, 0.25)
-	player_vbox.add_child(hp_bar_bg)
-	hp_bar_fill = ColorRect.new()
-	hp_bar_fill.color = HUD_THEME["player"]["health"]
-	hp_bar_fill.position = Vector2.ZERO
-	hp_bar_fill.size = Vector2(170, 6)
-	hp_bar_bg.add_child(hp_bar_fill)
-
-	hq_health_label = _lbl(player_vbox, 14, HUD_THEME["player"]["hq_health"])
-	hq_bar_bg = ColorRect.new()
-	hq_bar_bg.custom_minimum_size = Vector2(170, 6)
-	hq_bar_bg.color = Color(0.15, 0.15, 0.25)
-	player_vbox.add_child(hq_bar_bg)
-	hq_bar_fill = ColorRect.new()
-	hq_bar_fill.color = HUD_THEME["player"]["hq_health"]
-	hq_bar_fill.position = Vector2.ZERO
-	hq_bar_fill.size = Vector2(170, 6)
-	hq_bar_bg.add_child(hq_bar_fill)
-
-	level_label = _lbl(player_vbox, 15, HUD_THEME["player"]["level"])
-
-	xp_bar_bg = ColorRect.new()
-	xp_bar_bg.custom_minimum_size = Vector2(170, 8)
-	xp_bar_bg.color = HUD_THEME["player"]["xp_bar_bg"]
-	player_vbox.add_child(xp_bar_bg)
-	xp_bar_fill = ColorRect.new()
-	xp_bar_fill.color = HUD_THEME["player"]["xp_bar_fill"]
-	xp_bar_fill.position = Vector2.ZERO
-	xp_bar_fill.size = Vector2(0, 8)
-	xp_bar_bg.add_child(xp_bar_fill)
-
-	prestige_hud_label = _lbl(player_vbox, 13, HUD_THEME["player"]["prestige"])
-
-	# --- Resources Panel: Iron, Crystal, Energy ---
-	var res_panel = PanelContainer.new()
-	res_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	res_panel.add_theme_stylebox_override("panel", _make_style(HUD_THEME["resources"]["bg"]))
-	left_col.add_child(res_panel)
-	var res_vbox = VBoxContainer.new()
-	res_vbox.add_theme_constant_override("separation", 2)
-	res_panel.add_child(res_vbox)
-
-	iron_label = _lbl(res_vbox, 15, HUD_THEME["resources"]["iron"])
-	crystal_label = _lbl(res_vbox, 15, HUD_THEME["resources"]["crystal"])
-	power_label = _lbl(res_vbox, 14, HUD_THEME["resources"]["energy"])
-
-	power_bar_bg = ColorRect.new()
-	power_bar_bg.custom_minimum_size = Vector2(170, 8)
-	power_bar_bg.color = HUD_THEME["resources"]["bar_bg"]
-	res_vbox.add_child(power_bar_bg)
-	power_bar_fill = ColorRect.new()
-	power_bar_fill.color = HUD_THEME["resources"]["bar_fill"]
-	power_bar_fill.position = Vector2.ZERO
-	power_bar_fill.size = Vector2(0, 8)
-	power_bar_bg.add_child(power_bar_fill)
-
-	power_rate_label = _lbl(res_vbox, 11, HUD_THEME["resources"]["energy_rate"])
-
-	# --- Wave Panel: Wave, Timer, Alien count ---
-	var wave_panel = PanelContainer.new()
-	wave_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	wave_panel.add_theme_stylebox_override("panel", _make_style(HUD_THEME["wave"]["bg"]))
-	left_col.add_child(wave_panel)
-	var wave_vbox = VBoxContainer.new()
-	wave_vbox.add_theme_constant_override("separation", 2)
-	wave_panel.add_child(wave_vbox)
-
-	wave_label = _lbl(wave_vbox, 16, HUD_THEME["wave"]["title"])
-	timer_label = _lbl(wave_vbox, 17, HUD_THEME["wave"]["timer"])
-	start_wave_btn = Button.new()
-	start_wave_btn.text = "Start Wave"
-	start_wave_btn.custom_minimum_size = Vector2(120, 28)
-	start_wave_btn.add_theme_font_size_override("font_size", 13)
-	start_wave_btn.visible = false
+	# Grab node references from the scene
+	health_label = gameplay_hud.get_node("%HealthLabel")
+	hp_bar_bg = gameplay_hud.get_node("%HpBarBg")
+	hp_bar_fill = gameplay_hud.get_node("%HpBarFill")
+	hq_health_label = gameplay_hud.get_node("%HqHealthLabel")
+	hq_bar_bg = gameplay_hud.get_node("%HqBarBg")
+	hq_bar_fill = gameplay_hud.get_node("%HqBarFill")
+	level_label = gameplay_hud.get_node("%LevelLabel")
+	xp_bar_bg = gameplay_hud.get_node("%XpBarBg")
+	xp_bar_fill = gameplay_hud.get_node("%XpBarFill")
+	prestige_hud_label = gameplay_hud.get_node("%PrestigeHudLabel")
+	iron_label = gameplay_hud.get_node("%IronLabel")
+	crystal_label = gameplay_hud.get_node("%CrystalLabel")
+	power_label = gameplay_hud.get_node("%PowerLabel")
+	power_bar_bg = gameplay_hud.get_node("%PowerBarBg")
+	power_bar_fill = gameplay_hud.get_node("%PowerBarFill")
+	power_rate_label = gameplay_hud.get_node("%PowerRateLabel")
+	wave_label = gameplay_hud.get_node("%WaveLabel")
+	timer_label = gameplay_hud.get_node("%TimerLabel")
+	start_wave_btn = gameplay_hud.get_node("%StartWaveBtn")
 	start_wave_btn.pressed.connect(_on_start_wave_pressed)
-	wave_vbox.add_child(start_wave_btn)
-	alien_count_label = _lbl(wave_vbox, 13, HUD_THEME["wave"]["alien_count"])
+	alien_count_label = gameplay_hud.get_node("%AlienCountLabel")
+	build_bar_tooltip = gameplay_hud.get_node("%BuildBarTooltip")
+	build_bar_tooltip_name = gameplay_hud.get_node("%BuildBarTooltipName")
+	build_bar_tooltip_iron = gameplay_hud.get_node("%BuildBarTooltipIron")
+	build_bar_tooltip_crystal = gameplay_hud.get_node("%BuildBarTooltipCrystal")
+	build_bar_tooltip_power = gameplay_hud.get_node("%BuildBarTooltipPower")
+	build_bar_tooltip_desc = gameplay_hud.get_node("%BuildBarTooltipDesc")
+	power_warning_label = gameplay_hud.get_node("%PowerWarningLabel")
+	alert_label = gameplay_hud.get_node("%AlertLabel")
+	minimap_node = gameplay_hud.get_node("%MinimapNode")
+	respawn_label = gameplay_hud.get_node("%RespawnLabel")
+	room_code_label = gameplay_hud.get_node("%RoomCodeLabel")
+	var copy_btn = gameplay_hud.get_node("%CopyBtn")
+	copy_btn.pressed.connect(_on_copy_room_code)
 
-	# Horizontal build bar at bottom center
-	var build_bar = PanelContainer.new()
-	build_bar.mouse_filter = Control.MOUSE_FILTER_PASS
-	build_bar.add_theme_stylebox_override("panel", _make_style(HUD_THEME["build_bar"]["bg"]))
-	build_bar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	build_bar.offset_top = -56; build_bar.offset_bottom = -10
-	build_bar.offset_left = -260; build_bar.offset_right = 260
-	gameplay_hud.add_child(build_bar)
+	# Build icons (defined in scene, wire up signals here)
+	for icon_name in ["%PowerPlantIcon", "%PylonIcon", "%FactoryIcon", "%TurretIcon",
+			"%WallIcon", "%LightningIcon", "%SlowIcon", "%BatteryIcon",
+			"%FlameTurretIcon", "%AcidTurretIcon", "%RepairDroneIcon", "%PoisonTurretIcon"]:
+		var icon = gameplay_hud.get_node(icon_name)
+		icon.pressed.connect(_on_build_btn_pressed.bind(icon.build_type))
+		icon.hovered.connect(_on_build_icon_hovered)
+		icon.unhovered.connect(_on_build_icon_unhovered)
+		build_cost_labels.append({"icon": icon, "type": icon.build_type, "name": icon.display_name})
 
-	var build_hbox = HBoxContainer.new()
-	build_hbox.add_theme_constant_override("separation", 4)
-	build_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
-	build_bar.add_child(build_hbox)
-
-	build_cost_labels.append(_build_icon(build_hbox, "power_plant", "1", "Power Plant"))
-	build_cost_labels.append(_build_icon(build_hbox, "pylon", "2", "Pylon"))
-	build_cost_labels.append(_build_icon(build_hbox, "factory", "3", "Factory"))
-	build_cost_labels.append(_build_icon(build_hbox, "turret", "4", "Turret"))
-	build_cost_labels.append(_build_icon(build_hbox, "wall", "5", "Wall"))
-	build_cost_labels.append(_build_icon(build_hbox, "lightning", "6", "Lightning Tower"))
-	build_cost_labels.append(_build_icon(build_hbox, "slow", "7", "Slow Tower"))
-	build_cost_labels.append(_build_icon(build_hbox, "battery", "8", "Battery"))
-	build_cost_labels.append(_build_icon(build_hbox, "flame_turret", "9", "Flame Turret"))
-	build_cost_labels.append(_build_icon(build_hbox, "acid_turret", "0", "Acid Turret"))
-	build_cost_labels.append(_build_icon(build_hbox, "repair_drone", "Q", "Repair Drone"))
-	build_cost_labels.append(_build_icon(build_hbox, "poison_turret", "E", "Poison Turret"))
-
-	# Instant build bar tooltip (bypasses Godot's tooltip delay)
-	build_bar_tooltip = PanelContainer.new()
-	var tt_style = StyleBoxFlat.new()
-	tt_style.bg_color = HUD_THEME["build_bar"]["tooltip_bg"]
-	tt_style.set_corner_radius_all(4)
-	tt_style.content_margin_left = 8
-	tt_style.content_margin_right = 8
-	tt_style.content_margin_top = 4
-	tt_style.content_margin_bottom = 4
-	build_bar_tooltip.add_theme_stylebox_override("panel", tt_style)
-	build_bar_tooltip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	build_bar_tooltip.visible = false
-	var tt_vbox = VBoxContainer.new()
-	tt_vbox.add_theme_constant_override("separation", 2)
-	build_bar_tooltip.add_child(tt_vbox)
-	var tt_hbox = HBoxContainer.new()
-	tt_hbox.add_theme_constant_override("separation", 6)
-	tt_vbox.add_child(tt_hbox)
-	build_bar_tooltip_name = Label.new()
-	build_bar_tooltip_name.add_theme_font_size_override("font_size", 14)
-	build_bar_tooltip_name.add_theme_color_override("font_color", HUD_THEME["build_bar"]["tooltip_name"])
-	tt_hbox.add_child(build_bar_tooltip_name)
-	build_bar_tooltip_iron = Label.new()
-	build_bar_tooltip_iron.add_theme_font_size_override("font_size", 14)
-	tt_hbox.add_child(build_bar_tooltip_iron)
-	build_bar_tooltip_crystal = Label.new()
-	build_bar_tooltip_crystal.add_theme_font_size_override("font_size", 14)
-	tt_hbox.add_child(build_bar_tooltip_crystal)
-	build_bar_tooltip_power = Label.new()
-	build_bar_tooltip_power.add_theme_font_size_override("font_size", 14)
-	tt_hbox.add_child(build_bar_tooltip_power)
-	build_bar_tooltip_desc = Label.new()
-	build_bar_tooltip_desc.add_theme_font_size_override("font_size", 12)
-	build_bar_tooltip_desc.add_theme_color_override("font_color", HUD_THEME["build_bar"]["tooltip_desc"])
-	tt_vbox.add_child(build_bar_tooltip_desc)
-	gameplay_hud.add_child(build_bar_tooltip)
-
-	# Power warning flash label (near energy display)
-	power_warning_label = Label.new()
-	power_warning_label.text = "LOW POWER"
-	power_warning_label.add_theme_font_size_override("font_size", 18)
-	power_warning_label.add_theme_color_override("font_color", HUD_THEME["warnings"]["low_power"])
-	power_warning_label.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	power_warning_label.offset_left = 250
-	power_warning_label.offset_top = 110
-	power_warning_label.visible = false
-	power_warning_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	gameplay_hud.add_child(power_warning_label)
-
-	alert_label = Label.new()
-	alert_label.add_theme_font_size_override("font_size", 36)
-	alert_label.add_theme_color_override("font_color", Color(1, 0.2, 0.2))
-	alert_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	alert_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	alert_label.offset_top = 100; alert_label.offset_left = -300; alert_label.offset_right = 300
-	alert_label.visible = false
-	alert_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	gameplay_hud.add_child(alert_label)
-
-	minimap_node = Control.new()
-	minimap_node.set_script(preload("res://scripts/minimap.gd"))
-	minimap_node.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	minimap_node.offset_left = -170; minimap_node.offset_top = 10; minimap_node.offset_right = -10; minimap_node.offset_bottom = 170
-	minimap_node.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	gameplay_hud.add_child(minimap_node)
-
-	# Player/partner health panels (top-right below minimap) - up to 4 players
-	var partner_vbox = VBoxContainer.new()
-	partner_vbox.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	partner_vbox.offset_left = -170
-	partner_vbox.offset_top = 175
-	partner_vbox.offset_right = -10
-	partner_vbox.add_theme_constant_override("separation", 4)
-	partner_vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	gameplay_hud.add_child(partner_vbox)
+	# Partner panels (dynamic, added to scene's PartnerVBox)
+	var partner_vbox = gameplay_hud.get_node("%PartnerVBox")
 	for _i in range(4):
 		var pp = PanelContainer.new()
 		pp.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -490,43 +338,6 @@ func _ready():
 		plbl.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0))
 		pp.add_child(plbl)
 		partner_panels.append({"panel": pp, "label": plbl})
-
-	# Respawn countdown overlay (centered, large, hidden by default)
-	respawn_label = Label.new()
-	respawn_label.add_theme_font_size_override("font_size", 32)
-	respawn_label.add_theme_color_override("font_color", Color(1.0, 0.4, 0.3))
-	respawn_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	respawn_label.set_anchors_preset(Control.PRESET_CENTER)
-	respawn_label.offset_top = -40
-	respawn_label.offset_left = -200
-	respawn_label.offset_right = 200
-	respawn_label.visible = false
-	respawn_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	gameplay_hud.add_child(respawn_label)
-
-	# Room code container (top-right, below minimap, above partner panels)
-	var room_code_hbox = HBoxContainer.new()
-	room_code_hbox.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	room_code_hbox.offset_left = -220
-	room_code_hbox.offset_top = 172
-	room_code_hbox.offset_right = -10
-	room_code_hbox.alignment = BoxContainer.ALIGNMENT_END
-	room_code_hbox.add_theme_constant_override("separation", 4)
-	room_code_hbox.visible = false
-	room_code_hbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	gameplay_hud.add_child(room_code_hbox)
-	room_code_label = Label.new()
-	room_code_label.add_theme_font_size_override("font_size", 13)
-	room_code_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3, 0.7))
-	room_code_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	room_code_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	room_code_hbox.add_child(room_code_label)
-	var copy_btn = Button.new()
-	copy_btn.text = "Copy"
-	copy_btn.custom_minimum_size = Vector2(50, 22)
-	copy_btn.add_theme_font_size_override("font_size", 11)
-	copy_btn.pressed.connect(_on_copy_room_code)
-	room_code_hbox.add_child(copy_btn)
 
 	_build_upgrade_panel(root)
 	_build_death_panel(root)
