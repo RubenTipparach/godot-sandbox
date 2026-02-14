@@ -99,6 +99,9 @@ var build_bar_tooltip_crystal: Label
 var build_bar_tooltip_power: Label
 var _hovered_build_icon = null
 var build_bar_tooltip_desc: Label
+var tooltip_iron_icon: TextureRect = null
+var tooltip_crystal_icon: TextureRect = null
+var tooltip_power_icon: TextureRect = null
 var is_mobile: bool = false
 var joystick: Control = null
 var look_joystick: Control = null
@@ -307,6 +310,9 @@ func _ready():
 	build_bar_tooltip_crystal = gameplay_hud.get_node("%BuildBarTooltipCrystal")
 	build_bar_tooltip_power = gameplay_hud.get_node("%BuildBarTooltipPower")
 	build_bar_tooltip_desc = gameplay_hud.get_node("%BuildBarTooltipDesc")
+	tooltip_iron_icon = gameplay_hud.get_node("BuildBarTooltip/TooltipVBox/TooltipHBox/TooltipIronIcon")
+	tooltip_crystal_icon = gameplay_hud.get_node("BuildBarTooltip/TooltipVBox/TooltipHBox/TooltipCrystalIcon")
+	tooltip_power_icon = gameplay_hud.get_node("BuildBarTooltip/TooltipVBox/TooltipHBox/TooltipPowerIcon")
 	power_warning_label = gameplay_hud.get_node("%PowerWarningLabel")
 	alert_label = gameplay_hud.get_node("%AlertLabel")
 	minimap_node = gameplay_hud.get_node("%MinimapNode")
@@ -2737,28 +2743,34 @@ func _on_build_icon_hovered(icon) -> void:
 			break
 
 	if icon.iron_cost > 0:
-		build_bar_tooltip_iron.text = "%dI" % icon.iron_cost
+		build_bar_tooltip_iron.text = "%d" % icon.iron_cost
 		build_bar_tooltip_iron.add_theme_color_override("font_color",
 			Color(0.9, 0.75, 0.4) if player_iron >= icon.iron_cost else Color(1.0, 0.3, 0.3))
 		build_bar_tooltip_iron.visible = true
+		if tooltip_iron_icon: tooltip_iron_icon.visible = true
 	else:
 		build_bar_tooltip_iron.visible = false
+		if tooltip_iron_icon: tooltip_iron_icon.visible = false
 
 	if icon.crystal_cost > 0:
-		build_bar_tooltip_crystal.text = "%dC" % icon.crystal_cost
+		build_bar_tooltip_crystal.text = "%d" % icon.crystal_cost
 		build_bar_tooltip_crystal.add_theme_color_override("font_color",
 			Color(0.4, 0.7, 1.0) if player_crystal >= icon.crystal_cost else Color(1.0, 0.3, 0.3))
 		build_bar_tooltip_crystal.visible = true
+		if tooltip_crystal_icon: tooltip_crystal_icon.visible = true
 	else:
 		build_bar_tooltip_crystal.visible = false
+		if tooltip_crystal_icon: tooltip_crystal_icon.visible = false
 
 	var power_text = _get_power_info(icon.build_type)
 	if power_text != "":
-		build_bar_tooltip_power.text = power_text + "E"
+		build_bar_tooltip_power.text = power_text
 		build_bar_tooltip_power.add_theme_color_override("font_color", Color(0.3, 0.9, 0.4))
 		build_bar_tooltip_power.visible = true
+		if tooltip_power_icon: tooltip_power_icon.visible = true
 	else:
 		build_bar_tooltip_power.visible = false
+		if tooltip_power_icon: tooltip_power_icon.visible = false
 
 	# Position above the icon
 	var icon_rect = icon.get_global_rect()

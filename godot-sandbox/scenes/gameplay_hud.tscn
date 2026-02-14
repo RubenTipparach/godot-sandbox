@@ -2,6 +2,9 @@
 
 [ext_resource type="Script" uid="uid://hnak7kyvs2oo" path="res://scripts/minimap.gd" id="1"]
 [ext_resource type="Script" uid="uid://b3lw53q0gi0dt" path="res://scripts/build_icon.gd" id="2"]
+[ext_resource type="Texture2D" uid="uid://c3pd4u2878p4b" path="res://resources/sprites/iron_ingot.png" id="3"]
+[ext_resource type="Texture2D" uid="uid://cwtyirp8np15u" path="res://resources/sprites/crystal.png" id="4"]
+[ext_resource type="Texture2D" uid="uid://bajslnr68tftt" path="res://resources/sprites/energy.png" id="5"]
 
 [sub_resource type="StyleBoxFlat" id="player_panel_style"]
 content_margin_left = 10.0
@@ -158,21 +161,54 @@ theme_override_styles/panel = SubResource("res_panel_style")
 layout_mode = 2
 theme_override_constants/separation = 2
 
-[node name="IronLabel" type="Label" parent="LeftCol/ResourcePanel/ResVBox" unique_id=325291142]
+[node name="IronRow" type="HBoxContainer" parent="LeftCol/ResourcePanel/ResVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="IronIcon" type="TextureRect" parent="LeftCol/ResourcePanel/ResVBox/IronRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(16, 16)
+texture = ExtResource("3")
+expand_mode = 3
+stretch_mode = 5
+
+[node name="IronLabel" type="Label" parent="LeftCol/ResourcePanel/ResVBox/IronRow" unique_id=325291142]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.4, 0.4, 1)
+theme_override_colors/font_color = Color(0.6988683, 0.6988846, 0.68478125, 1)
 theme_override_font_sizes/font_size = 15
 text = "Iron: 0"
 
-[node name="CrystalLabel" type="Label" parent="LeftCol/ResourcePanel/ResVBox" unique_id=1638126741]
+[node name="CrystalRow" type="HBoxContainer" parent="LeftCol/ResourcePanel/ResVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="CrystalIcon" type="TextureRect" parent="LeftCol/ResourcePanel/ResVBox/CrystalRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(16, 16)
+texture = ExtResource("4")
+expand_mode = 3
+stretch_mode = 5
+
+[node name="CrystalLabel" type="Label" parent="LeftCol/ResourcePanel/ResVBox/CrystalRow" unique_id=1638126741]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.4, 0.6, 1, 1)
 theme_override_font_sizes/font_size = 15
 text = "Crystal: 0"
 
-[node name="PowerLabel" type="Label" parent="LeftCol/ResourcePanel/ResVBox" unique_id=2115460232]
+[node name="PowerRow" type="HBoxContainer" parent="LeftCol/ResourcePanel/ResVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="PowerIcon" type="TextureRect" parent="LeftCol/ResourcePanel/ResVBox/PowerRow"]
+layout_mode = 2
+custom_minimum_size = Vector2(16, 16)
+texture = ExtResource("5")
+expand_mode = 3
+stretch_mode = 5
+
+[node name="PowerLabel" type="Label" parent="LeftCol/ResourcePanel/ResVBox/PowerRow" unique_id=2115460232]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.4, 1, 0.5, 1)
@@ -258,7 +294,7 @@ layout_mode = 2
 theme_override_constants/separation = 4
 alignment = 1
 
-[node name="PowerPlantIcon" type="Control" parent="BuildBar/BuildHBox"]
+[node name="PowerPlantIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=934765928]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 2
@@ -267,7 +303,7 @@ build_type = "power_plant"
 hotkey = "1"
 display_name = "Power Plant"
 
-[node name="PylonIcon" type="Control" parent="BuildBar/BuildHBox"]
+[node name="PylonIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=1904733006]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 2
@@ -276,7 +312,7 @@ build_type = "pylon"
 hotkey = "2"
 display_name = "Pylon"
 
-[node name="FactoryIcon" type="Control" parent="BuildBar/BuildHBox"]
+[node name="FactoryIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=1536362363]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 2
@@ -285,7 +321,7 @@ build_type = "factory"
 hotkey = "3"
 display_name = "Factory"
 
-[node name="TurretIcon" type="Control" parent="BuildBar/BuildHBox"]
+[node name="TurretIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=282767726]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 2
@@ -294,7 +330,7 @@ build_type = "turret"
 hotkey = "4"
 display_name = "Turret"
 
-[node name="WallIcon" type="Control" parent="BuildBar/BuildHBox"]
+[node name="WallIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=630163694]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 2
@@ -303,7 +339,7 @@ build_type = "wall"
 hotkey = "5"
 display_name = "Wall"
 
-[node name="LightningIcon" type="Control" parent="BuildBar/BuildHBox"]
+[node name="LightningIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=1824010440]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 2
@@ -312,7 +348,7 @@ build_type = "lightning"
 hotkey = "6"
 display_name = "Lightning Tower"
 
-[node name="SlowIcon" type="Control" parent="BuildBar/BuildHBox"]
+[node name="SlowIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=409015779]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 2
@@ -321,7 +357,7 @@ build_type = "slow"
 hotkey = "7"
 display_name = "Slow Tower"
 
-[node name="BatteryIcon" type="Control" parent="BuildBar/BuildHBox"]
+[node name="BatteryIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=1424327699]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 2
@@ -330,7 +366,7 @@ build_type = "battery"
 hotkey = "8"
 display_name = "Battery"
 
-[node name="FlameTurretIcon" type="Control" parent="BuildBar/BuildHBox"]
+[node name="FlameTurretIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=1694208743]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 2
@@ -339,7 +375,7 @@ build_type = "flame_turret"
 hotkey = "9"
 display_name = "Flame Turret"
 
-[node name="AcidTurretIcon" type="Control" parent="BuildBar/BuildHBox"]
+[node name="AcidTurretIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=623480533]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 2
@@ -348,7 +384,7 @@ build_type = "acid_turret"
 hotkey = "0"
 display_name = "Acid Turret"
 
-[node name="RepairDroneIcon" type="Control" parent="BuildBar/BuildHBox"]
+[node name="RepairDroneIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=291228078]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 2
@@ -357,7 +393,7 @@ build_type = "repair_drone"
 hotkey = "Q"
 display_name = "Repair Drone"
 
-[node name="PoisonTurretIcon" type="Control" parent="BuildBar/BuildHBox"]
+[node name="PoisonTurretIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=923328915]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(40, 40)
 layout_mode = 2
@@ -388,23 +424,44 @@ theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 14
 text = "Turret"
 
+[node name="TooltipIronIcon" type="TextureRect" parent="BuildBarTooltip/TooltipVBox/TooltipHBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(14, 14)
+texture = ExtResource("3")
+expand_mode = 3
+stretch_mode = 5
+
 [node name="BuildBarTooltipIron" type="Label" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=1665932990]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 14
-text = "10I"
+text = "10"
+
+[node name="TooltipCrystalIcon" type="TextureRect" parent="BuildBarTooltip/TooltipVBox/TooltipHBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(14, 14)
+texture = ExtResource("4")
+expand_mode = 3
+stretch_mode = 5
 
 [node name="BuildBarTooltipCrystal" type="Label" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=255616556]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 14
-text = "5C"
+text = "5"
+
+[node name="TooltipPowerIcon" type="TextureRect" parent="BuildBarTooltip/TooltipVBox/TooltipHBox"]
+layout_mode = 2
+custom_minimum_size = Vector2(14, 14)
+texture = ExtResource("5")
+expand_mode = 3
+stretch_mode = 5
 
 [node name="BuildBarTooltipPower" type="Label" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=840206232]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 14
-text = "-5E"
+text = "-5"
 
 [node name="BuildBarTooltipDesc" type="Label" parent="BuildBarTooltip/TooltipVBox" unique_id=808657542]
 unique_name_in_owner = true

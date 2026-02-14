@@ -1,3 +1,4 @@
+@tool
 extends Control
 
 @export var build_type: String = ""
@@ -26,12 +27,13 @@ signal unhovered
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	custom_minimum_size = Vector2(40, 40)
-	mouse_entered.connect(func(): is_hovered = true; hovered.emit(self))
-	mouse_exited.connect(func(): is_hovered = false; unhovered.emit())
+	if not Engine.is_editor_hint():
+		mouse_entered.connect(func(): is_hovered = true; hovered.emit(self))
+		mouse_exited.connect(func(): is_hovered = false; unhovered.emit())
 
 
 func _gui_input(event):
-	if locked:
+	if Engine.is_editor_hint() or locked:
 		return
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		pressed.emit()
