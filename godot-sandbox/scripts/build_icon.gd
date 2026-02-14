@@ -103,20 +103,21 @@ func _draw():
 			draw_colored_polygon(pts, Color(0.4, 0.7, 0.9, icon_alpha * 0.8))
 			draw_polyline(pts + PackedVector2Array([pts[0]]), Color(0.6, 0.85, 1.0, icon_alpha), 1.5)
 		"pylon":
-			# Pylon tower
-			var pylon_pts = PackedVector2Array([
-				center + Vector2(-5, 8),
-				center + Vector2(-2, -10),
-				center + Vector2(2, -10),
-				center + Vector2(5, 8),
-			])
-			draw_colored_polygon(pylon_pts, Color(0.35, 0.35, 0.4, icon_alpha))
-			draw_rect(Rect2(12, 6, 16, 4), Color(0.4, 0.6, 0.9, icon_alpha))
+			var tex_pylon = _get_icon_texture("res://resources/sprites/pylon icon.png")
+			if tex_pylon:
+				var tex_size = tex_pylon.get_size()
+				var scale_f = min(32.0 / tex_size.x, 32.0 / tex_size.y)
+				var draw_size = tex_size * scale_f
+				var offset = (Vector2(40, 40) - draw_size) / 2.0
+				draw_texture_rect(tex_pylon, Rect2(offset, draw_size), false, Color(1, 1, 1, icon_alpha))
 		"power_plant":
-			# Power plant with reactor
-			draw_rect(Rect2(8, 14, 24, 18), Color(0.45, 0.45, 0.5, icon_alpha))
-			draw_circle(center + Vector2(0, -2), 6, Color(0.3, 0.6, 1.0, icon_alpha))
-			draw_circle(center + Vector2(0, -2), 3, Color(0.5, 0.8, 1.0, icon_alpha))
+			var tex_pp = _get_icon_texture("res://resources/sprites/power plant icon.png")
+			if tex_pp:
+				var tex_size = tex_pp.get_size()
+				var scale_f = min(32.0 / tex_size.x, 32.0 / tex_size.y)
+				var draw_size = tex_size * scale_f
+				var offset = (Vector2(40, 40) - draw_size) / 2.0
+				draw_texture_rect(tex_pp, Rect2(offset, draw_size), false, Color(1, 1, 1, icon_alpha))
 		"battery":
 			# Battery shape
 			draw_rect(Rect2(12, 10, 16, 22), Color(0.4, 0.4, 0.45, icon_alpha))
