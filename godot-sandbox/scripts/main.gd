@@ -2682,21 +2682,27 @@ func _sync_3d_meshes():
 	for a in get_tree().get_nodes_in_group("aliens"):
 		if not is_instance_valid(a): continue
 		if a not in alien_meshes:
-			var new_mesh: Node3D
 			if a.is_in_group("spider_boss"):
-				new_mesh = _create_spider_boss_mesh(a)
+				var new_mesh = _create_spider_boss_mesh(a)
+				add_child(new_mesh)
+				alien_meshes[a] = new_mesh
+				a.visible = false
 			elif a.is_in_group("shield_generators"):
-				new_mesh = _create_shield_generator_mesh(a)
+				var new_mesh = _create_shield_generator_mesh(a)
+				add_child(new_mesh)
+				alien_meshes[a] = new_mesh
+				a.visible = false
 			elif a.is_in_group("weak_points"):
-				new_mesh = _create_weak_point_mesh(a)
+				var new_mesh = _create_weak_point_mesh(a)
+				add_child(new_mesh)
+				alien_meshes[a] = new_mesh
+				a.visible = false
 			else:
-				new_mesh = _create_alien_mesh(a)
-			add_child(new_mesh)
-			alien_meshes[a] = new_mesh
-			a.visible = false
+				alien_meshes[a] = a
 		var mr = alien_meshes[a]
-		var ap = a.global_position
-		mr.position = Vector3(ap.x, 0, ap.z)
+		if mr != a:
+			var ap = a.global_position
+			mr.position = Vector3(ap.x, 0, ap.z)
 		var body = mr.get_node_or_null("Body")
 		if body and "move_direction" in a and a.move_direction.length_squared() > 0.01:
 			var target_rot = atan2(-a.move_direction.x, -a.move_direction.z)
@@ -5144,7 +5150,8 @@ func _sync_enemies(enemy_data: Array):
 				game_world_2d.add_child(gem)
 				# Clean up 3D mesh and light before freeing
 				if alien_meshes.has(a):
-					alien_meshes[a].queue_free()
+					if alien_meshes[a] != a:
+						alien_meshes[a].queue_free()
 					alien_meshes.erase(a)
 				if alien_lights.has(a):
 					alien_lights[a].queue_free()
