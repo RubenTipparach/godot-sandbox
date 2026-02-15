@@ -1,0 +1,37 @@
+[gd_scene format=3 uid="uid://jxqb8u26pkt3"]
+
+[ext_resource type="Texture2D" uid="uid://cel7ljlshl0gm" path="res://resources/sprites/steam.png" id="1_ya4mw"]
+
+[sub_resource type="Gradient" id="steam_gradient"]
+colors = PackedColorArray(0.85, 0.85, 0.9, 0.5, 0.95, 0.95, 1, 0)
+
+[sub_resource type="GradientTexture1D" id="steam_grad_tex"]
+gradient = SubResource("steam_gradient")
+
+[sub_resource type="ParticleProcessMaterial" id="steam_mat"]
+direction = Vector3(0, 1, 0)
+spread = 12.0
+initial_velocity_min = 4.0
+initial_velocity_max = 10.0
+gravity = Vector3(0, 1, 0)
+damping_min = 1.0
+damping_max = 3.0
+scale_max = 3.5
+color = Color(0.9, 0.9, 0.95, 0.4)
+color_ramp = SubResource("steam_grad_tex")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_5cxtt"]
+transparency = 1
+albedo_texture = ExtResource("1_ya4mw")
+texture_filter = 0
+
+[sub_resource type="QuadMesh" id="steam_quad"]
+material = SubResource("StandardMaterial3D_5cxtt")
+size = Vector2(3, 3)
+
+[node name="SteamFX" type="GPUParticles3D" unique_id=829535520]
+cast_shadow = 0
+amount = 15
+lifetime = 2.0
+process_material = SubResource("steam_mat")
+draw_pass_1 = SubResource("steam_quad")

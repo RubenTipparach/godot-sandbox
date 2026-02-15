@@ -1,6 +1,53 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://iwh4htmlb1a"]
 
-[ext_resource type="Script" path="res://scripts/alien.gd" id="1"]
+[ext_resource type="Script" uid="uid://c0tdrs604uihx" path="res://scripts/alien.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://yjgpa7ado8aj" path="res://resources/sprites/mantis.png" id="2_u8rjw"]
 
-[node name="Alien" type="Node3D"]
+[sub_resource type="AtlasTexture" id="AtlasTexture_3vbw7"]
+atlas = ExtResource("2_u8rjw")
+region = Rect2(0, 0, 112, 122)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_np108"]
+atlas = ExtResource("2_u8rjw")
+region = Rect2(112, 0, 112, 122)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_vxp04"]
+atlas = ExtResource("2_u8rjw")
+region = Rect2(224, 0, 112, 122)
+
+[sub_resource type="AtlasTexture" id="AtlasTexture_kufd8"]
+atlas = ExtResource("2_u8rjw")
+region = Rect2(336, 0, 112, 122)
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_g58bj"]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_3vbw7")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_np108")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_vxp04")
+}, {
+"duration": 1.0,
+"texture": SubResource("AtlasTexture_kufd8")
+}],
+"loop": true,
+"name": &"default",
+"speed": 5.0
+}]
+
+[node name="Alien" type="Node3D" unique_id=1091342692]
 script = ExtResource("1")
+
+[node name="AnimatedSprite3D" type="AnimatedSprite3D" parent="." unique_id=1346614636]
+transform = Transform3D(30, 0, 0, 0, 30, 0, 0, 0, 30, 0, 18.236626, 0)
+billboard = 1
+texture_filter = 0
+sprite_frames = SubResource("SpriteFrames_g58bj")
+autoplay = "default"
+frame = 2
+frame_progress = 0.12476392
+speed_scale = 3.0
