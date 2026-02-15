@@ -2697,6 +2697,11 @@ func _sync_3d_meshes():
 				add_child(new_mesh)
 				alien_meshes[a] = new_mesh
 				a.visible = false
+			elif a.is_in_group("bosses"):
+				var new_mesh = _create_alien_mesh(a)
+				add_child(new_mesh)
+				alien_meshes[a] = new_mesh
+				a.visible = false
 			else:
 				alien_meshes[a] = a
 		var mr = alien_meshes[a]
