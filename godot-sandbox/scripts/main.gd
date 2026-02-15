@@ -357,7 +357,6 @@ func _init_game_world():
 	hq_node = load("res://scenes/hq.tscn").instantiate()
 	hq_node.position = Vector3.ZERO
 	hq_node.destroyed.connect(_on_hq_destroyed)
-	hq_node.visible = false  # Hidden; 3D standing sprite handles visuals
 	buildings_node.add_child(hq_node)
 
 	# HQ pointlight — illuminates surroundings

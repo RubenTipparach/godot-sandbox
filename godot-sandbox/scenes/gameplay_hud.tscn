@@ -1,0 +1,575 @@
+[gd_scene format=3 uid="uid://dkkcsjxu6hq0"]
+
+[ext_resource type="Script" uid="uid://hnak7kyvs2oo" path="res://scripts/minimap.gd" id="1"]
+[ext_resource type="Script" uid="uid://b3lw53q0gi0dt" path="res://scripts/build_icon.gd" id="2"]
+[ext_resource type="Texture2D" uid="uid://c3pd4u2878p4b" path="res://resources/sprites/iron_ingot.png" id="3"]
+[ext_resource type="Texture2D" uid="uid://cwtyirp8np15u" path="res://resources/sprites/crystal.png" id="4"]
+
+[sub_resource type="StyleBoxFlat" id="player_panel_style"]
+content_margin_left = 10.0
+content_margin_top = 8.0
+content_margin_right = 10.0
+content_margin_bottom = 8.0
+bg_color = Color(0, 0, 0, 0.65)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="res_panel_style"]
+content_margin_left = 10.0
+content_margin_top = 8.0
+content_margin_right = 10.0
+content_margin_bottom = 8.0
+bg_color = Color(0, 0, 0, 0.65)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_mc30n"]
+load_path = "res://.godot/imported/energy.png-f92dc93e6c613e62eed849d9e0f4ba35.ctex"
+
+[sub_resource type="StyleBoxFlat" id="wave_panel_style"]
+content_margin_left = 10.0
+content_margin_top = 8.0
+content_margin_right = 10.0
+content_margin_bottom = 8.0
+bg_color = Color(0, 0, 0, 0.65)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="build_bar_style"]
+content_margin_left = 10.0
+content_margin_top = 8.0
+content_margin_right = 10.0
+content_margin_bottom = 8.0
+bg_color = Color(0, 0, 0, 0.7)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[sub_resource type="StyleBoxFlat" id="tooltip_style"]
+content_margin_left = 8.0
+content_margin_top = 4.0
+content_margin_right = 8.0
+content_margin_bottom = 4.0
+bg_color = Color(0.1, 0.1, 0.15, 0.95)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+
+[node name="GameplayHUD" type="Control" unique_id=578848563]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="LeftCol" type="VBoxContainer" parent="." unique_id=1489964389]
+layout_mode = 0
+offset_left = 10.0
+offset_top = 10.0
+mouse_filter = 2
+theme_override_constants/separation = 6
+
+[node name="PlayerPanel" type="PanelContainer" parent="LeftCol" unique_id=1963060138]
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("player_panel_style")
+
+[node name="PlayerVBox" type="VBoxContainer" parent="LeftCol/PlayerPanel" unique_id=1832320526]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="HealthLabel" type="Label" parent="LeftCol/PlayerPanel/PlayerVBox" unique_id=611722117]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 1, 0.4, 1)
+theme_override_font_sizes/font_size = 16
+text = "HP: 100 / 100"
+
+[node name="HpBarBg" type="ColorRect" parent="LeftCol/PlayerPanel/PlayerVBox" unique_id=670153397]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(170, 6)
+layout_mode = 2
+color = Color(0.15, 0.15, 0.25, 1)
+
+[node name="HpBarFill" type="ColorRect" parent="LeftCol/PlayerPanel/PlayerVBox/HpBarBg" unique_id=553897723]
+unique_name_in_owner = true
+layout_mode = 0
+offset_right = 170.0
+offset_bottom = 6.0
+color = Color(0.4, 1, 0.4, 1)
+
+[node name="HqHealthLabel" type="Label" parent="LeftCol/PlayerPanel/PlayerVBox" unique_id=2079871525]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.3, 0.9, 0.9, 1)
+theme_override_font_sizes/font_size = 14
+text = "HQ: 500 / 500"
+
+[node name="HqBarBg" type="ColorRect" parent="LeftCol/PlayerPanel/PlayerVBox" unique_id=1377576489]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(170, 6)
+layout_mode = 2
+color = Color(0.15, 0.15, 0.25, 1)
+
+[node name="HqBarFill" type="ColorRect" parent="LeftCol/PlayerPanel/PlayerVBox/HqBarBg" unique_id=179994393]
+unique_name_in_owner = true
+layout_mode = 0
+offset_right = 170.0
+offset_bottom = 6.0
+color = Color(0.3, 0.9, 0.9, 1)
+
+[node name="LevelLabel" type="Label" parent="LeftCol/PlayerPanel/PlayerVBox" unique_id=1668569097]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.3, 1)
+theme_override_font_sizes/font_size = 15
+text = "Lv 1"
+
+[node name="XpBarBg" type="ColorRect" parent="LeftCol/PlayerPanel/PlayerVBox" unique_id=1636450889]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(170, 8)
+layout_mode = 2
+color = Color(0.15, 0.15, 0.25, 1)
+
+[node name="XpBarFill" type="ColorRect" parent="LeftCol/PlayerPanel/PlayerVBox/XpBarBg" unique_id=1726260292]
+unique_name_in_owner = true
+layout_mode = 0
+offset_bottom = 8.0
+color = Color(0.3, 0.8, 1, 1)
+
+[node name="PrestigeHudLabel" type="Label" parent="LeftCol/PlayerPanel/PlayerVBox" unique_id=1254425538]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.3, 1)
+theme_override_font_sizes/font_size = 13
+text = "Prestige: 0"
+
+[node name="ResourcePanel" type="PanelContainer" parent="LeftCol" unique_id=1309743925]
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("res_panel_style")
+
+[node name="ResVBox" type="VBoxContainer" parent="LeftCol/ResourcePanel" unique_id=1619879593]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="IronRow" type="HBoxContainer" parent="LeftCol/ResourcePanel/ResVBox" unique_id=1690310660]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="IronIcon" type="TextureRect" parent="LeftCol/ResourcePanel/ResVBox/IronRow" unique_id=1703810273]
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+texture = ExtResource("3")
+expand_mode = 3
+stretch_mode = 5
+
+[node name="IronLabel" type="Label" parent="LeftCol/ResourcePanel/ResVBox/IronRow" unique_id=325291142]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6988683, 0.6988846, 0.68478125, 1)
+theme_override_font_sizes/font_size = 15
+text = "Iron: 0"
+
+[node name="CrystalRow" type="HBoxContainer" parent="LeftCol/ResourcePanel/ResVBox" unique_id=975905079]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="CrystalIcon" type="TextureRect" parent="LeftCol/ResourcePanel/ResVBox/CrystalRow" unique_id=668410418]
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+texture = ExtResource("4")
+expand_mode = 3
+stretch_mode = 5
+
+[node name="CrystalLabel" type="Label" parent="LeftCol/ResourcePanel/ResVBox/CrystalRow" unique_id=1638126741]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.6, 1, 1)
+theme_override_font_sizes/font_size = 15
+text = "Crystal: 0"
+
+[node name="PowerRow" type="HBoxContainer" parent="LeftCol/ResourcePanel/ResVBox" unique_id=1796021572]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="PowerIcon" type="TextureRect" parent="LeftCol/ResourcePanel/ResVBox/PowerRow" unique_id=2087967609]
+custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
+texture = SubResource("CompressedTexture2D_mc30n")
+expand_mode = 3
+stretch_mode = 5
+
+[node name="PowerLabel" type="Label" parent="LeftCol/ResourcePanel/ResVBox/PowerRow" unique_id=2115460232]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 1, 0.5, 1)
+theme_override_font_sizes/font_size = 14
+text = "Energy: 0 / 0"
+
+[node name="PowerBarBg" type="ColorRect" parent="LeftCol/ResourcePanel/ResVBox" unique_id=1271154120]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(170, 8)
+layout_mode = 2
+color = Color(0.15, 0.15, 0.25, 1)
+
+[node name="PowerBarFill" type="ColorRect" parent="LeftCol/ResourcePanel/ResVBox/PowerBarBg" unique_id=1264714547]
+unique_name_in_owner = true
+layout_mode = 0
+offset_bottom = 8.0
+color = Color(0.3, 0.9, 0.4, 1)
+
+[node name="PowerRateLabel" type="Label" parent="LeftCol/ResourcePanel/ResVBox" unique_id=1405913460]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.3, 0.9, 0.4, 1)
+theme_override_font_sizes/font_size = 11
+text = "+0/s"
+
+[node name="WavePanel" type="PanelContainer" parent="LeftCol" unique_id=1034325093]
+layout_mode = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("wave_panel_style")
+
+[node name="WaveVBox" type="VBoxContainer" parent="LeftCol/WavePanel" unique_id=2111392956]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="WaveLabel" type="Label" parent="LeftCol/WavePanel/WaveVBox" unique_id=2134951798]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.7, 0.2, 1)
+theme_override_font_sizes/font_size = 16
+text = "Wave: 1"
+
+[node name="TimerLabel" type="Label" parent="LeftCol/WavePanel/WaveVBox" unique_id=1350984972]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.7, 0.2, 1)
+theme_override_font_sizes/font_size = 17
+text = "Next wave: 1:00"
+
+[node name="StartWaveBtn" type="Button" parent="LeftCol/WavePanel/WaveVBox" unique_id=1855555815]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(120, 28)
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Start Wave"
+
+[node name="AlienCountLabel" type="Label" parent="LeftCol/WavePanel/WaveVBox" unique_id=610373345]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.7, 0.2, 1)
+theme_override_font_sizes/font_size = 13
+text = "Aliens: 0"
+
+[node name="BuildBar" type="PanelContainer" parent="." unique_id=1186527474]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -260.0
+offset_top = -56.0
+offset_right = 260.0
+offset_bottom = -10.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 1
+theme_override_styles/panel = SubResource("build_bar_style")
+
+[node name="BuildHBox" type="HBoxContainer" parent="BuildBar" unique_id=1803223920]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 4
+alignment = 1
+
+[node name="PowerPlantIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=934765928]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 2
+script = ExtResource("2")
+build_type = "power_plant"
+hotkey = "1"
+display_name = "Power Plant"
+
+[node name="PylonIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=1904733006]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 2
+script = ExtResource("2")
+build_type = "pylon"
+hotkey = "2"
+display_name = "Pylon"
+
+[node name="FactoryIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=1536362363]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 2
+script = ExtResource("2")
+build_type = "factory"
+hotkey = "3"
+display_name = "Factory"
+
+[node name="TurretIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=282767726]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 2
+script = ExtResource("2")
+build_type = "turret"
+hotkey = "4"
+display_name = "Turret"
+
+[node name="WallIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=630163694]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 2
+script = ExtResource("2")
+build_type = "wall"
+hotkey = "5"
+display_name = "Wall"
+
+[node name="LightningIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=1824010440]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 2
+script = ExtResource("2")
+build_type = "lightning"
+hotkey = "6"
+display_name = "Lightning Tower"
+
+[node name="SlowIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=409015779]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 2
+script = ExtResource("2")
+build_type = "slow"
+hotkey = "7"
+display_name = "Slow Tower"
+
+[node name="BatteryIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=1424327699]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 2
+script = ExtResource("2")
+build_type = "battery"
+hotkey = "8"
+display_name = "Battery"
+
+[node name="FlameTurretIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=1694208743]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 2
+script = ExtResource("2")
+build_type = "flame_turret"
+hotkey = "9"
+display_name = "Flame Turret"
+
+[node name="AcidTurretIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=623480533]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 2
+script = ExtResource("2")
+build_type = "acid_turret"
+hotkey = "0"
+display_name = "Acid Turret"
+
+[node name="RepairDroneIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=291228078]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 2
+script = ExtResource("2")
+build_type = "repair_drone"
+hotkey = "Q"
+display_name = "Repair Drone"
+
+[node name="PoisonTurretIcon" type="Control" parent="BuildBar/BuildHBox" unique_id=923328915]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(40, 40)
+layout_mode = 2
+script = ExtResource("2")
+build_type = "poison_turret"
+hotkey = "E"
+display_name = "Poison Turret"
+
+[node name="BuildBarTooltip" type="PanelContainer" parent="." unique_id=1756295342]
+unique_name_in_owner = true
+visible = false
+layout_mode = 0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("tooltip_style")
+
+[node name="TooltipVBox" type="VBoxContainer" parent="BuildBarTooltip" unique_id=1288359576]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="TooltipHBox" type="HBoxContainer" parent="BuildBarTooltip/TooltipVBox" unique_id=1779360429]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="BuildBarTooltipName" type="Label" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=329163652]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 14
+text = "Turret"
+
+[node name="TooltipIronIcon" type="TextureRect" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=906002172]
+custom_minimum_size = Vector2(14, 14)
+layout_mode = 2
+texture = ExtResource("3")
+expand_mode = 3
+stretch_mode = 5
+
+[node name="BuildBarTooltipIron" type="Label" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=1665932990]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "10"
+
+[node name="TooltipCrystalIcon" type="TextureRect" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=593518769]
+custom_minimum_size = Vector2(14, 14)
+layout_mode = 2
+texture = ExtResource("4")
+expand_mode = 3
+stretch_mode = 5
+
+[node name="BuildBarTooltipCrystal" type="Label" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=255616556]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "5"
+
+[node name="TooltipPowerIcon" type="TextureRect" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=13483641]
+custom_minimum_size = Vector2(14, 14)
+layout_mode = 2
+texture = SubResource("CompressedTexture2D_mc30n")
+expand_mode = 3
+stretch_mode = 5
+
+[node name="BuildBarTooltipPower" type="Label" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=840206232]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "-5"
+
+[node name="BuildBarTooltipDesc" type="Label" parent="BuildBarTooltip/TooltipVBox" unique_id=808657542]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.6, 0.7, 1)
+theme_override_font_sizes/font_size = 12
+text = "Shoots at nearby enemies"
+
+[node name="PowerWarningLabel" type="Label" parent="." unique_id=933721896]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+offset_left = 250.0
+offset_top = 110.0
+theme_override_colors/font_color = Color(1, 0.3, 0.1, 1)
+theme_override_font_sizes/font_size = 18
+text = "LOW POWER"
+
+[node name="AlertLabel" type="Label" parent="." unique_id=1286975793]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -300.0
+offset_top = 100.0
+offset_right = 300.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(1, 0.2, 0.2, 1)
+theme_override_font_sizes/font_size = 36
+text = "WAVE INCOMING!"
+horizontal_alignment = 1
+
+[node name="MinimapNode" type="Control" parent="." unique_id=20041969]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -170.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = 170.0
+grow_horizontal = 0
+mouse_filter = 2
+script = ExtResource("1")
+
+[node name="PartnerVBox" type="VBoxContainer" parent="." unique_id=1848790708]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -170.0
+offset_top = 175.0
+offset_right = -10.0
+grow_horizontal = 0
+mouse_filter = 2
+theme_override_constants/separation = 4
+
+[node name="RespawnLabel" type="Label" parent="." unique_id=1987924651]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -40.0
+offset_right = 200.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 0.4, 0.3, 1)
+theme_override_font_sizes/font_size = 32
+text = "Respawning in 5..."
+horizontal_alignment = 1
+
+[node name="RoomCodeHBox" type="HBoxContainer" parent="." unique_id=519700041]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -220.0
+offset_top = 172.0
+offset_right = -10.0
+grow_horizontal = 0
+mouse_filter = 2
+theme_override_constants/separation = 4
+alignment = 2
+
+[node name="RoomCodeLabel" type="Label" parent="RoomCodeHBox" unique_id=392221019]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.9, 0.3, 0.7)
+theme_override_font_sizes/font_size = 13
+text = "Room: ABC123"
+horizontal_alignment = 2
+
+[node name="CopyBtn" type="Button" parent="RoomCodeHBox" unique_id=907955878]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(50, 22)
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Copy"

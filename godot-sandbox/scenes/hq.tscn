@@ -1,6 +1,87 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene format=3 uid="uid://sfjpwm7uhowm"]
 
-[ext_resource type="Script" path="res://scripts/hq.gd" id="1"]
+[ext_resource type="Script" uid="uid://5dlhgmknrcjy" path="res://scripts/hq.gd" id="1"]
+[ext_resource type="PackedScene" uid="uid://cm2u1p7ars2jo" path="res://resources/models/hq.glb" id="2_7r1n3"]
+[ext_resource type="PackedScene" uid="uid://cqsm0l1fwd116" path="res://resources/models/spinner.glb" id="3_qlv4n"]
 
-[node name="HQ" type="Node3D"]
+[sub_resource type="Animation" id="Animation_446b2"]
+length = 0.001
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath(".:rotation")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [Vector3(0, 0, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("../../SpotLight3D:spot_attenuation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0),
+"transitions": PackedFloat32Array(1),
+"update": 0,
+"values": [-3.1]
+}
+
+[sub_resource type="Animation" id="Animation_ma322"]
+resource_name = "spin"
+length = 2.0
+loop_mode = 1
+tracks/0/type = "value"
+tracks/0/imported = false
+tracks/0/enabled = true
+tracks/0/path = NodePath(".:rotation")
+tracks/0/interp = 1
+tracks/0/loop_wrap = true
+tracks/0/keys = {
+"times": PackedFloat32Array(0, 2),
+"transitions": PackedFloat32Array(1, 1),
+"update": 0,
+"values": [Vector3(0, 0, 0), Vector3(0, 6.2831855, 0)]
+}
+tracks/1/type = "value"
+tracks/1/imported = false
+tracks/1/enabled = true
+tracks/1/path = NodePath("../../SpotLight3D:spot_attenuation")
+tracks/1/interp = 1
+tracks/1/loop_wrap = true
+tracks/1/keys = {
+"times": PackedFloat32Array(0, 0.63, 1.1, 1.59, 2),
+"transitions": PackedFloat32Array(1, 1, 1, 1, 1),
+"update": 0,
+"values": [-3.1, -1.26, -3.1, -1.26, -3.1]
+}
+
+[sub_resource type="AnimationLibrary" id="AnimationLibrary_ja6m1"]
+_data = {
+&"RESET": SubResource("Animation_446b2"),
+&"spin": SubResource("Animation_ma322")
+}
+
+[node name="HQ" type="Node3D" unique_id=1089486212]
 script = ExtResource("1")
+
+[node name="default" parent="." unique_id=1844530639 instance=ExtResource("2_7r1n3")]
+transform = Transform3D(3, 0, 0, 0, 3, 0, 0, 0, 3, 0, 0, 0)
+
+[node name="default" parent="default" unique_id=1249511816 instance=ExtResource("3_qlv4n")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -7.8624735, 8.656616, -3.3134158)
+
+[node name="SpotLight3D" type="SpotLight3D" parent="." unique_id=1860221611]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7.716118, 5.316156)
+spot_range = 8.551
+spot_attenuation = -3.1
+spot_angle = 56.03
+
+[node name="AnimationPlayer" type="AnimationPlayer" parent="." unique_id=511655795]
+root_node = NodePath("../default/default")
+libraries/ = SubResource("AnimationLibrary_ja6m1")
+autoplay = &"spin"
