@@ -4,7 +4,6 @@
 [ext_resource type="Script" uid="uid://b3lw53q0gi0dt" path="res://scripts/build_icon.gd" id="2"]
 [ext_resource type="Texture2D" uid="uid://c3pd4u2878p4b" path="res://resources/sprites/iron_ingot.png" id="3"]
 [ext_resource type="Texture2D" uid="uid://cwtyirp8np15u" path="res://resources/sprites/crystal.png" id="4"]
-[ext_resource type="Texture2D" uid="uid://bajslnr68tftt" path="res://resources/sprites/energy.png" id="5"]
 
 [sub_resource type="StyleBoxFlat" id="player_panel_style"]
 content_margin_left = 10.0
@@ -27,6 +26,9 @@ corner_radius_top_left = 4
 corner_radius_top_right = 4
 corner_radius_bottom_right = 4
 corner_radius_bottom_left = 4
+
+[sub_resource type="CompressedTexture2D" id="CompressedTexture2D_mc30n"]
+load_path = "res://.godot/imported/energy.png-f92dc93e6c613e62eed849d9e0f4ba35.ctex"
 
 [sub_resource type="StyleBoxFlat" id="wave_panel_style"]
 content_margin_left = 10.0
@@ -161,13 +163,13 @@ theme_override_styles/panel = SubResource("res_panel_style")
 layout_mode = 2
 theme_override_constants/separation = 2
 
-[node name="IronRow" type="HBoxContainer" parent="LeftCol/ResourcePanel/ResVBox"]
+[node name="IronRow" type="HBoxContainer" parent="LeftCol/ResourcePanel/ResVBox" unique_id=1690310660]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="IronIcon" type="TextureRect" parent="LeftCol/ResourcePanel/ResVBox/IronRow"]
-layout_mode = 2
+[node name="IronIcon" type="TextureRect" parent="LeftCol/ResourcePanel/ResVBox/IronRow" unique_id=1703810273]
 custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
 texture = ExtResource("3")
 expand_mode = 3
 stretch_mode = 5
@@ -179,13 +181,13 @@ theme_override_colors/font_color = Color(0.6988683, 0.6988846, 0.68478125, 1)
 theme_override_font_sizes/font_size = 15
 text = "Iron: 0"
 
-[node name="CrystalRow" type="HBoxContainer" parent="LeftCol/ResourcePanel/ResVBox"]
+[node name="CrystalRow" type="HBoxContainer" parent="LeftCol/ResourcePanel/ResVBox" unique_id=975905079]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="CrystalIcon" type="TextureRect" parent="LeftCol/ResourcePanel/ResVBox/CrystalRow"]
-layout_mode = 2
+[node name="CrystalIcon" type="TextureRect" parent="LeftCol/ResourcePanel/ResVBox/CrystalRow" unique_id=668410418]
 custom_minimum_size = Vector2(16, 16)
+layout_mode = 2
 texture = ExtResource("4")
 expand_mode = 3
 stretch_mode = 5
@@ -197,14 +199,14 @@ theme_override_colors/font_color = Color(0.4, 0.6, 1, 1)
 theme_override_font_sizes/font_size = 15
 text = "Crystal: 0"
 
-[node name="PowerRow" type="HBoxContainer" parent="LeftCol/ResourcePanel/ResVBox"]
+[node name="PowerRow" type="HBoxContainer" parent="LeftCol/ResourcePanel/ResVBox" unique_id=1796021572]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="PowerIcon" type="TextureRect" parent="LeftCol/ResourcePanel/ResVBox/PowerRow"]
-layout_mode = 2
+[node name="PowerIcon" type="TextureRect" parent="LeftCol/ResourcePanel/ResVBox/PowerRow" unique_id=2087967609]
 custom_minimum_size = Vector2(16, 16)
-texture = ExtResource("5")
+layout_mode = 2
+texture = SubResource("CompressedTexture2D_mc30n")
 expand_mode = 3
 stretch_mode = 5
 
@@ -424,9 +426,9 @@ theme_override_colors/font_color = Color(1, 1, 1, 1)
 theme_override_font_sizes/font_size = 14
 text = "Turret"
 
-[node name="TooltipIronIcon" type="TextureRect" parent="BuildBarTooltip/TooltipVBox/TooltipHBox"]
-layout_mode = 2
+[node name="TooltipIronIcon" type="TextureRect" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=906002172]
 custom_minimum_size = Vector2(14, 14)
+layout_mode = 2
 texture = ExtResource("3")
 expand_mode = 3
 stretch_mode = 5
@@ -437,9 +439,9 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 14
 text = "10"
 
-[node name="TooltipCrystalIcon" type="TextureRect" parent="BuildBarTooltip/TooltipVBox/TooltipHBox"]
-layout_mode = 2
+[node name="TooltipCrystalIcon" type="TextureRect" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=593518769]
 custom_minimum_size = Vector2(14, 14)
+layout_mode = 2
 texture = ExtResource("4")
 expand_mode = 3
 stretch_mode = 5
@@ -450,10 +452,10 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 14
 text = "5"
 
-[node name="TooltipPowerIcon" type="TextureRect" parent="BuildBarTooltip/TooltipVBox/TooltipHBox"]
-layout_mode = 2
+[node name="TooltipPowerIcon" type="TextureRect" parent="BuildBarTooltip/TooltipVBox/TooltipHBox" unique_id=13483641]
 custom_minimum_size = Vector2(14, 14)
-texture = ExtResource("5")
+layout_mode = 2
+texture = SubResource("CompressedTexture2D_mc30n")
 expand_mode = 3
 stretch_mode = 5
 

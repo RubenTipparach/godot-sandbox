@@ -2745,7 +2745,7 @@ func _on_build_icon_hovered(icon) -> void:
 	if icon.iron_cost > 0:
 		build_bar_tooltip_iron.text = "%d" % icon.iron_cost
 		build_bar_tooltip_iron.add_theme_color_override("font_color",
-			Color(0.9, 0.75, 0.4) if player_iron >= icon.iron_cost else Color(1.0, 0.3, 0.3))
+			Color(0.3, 0.9, 0.4) if player_iron >= icon.iron_cost else Color(1.0, 0.3, 0.3))
 		build_bar_tooltip_iron.visible = true
 		if tooltip_iron_icon: tooltip_iron_icon.visible = true
 	else:
@@ -2755,7 +2755,7 @@ func _on_build_icon_hovered(icon) -> void:
 	if icon.crystal_cost > 0:
 		build_bar_tooltip_crystal.text = "%d" % icon.crystal_cost
 		build_bar_tooltip_crystal.add_theme_color_override("font_color",
-			Color(0.4, 0.7, 1.0) if player_crystal >= icon.crystal_cost else Color(1.0, 0.3, 0.3))
+			Color(0.3, 0.9, 0.4) if player_crystal >= icon.crystal_cost else Color(1.0, 0.3, 0.3))
 		build_bar_tooltip_crystal.visible = true
 		if tooltip_crystal_icon: tooltip_crystal_icon.visible = true
 	else:
