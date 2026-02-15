@@ -34,6 +34,10 @@ var _stuck_timer: float = 0.0
 var _unstuck_timer: float = 0.0
 var _unstuck_dir: Vector3 = Vector3.ZERO
 
+# Hit flash
+var _sprite: AnimatedSprite3D
+var _flash_mat: ShaderMaterial
+
 # Multiplayer puppet
 var net_id: int = 0
 var is_puppet: bool = false
@@ -42,6 +46,11 @@ var target_pos: Vector3 = Vector3.ZERO
 
 func _ready():
 	add_to_group("aliens")
+	_sprite = get_node_or_null("AnimatedSprite3D")
+	if _sprite:
+		_flash_mat = ShaderMaterial.new()
+		_flash_mat.shader = preload("res://resources/shaders/hit_flash.gdshader")
+		_sprite.material_overlay = _flash_mat
 
 
 func can_take_orbital_hit() -> bool:
@@ -66,6 +75,8 @@ func apply_poison(dps: float, duration: float = 5.0):
 func _process(delta):
 	orbital_cooldown = maxf(0.0, orbital_cooldown - delta)
 	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
+	if _flash_mat:
+		_flash_mat.set_shader_parameter("flash_amount", 1.0 if hit_flash_timer > 0 else 0.0)
 	acid_timer = maxf(0.0, acid_timer - delta)
 
 	if is_puppet:
