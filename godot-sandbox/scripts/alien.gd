@@ -50,7 +50,12 @@ func _ready():
 	if _sprite:
 		_flash_mat = ShaderMaterial.new()
 		_flash_mat.shader = preload("res://resources/shaders/hit_flash.gdshader")
-		_sprite.material_overlay = _flash_mat
+		var frame_tex = _sprite.sprite_frames.get_frame_texture(_sprite.animation, 0)
+		if frame_tex is AtlasTexture:
+			_flash_mat.set_shader_parameter("sprite_texture", frame_tex.atlas)
+		else:
+			_flash_mat.set_shader_parameter("sprite_texture", frame_tex)
+		_sprite.material_override = _flash_mat
 
 
 func can_take_orbital_hit() -> bool:

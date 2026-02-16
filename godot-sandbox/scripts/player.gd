@@ -231,7 +231,9 @@ func _process(delta):
 			if Input.is_action_pressed("move_left"): input.x -= 1
 			if Input.is_action_pressed("move_right"): input.x += 1
 			if input != Vector3.ZERO and device_id < 0:
-				input_mode = "keyboard"
+				# Only switch to keyboard if actual keyboard keys are pressed (not D-pad via action map)
+				if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_UP) or Input.is_physical_key_pressed(KEY_DOWN) or Input.is_physical_key_pressed(KEY_LEFT) or Input.is_physical_key_pressed(KEY_RIGHT):
+					input_mode = "keyboard"
 
 	if input != Vector3.ZERO:
 		move_direction = input.normalized()
@@ -899,9 +901,15 @@ func _spawn_death_particles():
 func _input(event):
 	if not is_local or is_dead:
 		return
-	# Auto-detect input mode from mouse movement
+	# Auto-detect input mode from mouse movement (ignore tiny jitter)
 	if device_id < 0 and event is InputEventMouseMotion:
-		input_mode = "keyboard"
+		if event.relative.length() > 2.0:
+			input_mode = "keyboard"
+		return
+	# Joystick axis movement switches to controller mode in single player
+	if device_id < 0 and event is InputEventJoypadMotion:
+		if abs(event.axis_value) > 0.3:
+			input_mode = "controller"
 		return
 	if not (event is InputEventJoypadButton and event.pressed):
 		return

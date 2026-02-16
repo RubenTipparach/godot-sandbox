@@ -2703,7 +2703,19 @@ func _sync_3d_meshes():
 				alien_meshes[a] = new_mesh
 				a.visible = false
 			else:
-				alien_meshes[a] = a
+				# Use alien's own visual if it has one (e.g. AnimatedSprite3D), otherwise fallback to code mesh
+				var has_visual = false
+				for child in a.get_children():
+					if child is MeshInstance3D or child is AnimatedSprite3D or child is Sprite3D:
+						has_visual = true
+						break
+				if has_visual:
+					alien_meshes[a] = a
+				else:
+					var new_mesh = _create_alien_mesh(a)
+					add_child(new_mesh)
+					alien_meshes[a] = new_mesh
+					a.visible = false
 		var mr = alien_meshes[a]
 		if mr != a:
 			var ap = a.global_position
