@@ -157,6 +157,17 @@ var debug_btn: Button = null
 var debug_layer: CanvasLayer = null
 var disconnect_panel: Control = null
 
+# Vehicle selection
+var selected_vehicle: String = "lander"  # "lander" or "mech"
+var _vehicle_lander_btn: Button = null
+var _vehicle_mech_btn: Button = null
+var _lander_preview_model: Node3D = null
+var _mech_preview_model: Node3D = null
+var _hovered_vehicle_card: String = ""  # "lander", "mech", or ""
+var lobby_vehicle_type: String = "lander"
+var _lobby_vehicle_lander_btn: Button = null
+var _lobby_vehicle_mech_btn: Button = null
+
 # Local co-op
 var local_coop_lobby: Control = null
 var local_coop_slots: Array = []  # Array of {"panel": PanelContainer, "label": Label, "status": Label}
@@ -719,64 +730,100 @@ func _build_start_menu(root: Control):
 	menu_buttons_container.add_child(settings_btn)
 	_start_buttons = [sp_btn, lc_btn, oc_btn, settings_btn]
 
-	# Wave selection sub-view (shown when Single Player or Local Co-Op is picked)
+	# Wave & Vehicle selection sub-view (VBoxContainer for proper vertical flow)
 	wave_select_container = Control.new()
 	wave_select_container.set_anchors_preset(Control.PRESET_FULL_RECT)
 	wave_select_container.visible = false
 	start_menu.add_child(wave_select_container)
 
+	var wave_select_vbox = VBoxContainer.new()
+	wave_select_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	wave_select_vbox.offset_top = 170  # Below title/stats/prestige
+	wave_select_vbox.offset_bottom = -20
+	wave_select_vbox.offset_left = 50
+	wave_select_vbox.offset_right = -50
+	wave_select_vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	wave_select_vbox.add_theme_constant_override("separation", 14)
+	wave_select_container.add_child(wave_select_vbox)
+
+	# Vehicle section title
+	var vehicle_title = Label.new()
+	vehicle_title.text = "CHOOSE YOUR VEHICLE"
+	vehicle_title.add_theme_font_size_override("font_size", 22)
+	vehicle_title.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
+	vehicle_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	wave_select_vbox.add_child(vehicle_title)
+
+	# Vehicle cards side by side with 3D previews
+	var vehicle_cards = HBoxContainer.new()
+	vehicle_cards.alignment = BoxContainer.ALIGNMENT_CENTER
+	vehicle_cards.add_theme_constant_override("separation", 24)
+	wave_select_vbox.add_child(vehicle_cards)
+
+	_vehicle_lander_btn = _make_vehicle_preview_card(
+		"LANDER", "Fast hovering ship",
+		"res://resources/models/cross_lander.glb",
+		Color(0.3, 0.9, 0.5), Color(0.1, 0.3, 0.15), true
+	)
+	_vehicle_lander_btn.pressed.connect(_on_vehicle_card_pressed.bind("lander"))
+	_vehicle_lander_btn.mouse_entered.connect(_on_vehicle_hover.bind("lander"))
+	_vehicle_lander_btn.mouse_exited.connect(_on_vehicle_unhover)
+	_lander_preview_model = _vehicle_lander_btn.get_meta("preview_model")
+	vehicle_cards.add_child(_vehicle_lander_btn)
+
+	_vehicle_mech_btn = _make_vehicle_preview_card(
+		"MECH", "Armored walking mech",
+		"res://resources/characters/mech_boi_timber.gltf",
+		Color(0.5, 0.7, 1.0), Color(0.15, 0.2, 0.4), false
+	)
+	_vehicle_mech_btn.pressed.connect(_on_vehicle_card_pressed.bind("mech"))
+	_vehicle_mech_btn.mouse_entered.connect(_on_vehicle_hover.bind("mech"))
+	_vehicle_mech_btn.mouse_exited.connect(_on_vehicle_unhover)
+	_mech_preview_model = _vehicle_mech_btn.get_meta("preview_model")
+	vehicle_cards.add_child(_vehicle_mech_btn)
+	_update_vehicle_card_styles()
+
+	# Wave section title
 	var wave_title = Label.new()
 	wave_title.text = "Select Starting Wave"
-	wave_title.add_theme_font_size_override("font_size", 22)
+	wave_title.add_theme_font_size_override("font_size", 20)
 	wave_title.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
 	wave_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	wave_title.set_anchors_preset(Control.PRESET_CENTER)
-	wave_title.offset_top = -60
-	wave_title.offset_left = -200
-	wave_title.offset_right = 200
-	wave_select_container.add_child(wave_title)
+	wave_select_vbox.add_child(wave_title)
 
 	var wave_container = HBoxContainer.new()
-	wave_container.set_anchors_preset(Control.PRESET_CENTER)
-	wave_container.offset_top = -10
-	wave_container.offset_left = -300
-	wave_container.offset_right = 300
 	wave_container.alignment = BoxContainer.ALIGNMENT_CENTER
-	wave_container.add_theme_constant_override("separation", 15)
-	wave_select_container.add_child(wave_container)
+	wave_container.add_theme_constant_override("separation", 12)
+	wave_select_vbox.add_child(wave_container)
 
 	for wave in [1, 5, 10, 15, 20, 25]:
 		var btn = Button.new()
 		btn.text = "Wave %d" % wave
-		btn.custom_minimum_size = Vector2(100, 50)
+		btn.custom_minimum_size = Vector2(90, 45)
 		btn.add_theme_font_size_override("font_size", 16)
 		btn.pressed.connect(_on_start_menu_wave_pressed.bind(wave))
 		wave_container.add_child(btn)
 		start_wave_buttons.append({"button": btn, "wave": wave})
 
+	var bottom_row = HBoxContainer.new()
+	bottom_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	bottom_row.add_theme_constant_override("separation", 20)
+	wave_select_vbox.add_child(bottom_row)
+
 	var wave_research_btn = Button.new()
 	wave_research_btn.text = "Research Tree"
 	wave_research_btn.custom_minimum_size = Vector2(150, 40)
 	wave_research_btn.add_theme_font_size_override("font_size", 16)
-	wave_research_btn.set_anchors_preset(Control.PRESET_CENTER)
-	wave_research_btn.offset_top = 60
-	wave_research_btn.offset_left = -75
-	wave_research_btn.offset_right = 75
-	wave_research_btn.offset_bottom = 100
 	wave_research_btn.pressed.connect(_on_research_btn_pressed)
-	wave_select_container.add_child(wave_research_btn)
+	bottom_row.add_child(wave_research_btn)
 
 	var wave_back_btn = Button.new()
 	wave_back_btn.text = "Back"
-	wave_back_btn.custom_minimum_size = Vector2(150, 45)
-	wave_back_btn.add_theme_font_size_override("font_size", 18)
-	wave_back_btn.set_anchors_preset(Control.PRESET_CENTER)
-	wave_back_btn.offset_top = 110
-	wave_back_btn.offset_left = -75
-	wave_back_btn.offset_right = 75
-	wave_back_btn.offset_bottom = 155
+	wave_back_btn.custom_minimum_size = Vector2(150, 40)
+	wave_back_btn.add_theme_font_size_override("font_size", 16)
 	wave_back_btn.pressed.connect(_on_wave_select_back)
-	wave_select_container.add_child(wave_back_btn)
+	bottom_row.add_child(wave_back_btn)
+
 	_wave_buttons = []
 	for wb in start_wave_buttons:
 		_wave_buttons.append(wb["button"])
@@ -1107,6 +1154,40 @@ func _build_lobby_panel(root: Control):
 	lobby_name_input.focus_exited.connect(_on_lobby_input_unfocused)
 	lobby_name_input.text_changed.connect(_on_lobby_name_changed)
 
+	# Vehicle picker row
+	var vehicle_row = HBoxContainer.new()
+	vehicle_row.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	vehicle_row.offset_top = 175
+	vehicle_row.offset_left = -150
+	vehicle_row.offset_right = 150
+	vehicle_row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vehicle_row.add_theme_constant_override("separation", 10)
+	lobby_panel.add_child(vehicle_row)
+
+	var veh_title = Label.new()
+	veh_title.text = "Vehicle:"
+	veh_title.add_theme_font_size_override("font_size", 16)
+	veh_title.add_theme_color_override("font_color", Color(0.7, 0.7, 0.8))
+	vehicle_row.add_child(veh_title)
+
+	_lobby_vehicle_lander_btn = Button.new()
+	_lobby_vehicle_lander_btn.text = "Lander"
+	_lobby_vehicle_lander_btn.custom_minimum_size = Vector2(90, 32)
+	_lobby_vehicle_lander_btn.add_theme_font_size_override("font_size", 15)
+	_lobby_vehicle_lander_btn.pressed.connect(_on_lobby_vehicle_pick.bind("lander"))
+	_style_button(_lobby_vehicle_lander_btn, Color(0.1, 0.3, 0.15))
+	vehicle_row.add_child(_lobby_vehicle_lander_btn)
+
+	_lobby_vehicle_mech_btn = Button.new()
+	_lobby_vehicle_mech_btn.text = "Mech"
+	_lobby_vehicle_mech_btn.custom_minimum_size = Vector2(90, 32)
+	_lobby_vehicle_mech_btn.add_theme_font_size_override("font_size", 15)
+	_lobby_vehicle_mech_btn.pressed.connect(_on_lobby_vehicle_pick.bind("mech"))
+	_style_button(_lobby_vehicle_mech_btn, Color(0.15, 0.2, 0.4))
+	vehicle_row.add_child(_lobby_vehicle_mech_btn)
+
+	_update_lobby_vehicle_buttons()
+
 	# Single centered VBoxContainer for all lobby content (auto-stacks, no overlaps)
 	var lobby_center = VBoxContainer.new()
 	lobby_center.set_anchors_preset(Control.PRESET_CENTER)
@@ -1429,6 +1510,171 @@ func show_disconnect_panel():
 		disconnect_panel.visible = true
 
 
+# --- Vehicle Preview Cards (inline in wave select) ---
+
+func _make_vehicle_preview_card(title_text: String, desc_text: String, model_path: String, accent: Color, bg_color: Color, is_selected: bool) -> Button:
+	var btn = Button.new()
+	btn.custom_minimum_size = Vector2(260, 180)
+	var style = StyleBoxFlat.new()
+	style.bg_color = bg_color
+	style.set_corner_radius_all(10)
+	style.border_width_bottom = 3
+	style.border_width_top = 3
+	style.border_width_left = 3
+	style.border_width_right = 3
+	style.border_color = accent if is_selected else accent.darkened(0.5)
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	style.content_margin_top = 8
+	style.content_margin_bottom = 8
+	btn.add_theme_stylebox_override("normal", style)
+	var hover_style = style.duplicate()
+	hover_style.bg_color = bg_color.lightened(0.2)
+	hover_style.border_color = accent
+	hover_style.border_width_bottom = 4
+	hover_style.border_width_top = 4
+	hover_style.border_width_left = 4
+	hover_style.border_width_right = 4
+	btn.add_theme_stylebox_override("hover", hover_style)
+	var pressed_style = style.duplicate()
+	pressed_style.bg_color = bg_color.lightened(0.15)
+	pressed_style.border_color = accent.lightened(0.2)
+	btn.add_theme_stylebox_override("pressed", pressed_style)
+
+	var vbox = VBoxContainer.new()
+	vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	vbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	vbox.add_theme_constant_override("separation", 4)
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(vbox)
+
+	# 3D Preview via SubViewport
+	var viewport_container = SubViewportContainer.new()
+	viewport_container.custom_minimum_size = Vector2(240, 110)
+	viewport_container.stretch = true
+	viewport_container.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(viewport_container)
+
+	var viewport = SubViewport.new()
+	viewport.size = Vector2i(240, 110)
+	viewport.transparent_bg = true
+	viewport.render_target_update_mode = SubViewport.UPDATE_WHEN_VISIBLE
+	viewport.own_world_3d = true
+	viewport_container.add_child(viewport)
+
+	var camera = Camera3D.new()
+	camera.projection = Camera3D.PROJECTION_PERSPECTIVE
+	camera.fov = 30
+	var cam_pos: Vector3
+	var cam_target: Vector3
+	if title_text == "LANDER":
+		cam_pos = Vector3(8, 5, 12)
+		cam_target = Vector3(0, 1, 0)
+	else:
+		cam_pos = Vector3(6, 4, 10)
+		cam_target = Vector3(0, 2.5, 0)
+	camera.transform.origin = cam_pos
+	camera.basis = Basis.looking_at(cam_target - cam_pos)
+	viewport.add_child(camera)
+
+	var light = DirectionalLight3D.new()
+	light.rotation_degrees = Vector3(-40, 30, 0)
+	light.light_energy = 1.5
+	viewport.add_child(light)
+
+	var fill_light = DirectionalLight3D.new()
+	fill_light.rotation_degrees = Vector3(-25, -120, 0)
+	fill_light.light_energy = 0.4
+	fill_light.light_color = Color(0.6, 0.7, 1.0)
+	viewport.add_child(fill_light)
+
+	var model = load(model_path).instantiate()
+	viewport.add_child(model)
+	btn.set_meta("preview_model", model)
+
+	var name_label = Label.new()
+	name_label.text = title_text
+	name_label.add_theme_font_size_override("font_size", 20)
+	name_label.add_theme_color_override("font_color", accent)
+	name_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	name_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(name_label)
+
+	var desc_label = Label.new()
+	desc_label.text = desc_text
+	desc_label.add_theme_font_size_override("font_size", 13)
+	desc_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
+	desc_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vbox.add_child(desc_label)
+
+	return btn
+
+
+func _on_vehicle_card_pressed(type: String):
+	selected_vehicle = type
+	_update_vehicle_card_styles()
+
+
+func _update_vehicle_card_styles():
+	_apply_vehicle_btn_style(_vehicle_lander_btn, Color(0.3, 0.9, 0.5), Color(0.1, 0.3, 0.15), selected_vehicle == "lander")
+	_apply_vehicle_btn_style(_vehicle_mech_btn, Color(0.5, 0.7, 1.0), Color(0.15, 0.2, 0.4), selected_vehicle == "mech")
+
+
+func _apply_vehicle_btn_style(btn: Button, accent: Color, bg_color: Color, is_selected: bool):
+	if not btn:
+		return
+	var style = btn.get_theme_stylebox("normal").duplicate()
+	if is_selected:
+		style.border_color = accent
+		style.bg_color = bg_color.lightened(0.08)
+		style.border_width_bottom = 3
+		style.border_width_top = 3
+		style.border_width_left = 3
+		style.border_width_right = 3
+	else:
+		style.border_color = Color(0.2, 0.2, 0.25)
+		style.bg_color = Color(0.08, 0.08, 0.1, 0.85)
+		style.border_width_bottom = 2
+		style.border_width_top = 2
+		style.border_width_left = 2
+		style.border_width_right = 2
+	btn.add_theme_stylebox_override("normal", style)
+	btn.modulate = Color(1, 1, 1, 1) if is_selected else Color(0.55, 0.55, 0.6, 1)
+	var hover = btn.get_theme_stylebox("hover").duplicate()
+	hover.border_color = accent
+	hover.bg_color = bg_color.lightened(0.2)
+	btn.add_theme_stylebox_override("hover", hover)
+
+
+func _on_vehicle_hover(type: String):
+	_hovered_vehicle_card = type
+
+
+func _on_vehicle_unhover():
+	_hovered_vehicle_card = ""
+
+
+func _on_lobby_vehicle_pick(type: String):
+	lobby_vehicle_type = type
+	_update_lobby_vehicle_buttons()
+	# Sync vehicle choice to other players
+	var main = get_tree().current_scene
+	if main and main.has_method("send_player_vehicle"):
+		main.send_player_vehicle(type)
+
+
+func _update_lobby_vehicle_buttons():
+	if _lobby_vehicle_lander_btn:
+		var is_lander = lobby_vehicle_type == "lander"
+		_lobby_vehicle_lander_btn.add_theme_color_override("font_color", Color(0.3, 1.0, 0.5) if is_lander else Color(0.5, 0.5, 0.6))
+		_style_button(_lobby_vehicle_lander_btn, Color(0.15, 0.45, 0.2) if is_lander else Color(0.15, 0.15, 0.2))
+	if _lobby_vehicle_mech_btn:
+		var is_mech = lobby_vehicle_type == "mech"
+		_lobby_vehicle_mech_btn.add_theme_color_override("font_color", Color(0.5, 0.7, 1.0) if is_mech else Color(0.5, 0.5, 0.6))
+		_style_button(_lobby_vehicle_mech_btn, Color(0.2, 0.3, 0.55) if is_mech else Color(0.15, 0.15, 0.2))
+
+
 # --- Local Co-Op Lobby ---
 
 func _build_local_coop_lobby(root: Control):
@@ -1579,7 +1825,6 @@ func _update_local_coop_lobby():
 func _on_local_coop_continue():
 	if local_coop_devices.size() == 0:
 		return
-	# Go to wave select
 	local_coop_lobby.visible = false
 	start_menu.visible = true
 	menu_buttons_container.visible = false
@@ -1779,7 +2024,6 @@ func _on_single_player_pressed():
 	menu_buttons_container.visible = false
 	wave_select_container.visible = true
 	_update_start_menu()
-	_auto_select_menu()
 
 
 func _on_local_coop_pressed():
@@ -2279,6 +2523,12 @@ func _process(delta):
 		alert_label.modulate.a = clampf(alert_timer / 1.5, 0.0, 1.0)
 		if alert_timer <= 0:
 			alert_label.visible = false
+
+	# Spin hovered vehicle preview model
+	if _hovered_vehicle_card == "lander" and _lander_preview_model:
+		_lander_preview_model.rotation.y += delta * 1.5
+	if _hovered_vehicle_card == "mech" and _mech_preview_model:
+		_mech_preview_model.rotation.y += delta * 1.5
 
 	# Toggle mobile build confirm buttons and position relative to ghost preview
 	if is_mobile and build_confirm_panel:
@@ -3183,6 +3433,7 @@ func _on_card_click(event: InputEvent, idx: int):
 
 func start_mp_game():
 	_disconnect_network_signals()
+	selected_vehicle = lobby_vehicle_type  # Use lobby vehicle choice for MP client
 	lobby_panel.visible = false
 	_game_started = true
 	if gameplay_hud:
@@ -3273,6 +3524,7 @@ func _on_lobby_start_pressed():
 		local_player_name = "Host"
 	GameData.player_name = local_player_name
 	GameData.save_data()
+	selected_vehicle = lobby_vehicle_type  # Use lobby vehicle choice for MP
 	_disconnect_network_signals()
 	lobby_panel.visible = false
 	_game_started = true

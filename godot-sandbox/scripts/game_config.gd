@@ -39,7 +39,7 @@ extends Resource
 # PLAYER
 # =============================================================================
 @export_group("Player")
-@export var player_speed: float = 250.0
+@export var player_speed: float = 125.0
 @export var player_health: int = 100
 @export var shoot_cooldown: float = 0.25
 @export var bullet_damage: int = 10

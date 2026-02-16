@@ -15,10 +15,40 @@ const MINING_LASER_SOUND_END = preload("uid://ckujswy7m8f0r")
 ## ----------- ##
 
 ## SHIP VISUALS ##
-@onready var player_ship: Node3D = $PlayerShip
-@onready var gun_node: Node3D = $PlayerShip/Model/gun
+@onready var lander_node: Node3D = $PlayerShip
+@onready var mech_node: Node3D = $PlayerMech
+var player_ship: Node3D  # Active model (set in _ready based on vehicle_type)
+var gun_node: Node3D
+var laser_origin: Marker3D  # Active model's laser origin
 @export var hp_bar_y_offset: float = 18.0
 @export var turret_lerp_speed: float = 20.0
+var vehicle_type: String = "lander"  # "lander" or "mech"
+
+# Mech procedural animation (inspector-tunable)
+@export_group("Mech Animation")
+@export var mech_walk_speed: float = 8.0
+@export var mech_hip_swing: float = 0.4
+@export var mech_knee_bend: float = 0.5
+@export var mech_arm_pitch: float = 0.8
+@export var mech_idle_bob: float = 0.03
+@export var mech_idle_sway: float = 0.005
+@export var mech_idle_speed: float = 4.0
+
+var _mech_pelvis: Node3D = null
+var _mech_torso: Node3D = null
+var _mech_l_hip: Node3D = null
+var _mech_l_knee: Node3D = null
+var _mech_r_hip: Node3D = null
+var _mech_r_knee: Node3D = null
+var _mech_l_upper_arm: Node3D = null
+var _mech_r_upper_arm: Node3D = null
+var _mech_l_elbow: Node3D = null
+var _mech_r_elbow: Node3D = null
+var _mech_walk_phase: float = 0.0
+var _mech_pelvis_angle: float = 0.0
+var _mech_idle_phase: float = 0.0
+var _mech_model: Node3D = null  # Model node for procedural idle sway
+var _mech_rest_x: Dictionary = {}  # node → rest rotation.x (preserved from GLTF)
 
 var health: int = CFG.player_health
 var max_health: int = CFG.player_health
@@ -116,10 +146,47 @@ var _remote_target_pos: Vector3 = Vector3.ZERO
 
 func _ready():
 	add_to_group("player")
-	# Set bullet origin from the ship's gun marker
-	var bo = get_node_or_null("PlayerShip/Model/gun/BulletOrigin")
-	if bo:
-		bullet_origin = bo
+	# Toggle visibility based on vehicle selection
+	if vehicle_type == "mech":
+		lander_node.visible = false
+		mech_node.visible = true
+		player_ship = mech_node
+	else:
+		lander_node.visible = true
+		mech_node.visible = false
+		player_ship = lander_node
+	gun_node = player_ship.get_node_or_null("Model/gun")
+	bullet_origin = player_ship.get_node_or_null("Model/gun/BulletOrigin")
+	laser_origin = player_ship.get_node_or_null("Model/LaserOrigin")
+	if vehicle_type == "mech":
+		_init_mech_bones()
+
+
+func _init_mech_bones():
+	var model = player_ship.get_node_or_null("Model")
+	if not model:
+		return
+	_mech_model = model
+	# Stop the AnimationPlayer idle anim — we drive sway procedurally now
+	var anim_player = player_ship.get_node_or_null("AnimationPlayer")
+	if anim_player:
+		anim_player.stop()
+	_mech_pelvis = model.find_child("root_Pelvis", true, false)
+	_mech_torso = model.find_child("Torso-head", true, false)
+	# Left side (clean names, no suffix)
+	_mech_l_hip = model.find_child("L_pelvis_thigh", true, false)
+	_mech_l_knee = model.find_child("L_back_knee", true, false)
+	_mech_l_upper_arm = model.find_child("L_upper_arm", true, false)
+	_mech_l_elbow = model.find_child("L_elbow", true, false)
+	# Right side: Godot replaces '.' with '_' on GLTF import, so .001 becomes _001
+	_mech_r_hip = model.find_child("R_pelvis_thigh_001", true, false)
+	_mech_r_knee = model.find_child("R_back_knee_001", true, false)
+	_mech_r_upper_arm = model.find_child("R_upper_arm_001", true, false)
+	_mech_r_elbow = model.find_child("R_elbow_001", true, false)
+	# Capture GLTF rest rotations so we add offsets instead of replacing
+	for node in [_mech_l_hip, _mech_l_knee, _mech_r_hip, _mech_r_knee, _mech_l_upper_arm, _mech_r_upper_arm, _mech_l_elbow, _mech_r_elbow]:
+		if node:
+			_mech_rest_x[node] = node.rotation.x
 
 
 func _get_res() -> Node3D:
@@ -382,13 +449,84 @@ func _process(delta):
 
 func _update_ship_visual():
 	if player_ship:
-		player_ship.rotation.y = -facing_angle - PI / 2
 		player_ship.visible = not is_dead
+		if vehicle_type == "mech" and _mech_pelvis:
+			_update_mech_visual()
+			return
+		player_ship.rotation.y = -facing_angle - PI / 2
 	if gun_node:
 		# Gun aims independently; rotation is relative to the ship
 		var target_y = -(gun_angle - facing_angle) - PI / 2
 		var diff = wrapf(target_y - gun_visual_angle, -PI, PI)
 		gun_visual_angle += diff * minf(1.0, turret_lerp_speed * get_process_delta_time())
+		gun_node.rotation.y = gun_visual_angle
+
+
+func _update_mech_visual():
+	var dt = get_process_delta_time()
+	var is_walking = move_direction.length() > 0.1
+
+	# --- Pelvis faces movement direction (smooth lerp) ---
+	if is_walking:
+		var target_angle = atan2(move_direction.z, move_direction.x)
+		var diff = wrapf(target_angle - _mech_pelvis_angle, -PI, PI)
+		_mech_pelvis_angle += diff * minf(1.0, 8.0 * dt)
+	player_ship.rotation.y = 0.0
+	_mech_pelvis.rotation.y = -_mech_pelvis_angle + PI / 2.0
+
+	# --- Torso faces target/mouse (relative to pelvis) ---
+	if _mech_torso:
+		var torso_world_target = -gun_angle + PI / 2.0
+		var torso_local = torso_world_target - _mech_pelvis.rotation.y
+		var torso_diff = wrapf(torso_local - _mech_torso.rotation.y, -PI, PI)
+		_mech_torso.rotation.y += torso_diff * minf(1.0, turret_lerp_speed * dt)
+
+	# --- Walk cycle (procedural leg animation) ---
+	if is_walking:
+		_mech_walk_phase = fmod(_mech_walk_phase + dt * mech_walk_speed, TAU)
+		var s = sin(_mech_walk_phase)
+		# Left leg
+		if _mech_l_hip:
+			_mech_l_hip.rotation.x = _mech_rest_x.get(_mech_l_hip, 0.0) - s * mech_hip_swing
+		if _mech_l_knee:
+			_mech_l_knee.rotation.x = _mech_rest_x.get(_mech_l_knee, 0.0) + maxf(0.0, s) * mech_knee_bend
+		# Right leg (opposite offset for alternation)
+		if _mech_r_hip:
+			_mech_r_hip.rotation.x = _mech_rest_x.get(_mech_r_hip, 0.0) + s * mech_hip_swing
+		if _mech_r_knee:
+			_mech_r_knee.rotation.x = _mech_rest_x.get(_mech_r_knee, 0.0) + maxf(0.0, -s) * mech_knee_bend
+	else:
+		# Ease joints back to rest pose
+		if _mech_l_hip:
+			_mech_l_hip.rotation.x = lerpf(_mech_l_hip.rotation.x, _mech_rest_x.get(_mech_l_hip, 0.0), dt * 5.0)
+		if _mech_r_hip:
+			_mech_r_hip.rotation.x = lerpf(_mech_r_hip.rotation.x, _mech_rest_x.get(_mech_r_hip, 0.0), dt * 5.0)
+		if _mech_l_knee:
+			_mech_l_knee.rotation.x = lerpf(_mech_l_knee.rotation.x, _mech_rest_x.get(_mech_l_knee, 0.0), dt * 5.0)
+		if _mech_r_knee:
+			_mech_r_knee.rotation.x = lerpf(_mech_r_knee.rotation.x, _mech_rest_x.get(_mech_r_knee, 0.0), dt * 5.0)
+
+	# --- Idle sway (procedural, replaces AnimationPlayer idle) ---
+	_mech_idle_phase = fmod(_mech_idle_phase + dt * mech_idle_speed, TAU)
+	if _mech_model:
+		_mech_model.position.y = sin(_mech_idle_phase * 2.0) * mech_idle_bob
+		_mech_model.rotation.z = sin(_mech_idle_phase) * mech_idle_sway
+
+	# --- Arms aim forward: upper arm pitches forward, elbow bends to level the forearm ---
+	if _mech_l_upper_arm:
+		_mech_l_upper_arm.rotation.x = _mech_rest_x.get(_mech_l_upper_arm, 0.0) - mech_arm_pitch
+	if _mech_l_elbow:
+		_mech_l_elbow.rotation.x = _mech_rest_x.get(_mech_l_elbow, 0.0) - mech_arm_pitch
+	if _mech_r_upper_arm:
+		_mech_r_upper_arm.rotation.x = _mech_rest_x.get(_mech_r_upper_arm, 0.0) - mech_arm_pitch
+	if _mech_r_elbow:
+		_mech_r_elbow.rotation.x = _mech_rest_x.get(_mech_r_elbow, 0.0) - mech_arm_pitch
+
+	# --- Gun node follows aim for bullet origin positioning ---
+	if gun_node:
+		var target_y = -gun_angle - PI / 2.0
+		var gdiff = wrapf(target_y - gun_visual_angle, -PI, PI)
+		gun_visual_angle += gdiff * minf(1.0, turret_lerp_speed * dt)
 		gun_node.rotation.y = gun_visual_angle
 
 

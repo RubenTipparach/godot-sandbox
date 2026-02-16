@@ -77,6 +77,9 @@ func _process(delta):
 	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
 	if _flash_mat:
 		_flash_mat.set_shader_parameter("flash_amount", 1.0 if hit_flash_timer > 0 else 0.0)
+		if _sprite:
+			var tex = _sprite.sprite_frames.get_frame_texture(_sprite.animation, _sprite.frame)
+			_flash_mat.set_shader_parameter("sprite_texture", tex)
 	acid_timer = maxf(0.0, acid_timer - delta)
 
 	if is_puppet:
