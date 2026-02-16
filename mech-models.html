@@ -118,6 +118,19 @@
   .export-btn:active { transform: scale(0.96); }
   .export-btn.exporting { opacity: 0.5; pointer-events: none; }
 
+  .export-options {
+    position: absolute; top: 60px; right: 56px; pointer-events: all;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .export-options label {
+    font-family: 'Share Tech Mono', monospace; font-size: 10px;
+    color: var(--text-dim); letter-spacing: 1px; cursor: pointer;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .export-options input[type="checkbox"] {
+    accent-color: var(--accent); cursor: pointer;
+  }
+
   .toast {
     position: fixed; top: 80px; right: 56px; background: var(--panel); border: 1px solid var(--accent);
     color: var(--accent); font-family: 'Share Tech Mono', monospace; font-size: 11px;
@@ -158,6 +171,9 @@
   </div>
 
   <button class="export-btn" id="exportBtn">⬡ Export GLTF</button>
+  <div class="export-options">
+    <label><input type="checkbox" id="exportBones" checked> EXPORT BONES</label>
+  </div>
 
   <div class="crosshair"></div>
   <div class="mech-class"><div class="class-name" id="classLabel">TITAN</div></div>
@@ -175,11 +191,16 @@
 // INLINE GLB EXPORTER (r128-compatible)
 // ══════════════════════════════════════
 class GLTFExporter {
-  parse(rootObj, onDone) {
+  parse(rootObj, onDone, options) {
+    const opts = options || {};
+    rootObj.updateMatrixWorld(true);
     const json = { asset:{version:'2.0',generator:'MechForge'},scenes:[{nodes:[]}],scene:0,nodes:[],meshes:[],accessors:[],bufferViews:[],buffers:[],materials:[] };
     const chunks = [];
     let byteOff = 0;
     const matMap = new Map();
+    const nodeMap = new Map();
+    const boneList = [];
+    if(opts.exportBones!==false) rootObj.traverse(obj=>{ if(obj.userData&&obj.userData.isBone) boneList.push(obj); });
 
     const addMat = (m) => {
       if (matMap.has(m.uuid)) return matMap.get(m.uuid);
@@ -195,7 +216,9 @@ class GLTFExporter {
       pad4();
       const buf = arr.buffer.slice(arr.byteOffset, arr.byteOffset+arr.byteLength);
       const bv = json.bufferViews.length;
-      json.bufferViews.push({buffer:0,byteOffset:byteOff,byteLength:buf.byteLength,target});
+      const bvObj={buffer:0,byteOffset:byteOff,byteLength:buf.byteLength};
+      if(target!==undefined) bvObj.target=target;
+      json.bufferViews.push(bvObj);
       chunks.push(new Uint8Array(buf)); byteOff+=buf.byteLength;
       return bv;
     };
@@ -246,6 +269,7 @@ class GLTFExporter {
       }
 
       const ni=json.nodes.length; json.nodes.push(nd);
+      nodeMap.set(obj.uuid, ni);
       if(obj.children.length){
         nd.children=[];
         obj.children.forEach(ch=>{ if(ch.isMesh||ch.isGroup||ch.isObject3D) nd.children.push(processNode(ch)); });
@@ -254,6 +278,56 @@ class GLTFExporter {
     };
 
     json.scenes[0].nodes.push(processNode(rootObj));
+
+    // Add skin/armature if bone nodes exist
+    if(boneList.length>0){
+      const nB=boneList.length;
+      // Inverse bind matrices — one MAT4 per bone
+      const ibm=new Float32Array(nB*16);
+      const joints=[];
+      boneList.forEach((b,i)=>{
+        const idx=nodeMap.get(b.uuid);
+        if(idx!==undefined) joints.push(idx);
+        b.matrixWorld.clone().invert().toArray(ibm,i*16);
+      });
+      const ibmBV=addBuf(ibm);
+      const ibmAcc=json.accessors.length;
+      json.accessors.push({bufferView:ibmBV,componentType:5126,count:nB,type:'MAT4'});
+
+      // Helper mesh: one degenerate triangle per bone so each joint gets vertex weight
+      const nV=nB*3;
+      const hp=new Float32Array(nV*3), hn=new Float32Array(nV*3);
+      const hj=new Uint8Array(nV*4), hw=new Float32Array(nV*4);
+      const hi=new Uint16Array(nV);
+      for(let i=0;i<nB;i++) for(let v=0;v<3;v++){
+        const vi=i*3+v;
+        hp[vi*3]=v*0.0001; hp[vi*3+1]=i*0.0001; hp[vi*3+2]=0;
+        hn[vi*3+2]=1;
+        hj[vi*4]=i;
+        hw[vi*4]=1;
+        hi[vi]=vi;
+      }
+      const hpBV=addBuf(hp,34962),hnBV=addBuf(hn,34962),hjBV=addBuf(hj,34962),hwBV=addBuf(hw,34962);
+      const hiBV=addBuf(hi,34963);
+      const hpA=json.accessors.length;json.accessors.push({bufferView:hpBV,componentType:5126,count:nV,type:'VEC3',min:[0,0,0],max:[2*0.0001,nB*0.0001,0]});
+      const hnA=json.accessors.length;json.accessors.push({bufferView:hnBV,componentType:5126,count:nV,type:'VEC3'});
+      const hjA=json.accessors.length;json.accessors.push({bufferView:hjBV,componentType:5121,count:nV,type:'VEC4'});
+      const hwA=json.accessors.length;json.accessors.push({bufferView:hwBV,componentType:5126,count:nV,type:'VEC4'});
+      const hiA=json.accessors.length;json.accessors.push({bufferView:hiBV,componentType:5123,count:nV,type:'SCALAR'});
+
+      const hMat=json.materials.length;
+      json.materials.push({pbrMetallicRoughness:{baseColorFactor:[0,0,0,0]},alphaMode:'BLEND'});
+      const hMesh=json.meshes.length;
+      json.meshes.push({primitives:[{attributes:{POSITION:hpA,NORMAL:hnA,JOINTS_0:hjA,WEIGHTS_0:hwA},indices:hiA,material:hMat}]});
+
+      json.skins=[{joints,inverseBindMatrices:ibmAcc,skeleton:joints[0]}];
+      // Attach skin + helper mesh to root node so Blender sees armature as parent of bones
+      const rootNI=json.scenes[0].nodes[0];
+      json.nodes[rootNI].mesh=hMesh;
+      json.nodes[rootNI].skin=0;
+      json.nodes[rootNI].name='Armature';
+    }
+
     const totalLen=chunks.reduce((a,b)=>a+b.byteLength,0);
     json.buffers.push({byteLength:totalLen});
     const binBuf=new Uint8Array(totalLen);
@@ -380,7 +454,9 @@ function bx(g,geo,mat,x,y,z,rx,ry,rz){
   m.castShadow=true;g.add(m);return m;
 }
 
-// Rocket pod: grid of tubes in a housing
+function bn(name,x,y,z){const b=new THREE.Group();b.name=name;b.position.set(x,y,z);b.userData.isBone=true;return b;}
+
+// Rocket pod: grid of tubes in a housing (local coords relative to parent)
 function rocketPod(g,x,y,z,rows,cols,mat,accentMat){
   bx(g,new THREE.BoxGeometry(cols*0.14+0.2, rows*0.14+0.2, 0.7),mat,x,y,z);
   const tubeMat=new THREE.MeshStandardMaterial({color:0x111111,metalness:0.95,roughness:0.1});
@@ -393,7 +469,7 @@ function rocketPod(g,x,y,z,rows,cols,mat,accentMat){
   bx(g,new THREE.BoxGeometry(cols*0.14+0.22,0.05,0.3),accentMat,x,y+rows*0.07+0.12,z+0.05);
 }
 
-// LRM rack: wide missile box
+// LRM rack: wide missile box (local coords relative to parent)
 function lrmRack(g,x,y,z,count,mat,accentMat){
   const w=count*0.11+0.15;
   bx(g,new THREE.BoxGeometry(w,0.4,0.9),mat,x,y,z);
@@ -405,32 +481,44 @@ function lrmRack(g,x,y,z,count,mat,accentMat){
   bx(g,new THREE.BoxGeometry(w+0.04,0.06,0.15),accentMat,x,y+0.2,z+0.42);
 }
 
-// Chicken / reverse-joint legs
-function chickenLeg(g,side,hipX,hipY,thighL,shinL,mat,dark,joint,accent){
-  bx(g,new THREE.SphereGeometry(0.22,8,8),joint,side*hipX,hipY,0);
+// Chicken / reverse-joint legs — builds bone chain and attaches to pelvisBone
+// pelvisWorldY = world Y of the pelvis bone this leg attaches to
+function chickenLeg(pelvis,side,hipX,hipY,thighL,shinL,mat,dark,joint,accent,pelvisWorldY){
+  const p=side===-1?'L':'R';
 
-  const th=bx(g,new THREE.BoxGeometry(0.42,thighL,0.48),mat,side*hipX,hipY-thighL*0.38,-0.18);
+  const hip=bn(p+'_hip',side*hipX,hipY-pelvisWorldY,0);
+  pelvis.add(hip);
+  bx(hip,new THREE.SphereGeometry(0.22,8,8),joint,0,0,0);
+
+  const thigh=bn(p+'_thigh',0,0,0);
+  hip.add(thigh);
+  const th=bx(thigh,new THREE.BoxGeometry(0.42,thighL,0.48),mat,0,-thighL*0.38,-0.18);
   th.rotation.x=-0.3;
 
   const kneeY=hipY-thighL*0.72, kneeZ=-0.38;
-  bx(g,new THREE.SphereGeometry(0.2,8,8),joint,side*hipX,kneeY,kneeZ);
-  // Reverse knee cap
-  bx(g,new THREE.BoxGeometry(0.32,0.28,0.22),accent,side*hipX,kneeY,kneeZ-0.16);
+  const knee=bn(p+'_back_knee',0,-(thighL*0.72),-0.38);
+  thigh.add(knee);
+  bx(knee,new THREE.SphereGeometry(0.2,8,8),joint,0,0,0);
+  bx(knee,new THREE.BoxGeometry(0.32,0.28,0.22),accent,0,0,-0.16);
 
-  // Shin bridges from knee to ankle
   const ankleY=0.28, ankleZ=0.3;
   const dy=kneeY-ankleY, dz=ankleZ-kneeZ;
   const shinLen=Math.sqrt(dy*dy+dz*dz);
-  const sh=bx(g,new THREE.BoxGeometry(0.36,shinLen,0.42),mat,side*hipX,(kneeY+ankleY)/2,(kneeZ+ankleZ)/2);
+
+  const shin=bn(p+'_shin',0,0,0);
+  knee.add(shin);
+  const sh=bx(shin,new THREE.BoxGeometry(0.36,shinLen,0.42),mat,0,(ankleY-kneeY)/2,(ankleZ-kneeZ)/2);
   sh.rotation.x=-Math.atan2(dz,dy);
 
-  // Ankle + foot
-  bx(g,new THREE.SphereGeometry(0.14,6,6),joint,side*hipX,ankleY,ankleZ);
-  bx(g,new THREE.BoxGeometry(0.32,0.12,0.55),dark,side*hipX,0.1,0.32);
-  // Toe claws
-  [-0.08,0.08].forEach(dx=>bx(g,new THREE.BoxGeometry(0.06,0.06,0.22),accent,side*hipX+dx,0.06,0.65));
-  // Rear spur
-  bx(g,new THREE.BoxGeometry(0.06,0.06,0.18),dark,side*hipX,0.06,0.02);
+  const ankle=bn(p+'_ankle',0,ankleY-kneeY,ankleZ-kneeZ);
+  shin.add(ankle);
+  bx(ankle,new THREE.SphereGeometry(0.14,6,6),joint,0,0,0);
+
+  const foot=bn(p+'_foot',0,0.1-ankleY,0.32-ankleZ);
+  ankle.add(foot);
+  bx(foot,new THREE.BoxGeometry(0.32,0.12,0.55),dark,0,0,0);
+  [-0.08,0.08].forEach(dx=>bx(foot,new THREE.BoxGeometry(0.06,0.06,0.22),accent,dx,-0.04,0.33));
+  bx(foot,new THREE.BoxGeometry(0.06,0.06,0.18),dark,0,-0.04,-0.30);
 }
 
 // ══════════════════════════════════════
@@ -439,106 +527,285 @@ function chickenLeg(g,side,hipX,hipY,thighL,shinL,mat,dark,joint,accent){
 
 function buildTitan(def){
   const g=new THREE.Group(),main=M(0x2a3040,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x1a1e28),jt=M(0x3a3a3a,null,0.9,0.2);
-  bx(g,new THREE.BoxGeometry(2.4,1.6,1.6),main,0,4.2,0);
-  bx(g,new THREE.BoxGeometry(2.6,0.6,1.0),acc,0,4.8,0.4);
-  bx(g,new THREE.BoxGeometry(0.7,0.5,0.7),dk,0,5.3,0);
-  bx(g,new THREE.BoxGeometry(0.75,0.15,0.3),acc,0,5.35,0.25);
+  const PY=3.2; // pelvis world Y
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(1.4,0.5,1.2),dk,0,0,0);
+
+  // Torso at world 4.2
+  const torso=bn('Torso',0,1.0,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(2.4,1.6,1.6),main,0,0,0);
+  bx(torso,new THREE.BoxGeometry(2.6,0.6,1.0),acc,0,0.6,0.4);
+
+  // Head at world 5.3
+  const head=bn('Head',0,1.1,0); torso.add(head);
+  bx(head,new THREE.BoxGeometry(0.7,0.5,0.7),dk,0,0,0);
+  bx(head,new THREE.BoxGeometry(0.75,0.15,0.3),acc,0,0.05,0.25);
+
+  // Arms
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(1.0,0.8,1.4),main,s*1.8,4.8,0);
-    bx(g,new THREE.BoxGeometry(1.05,0.15,1.0),acc,s*1.8,5.15,0);
-    bx(g,new THREE.BoxGeometry(0.5,1.2,0.5),dk,s*1.8,3.8,0);
-    bx(g,new THREE.BoxGeometry(0.6,1.0,0.7),main,s*1.8,2.7,0.1);
-    if(s===1){const b=bx(g,new THREE.CylinderGeometry(0.15,0.15,1.2,8),jt,s*1.8,2.5,0.9);b.rotation.x=Math.PI/2;}
-    if(s===-1) bx(g,new THREE.BoxGeometry(0.15,1.0,1.0),acc,s*2.2,2.7,0.1);
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*1.8, 4.8, 0)
+    const shoulder=bn(p+'_shoulder',s*1.8,0.6,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(1.0,0.8,1.4),main,0,0,0);
+    bx(shoulder,new THREE.BoxGeometry(1.05,0.15,1.0),acc,0,0.35,0);
+
+    // Upper arm at world (s*1.8, 3.8, 0)
+    const uArm=bn(p+'_upper_arm',0,-1.0,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.5,1.2,0.5),dk,0,0,0);
+
+    // Elbow at world (s*1.8, 3.25, 0.05)
+    const elbow=bn(p+'_elbow',0,-0.55,0.05); uArm.add(elbow);
+
+    // Forearm at world (s*1.8, 2.7, 0.1)
+    const forearm=bn(p+'_forearm',0,-0.55,0.05); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.6,1.0,0.7),main,0,0,0);
+
+    if(s===1){
+      const wep=bn(p+'_weapon',0,-0.2,0.8); forearm.add(wep);
+      const b=bx(wep,new THREE.CylinderGeometry(0.15,0.15,1.2,8),jt,0,0,0);b.rotation.x=Math.PI/2;
+    }
+    if(s===-1){
+      const wep=bn(p+'_weapon',-0.4,0,0); forearm.add(wep);
+      bx(wep,new THREE.BoxGeometry(0.15,1.0,1.0),acc,0,0,0);
+    }
   });
-  bx(g,new THREE.BoxGeometry(1.4,0.5,1.2),dk,0,3.2,0);
-  [-1,1].forEach(s=>{
-    bx(g,new THREE.SphereGeometry(0.3,8,8),jt,s*0.6,3.0,0);
-    bx(g,new THREE.BoxGeometry(0.7,1.4,0.8),main,s*0.6,2.1,0);
-    bx(g,new THREE.SphereGeometry(0.25,8,8),jt,s*0.6,1.3,0.1);
-    bx(g,new THREE.BoxGeometry(0.6,1.4,0.7),main,s*0.6,0.5,0.05);
-    bx(g,new THREE.BoxGeometry(0.65,0.8,0.2),acc,s*0.6,0.7,0.4);
-    bx(g,new THREE.BoxGeometry(0.8,0.25,1.1),dk,s*0.6,0.12,0.15);
-  });
+
+  // Jetpack at world (0, 4.0, -1.0)
+  const jetpack=bn('Jetpack',0,-0.2,-1.0); torso.add(jetpack);
   [-0.5,0.5].forEach(x=>{
-    bx(g,new THREE.CylinderGeometry(0.25,0.35,0.8,8),dk,x,4.0,-1.0);
-    bx(g,new THREE.CylinderGeometry(0.2,0.3,0.1,8),acc,x,3.55,-1.0);
+    bx(jetpack,new THREE.CylinderGeometry(0.25,0.35,0.8,8),dk,x,0,0);
+    bx(jetpack,new THREE.CylinderGeometry(0.2,0.3,0.1,8),acc,x,-0.45,0);
   });
+
+  // Legs (standard humanoid)
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Hip at world (s*0.6, 3.0, 0)
+    const hip=bn(p+'_hip',s*0.6,-0.2,0); pelvis.add(hip);
+    bx(hip,new THREE.SphereGeometry(0.3,8,8),jt,0,0,0);
+
+    const thigh=bn(p+'_thigh',0,0,0); hip.add(thigh);
+    bx(thigh,new THREE.BoxGeometry(0.7,1.4,0.8),main,0,-0.9,0);
+
+    // Knee at world (s*0.6, 1.3, 0.1)
+    const knee=bn(p+'_knee',0,-1.7,0.1); thigh.add(knee);
+    bx(knee,new THREE.SphereGeometry(0.25,8,8),jt,0,0,0);
+
+    const shin=bn(p+'_shin',0,0,0); knee.add(shin);
+    bx(shin,new THREE.BoxGeometry(0.6,1.4,0.7),main,0,-0.8,-0.05);
+    bx(shin,new THREE.BoxGeometry(0.65,0.8,0.2),acc,0,-0.6,0.3);
+
+    // Ankle/foot at world (s*0.6, 0.12, 0.15)
+    const ankle=bn(p+'_ankle',0,-1.18,0.05); shin.add(ankle);
+    const foot=bn(p+'_foot',0,0,0); ankle.add(foot);
+    bx(foot,new THREE.BoxGeometry(0.8,0.25,1.1),dk,0,0,0);
+  });
+
   return g;
 }
 
 function buildPhantom(def){
   const g=new THREE.Group(),main=M(0x1e1e2a,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x151520),jt=M(0x333340,null,0.9,0.2);
-  bx(g,new THREE.BoxGeometry(1.2,1.8,0.8),main,0,4.0,0);
-  bx(g,new THREE.BoxGeometry(0.5,0.4,0.6),dk,0,5.2,0);
-  bx(g,new THREE.BoxGeometry(0.35,0.08,0.15),acc,-0.12,5.22,0.32,0,0,0.15);
-  bx(g,new THREE.BoxGeometry(0.35,0.08,0.15),acc,0.12,5.22,0.32,0,0,-0.15);
-  bx(g,new THREE.BoxGeometry(0.04,0.5,0.04),acc,0.3,5.5,-0.1,0,0,-0.2);
+  const PY=2.9;
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(0.8,0.4,0.6),dk,0,0,0);
+
+  // Torso at world 4.0
+  const torso=bn('Torso',0,1.1,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(1.2,1.8,0.8),main,0,0,0);
+
+  // Head at world 5.2
+  const head=bn('Head',0,1.2,0); torso.add(head);
+  bx(head,new THREE.BoxGeometry(0.5,0.4,0.6),dk,0,0,0);
+  bx(head,new THREE.BoxGeometry(0.35,0.08,0.15),acc,-0.12,0.02,0.32,0,0,0.15);
+  bx(head,new THREE.BoxGeometry(0.35,0.08,0.15),acc,0.12,0.02,0.32,0,0,-0.15);
+  bx(head,new THREE.BoxGeometry(0.04,0.5,0.04),acc,0.3,0.3,-0.1,0,0,-0.2);
+
+  // Arms
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(0.4,0.35,0.6),main,s*0.9,4.7,0);
-    bx(g,new THREE.BoxGeometry(0.3,1.0,0.3),dk,s*1.0,3.9,0);
-    bx(g,new THREE.SphereGeometry(0.15,6,6),jt,s*1.0,3.3,0);
-    bx(g,new THREE.BoxGeometry(0.25,1.0,0.35),main,s*1.0,2.6,0.05);
-    bx(g,new THREE.BoxGeometry(0.04,0.6,0.8),acc,s*1.0,2.1,0.5,0.3);
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*0.9, 4.7, 0)
+    const shoulder=bn(p+'_shoulder',s*0.9,0.7,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(0.4,0.35,0.6),main,0,0,0);
+
+    // Upper arm at world (s*1.0, 3.9, 0)
+    const uArm=bn(p+'_upper_arm',s*0.1,-0.8,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.3,1.0,0.3),dk,0,0,0);
+
+    // Elbow at world (s*1.0, 3.3, 0)
+    const elbow=bn(p+'_elbow',0,-0.6,0); uArm.add(elbow);
+    bx(elbow,new THREE.SphereGeometry(0.15,6,6),jt,0,0,0);
+
+    // Forearm at world (s*1.0, 2.6, 0.05)
+    const forearm=bn(p+'_forearm',0,-0.7,0.05); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.25,1.0,0.35),main,0,0,0);
+
+    // Blade weapon
+    const wep=bn(p+'_weapon',0,-0.5,0.45); forearm.add(wep);
+    bx(wep,new THREE.BoxGeometry(0.04,0.6,0.8),acc,0,0,0,0.3);
   });
-  bx(g,new THREE.BoxGeometry(0.8,0.4,0.6),dk,0,2.9,0);
-  [-1,1].forEach(s=>chickenLeg(g,s,0.4,2.7,1.3,1.2,main,dk,jt,acc));
+
+  // Wings on torso
+  const wings=bn('Wings',0,0.3,-0.9); torso.add(wings);
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(0.08,0.8,1.2),main,s*0.7,4.3,-0.9);
-    bx(g,new THREE.BoxGeometry(0.08,0.3,0.6),acc,s*0.75,4.6,-1.3);
+    bx(wings,new THREE.BoxGeometry(0.08,0.8,1.2),main,s*0.7,0,0);
+    bx(wings,new THREE.BoxGeometry(0.08,0.3,0.6),acc,s*0.75,0.3,-0.4);
   });
+
+  // Chicken legs
+  [-1,1].forEach(s=>chickenLeg(pelvis,s,0.4,2.7,1.3,1.2,main,dk,jt,acc,PY));
+
   return g;
 }
 
 function buildGoliath(def){
   const g=new THREE.Group(),main=M(0x3a3020,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x252015),jt=M(0x4a4030,null,0.9,0.2);
-  bx(g,new THREE.BoxGeometry(3.0,2.0,2.0),main,0,4.5,0);
-  bx(g,new THREE.BoxGeometry(2.8,1.4,0.2),dk,0,4.5,1.1);
-  bx(g,new THREE.BoxGeometry(1.0,0.5,0.8),dk,0,5.8,0);
-  bx(g,new THREE.BoxGeometry(0.8,0.12,0.3),acc,0,5.78,0.45);
+  const PY=3.2;
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(2.2,0.7,1.6),dk,0,0,0);
+
+  // Torso at world 4.5
+  const torso=bn('Torso',0,1.3,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(3.0,2.0,2.0),main,0,0,0);
+  bx(torso,new THREE.BoxGeometry(2.8,1.4,0.2),dk,0,0,1.1);
+
+  // Head at world 5.8
+  const head=bn('Head',0,1.3,0); torso.add(head);
+  bx(head,new THREE.BoxGeometry(1.0,0.5,0.8),dk,0,0,0);
+  bx(head,new THREE.BoxGeometry(0.8,0.12,0.3),acc,0,-0.02,0.45);
+  // Head-mounted cannons
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(0.6,0.6,0.6),dk,s*1.3,5.8,-0.3);
-    bx(g,new THREE.CylinderGeometry(0.2,0.25,1.8,8),jt,s*1.3,5.8,0.7,Math.PI/2);
-    bx(g,new THREE.CylinderGeometry(0.28,0.22,0.3,8),acc,s*1.3,5.8,1.6,Math.PI/2);
-    bx(g,new THREE.BoxGeometry(1.0,1.0,1.2),main,s*2.2,4.8,0);
-    bx(g,new THREE.BoxGeometry(0.7,1.4,0.7),dk,s*2.2,3.6,0);
-    bx(g,new THREE.BoxGeometry(0.8,1.3,0.9),main,s*2.2,2.3,0.1);
-    bx(g,new THREE.BoxGeometry(0.9,0.7,0.9),dk,s*2.2,1.4,0.1);
+    bx(head,new THREE.BoxGeometry(0.6,0.6,0.6),dk,s*1.3,0,-0.3);
+    const b=bx(head,new THREE.CylinderGeometry(0.2,0.25,1.8,8),jt,s*1.3,0,0.7);b.rotation.x=Math.PI/2;
+    const t=bx(head,new THREE.CylinderGeometry(0.28,0.22,0.3,8),acc,s*1.3,0,1.6);t.rotation.x=Math.PI/2;
   });
-  bx(g,new THREE.BoxGeometry(2.2,0.7,1.6),dk,0,3.2,0);
+
+  // Arms
   [-1,1].forEach(s=>{
-    bx(g,new THREE.SphereGeometry(0.4,8,8),jt,s*0.8,2.9,0);
-    bx(g,new THREE.BoxGeometry(0.9,1.5,1.0),main,s*0.8,1.9,0);
-    bx(g,new THREE.BoxGeometry(0.8,1.2,0.9),main,s*0.8,0.4,0.05);
-    bx(g,new THREE.BoxGeometry(1.1,0.3,1.4),dk,s*0.8,0.15,0.2);
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*2.2, 4.8, 0)
+    const shoulder=bn(p+'_shoulder',s*2.2,0.3,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(1.0,1.0,1.2),main,0,0,0);
+
+    // Upper arm at world (s*2.2, 3.6, 0)
+    const uArm=bn(p+'_upper_arm',0,-1.2,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.7,1.4,0.7),dk,0,0,0);
+
+    // Elbow at world (s*2.2, 2.85, 0.05)
+    const elbow=bn(p+'_elbow',0,-0.75,0.05); uArm.add(elbow);
+
+    // Forearm at world (s*2.2, 2.3, 0.1)
+    const forearm=bn(p+'_forearm',0,-0.55,0.05); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.8,1.3,0.9),main,0,0,0);
+
+    // Fist at world (s*2.2, 1.4, 0.1)
+    const wep=bn(p+'_weapon',0,-0.9,0); forearm.add(wep);
+    bx(wep,new THREE.BoxGeometry(0.9,0.7,0.9),dk,0,0,0);
   });
-  bx(g,new THREE.CylinderGeometry(0.6,0.6,1.4,8),dk,0,4.5,-1.3);
-  bx(g,new THREE.CylinderGeometry(0.45,0.45,0.1,8),acc,0,5.2,-1.3);
+
+  // Reactor at world (0, 4.5, -1.3)
+  const engine=bn('Engine',0,0,-1.3); torso.add(engine);
+  bx(engine,new THREE.CylinderGeometry(0.6,0.6,1.4,8),dk,0,0,0);
+  bx(engine,new THREE.CylinderGeometry(0.45,0.45,0.1,8),acc,0,0.7,0);
+
+  // Legs (standard humanoid)
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Hip at world (s*0.8, 2.9, 0)
+    const hip=bn(p+'_hip',s*0.8,-0.3,0); pelvis.add(hip);
+    bx(hip,new THREE.SphereGeometry(0.4,8,8),jt,0,0,0);
+
+    const thigh=bn(p+'_thigh',0,0,0); hip.add(thigh);
+    bx(thigh,new THREE.BoxGeometry(0.9,1.5,1.0),main,0,-1.0,0);
+
+    // Knee at world (s*0.8, 1.15, 0)
+    const knee=bn(p+'_knee',0,-1.75,0); thigh.add(knee);
+
+    const shin=bn(p+'_shin',0,0,0); knee.add(shin);
+    bx(shin,new THREE.BoxGeometry(0.8,1.2,0.9),main,0,-0.75,0.05);
+
+    // Ankle/foot at world (s*0.8, 0.15, 0.2)
+    const ankle=bn(p+'_ankle',0,-1.0,0.2); shin.add(ankle);
+    const foot=bn(p+'_foot',0,0,0); ankle.add(foot);
+    bx(foot,new THREE.BoxGeometry(1.1,0.3,1.4),dk,0,0,0);
+  });
+
   return g;
 }
 
 function buildSpecter(def){
   const g=new THREE.Group(),main=M(0x252035,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x18152a),jt=M(0x3a3545,null,0.9,0.2);
-  bx(g,new THREE.BoxGeometry(1.6,1.4,1.0),main,0,4.2,0);
-  [-1,1].forEach(s=>{for(let i=0;i<3;i++) bx(g,new THREE.BoxGeometry(0.03,0.4+i*0.15,0.03),acc,s*(0.9+i*0.12),5.2+i*0.1,-0.2);});
-  const hd=bx(g,new THREE.SphereGeometry(0.4,8,8),dk,0,5.3,0);hd.scale.y=0.7;
-  bx(g,new THREE.TorusGeometry(0.25,0.04,6,16),acc,0,5.25,0.3);
-  bx(g,new THREE.SphereGeometry(0.1,8,8),acc,0,5.25,0.35);
-  bx(g,new THREE.CylinderGeometry(0.9,0.9,0.15,16),main,0,4.8,-0.8);
-  bx(g,new THREE.TorusGeometry(0.9,0.04,6,16),acc,0,4.8,-0.8,Math.PI/2);
+  const PY=3.3;
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(1.0,0.4,0.7),dk,0,0,0);
+
+  // Torso at world 4.2
+  const torso=bn('Torso',0,0.9,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(1.6,1.4,1.0),main,0,0,0);
+  // Antennas
+  [-1,1].forEach(s=>{for(let i=0;i<3;i++) bx(torso,new THREE.BoxGeometry(0.03,0.4+i*0.15,0.03),acc,s*(0.9+i*0.12),1.0+i*0.1,-0.2);});
+
+  // Head at world 5.3
+  const head=bn('Head',0,1.1,0); torso.add(head);
+  const hd=bx(head,new THREE.SphereGeometry(0.4,8,8),dk,0,0,0);hd.scale.y=0.7;
+  bx(head,new THREE.TorusGeometry(0.25,0.04,6,16),acc,0,-0.05,0.3);
+  bx(head,new THREE.SphereGeometry(0.1,8,8),acc,0,-0.05,0.35);
+
+  // Radar dish at world (0, 4.8, -0.8)
+  const radar=bn('Radar',0,0.6,-0.8); torso.add(radar);
+  bx(radar,new THREE.CylinderGeometry(0.9,0.9,0.15,16),main,0,0,0);
+  const rt=bx(radar,new THREE.TorusGeometry(0.9,0.04,6,16),acc,0,0,0);rt.rotation.x=Math.PI/2;
+
+  // Arms
   [-1,1].forEach(s=>{
-    bx(g,new THREE.SphereGeometry(0.3,8,8),jt,s*1.0,4.6,0);
-    bx(g,new THREE.BoxGeometry(0.3,1.0,0.3),dk,s*1.1,3.8,0);
-    bx(g,new THREE.BoxGeometry(0.35,0.9,0.4),main,s*1.1,2.9,0.05);
-    bx(g,new THREE.SphereGeometry(0.2,8,8),acc,s*1.1,2.3,0.1);
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*1.0, 4.6, 0)
+    const shoulder=bn(p+'_shoulder',s*1.0,0.4,0); torso.add(shoulder);
+    bx(shoulder,new THREE.SphereGeometry(0.3,8,8),jt,0,0,0);
+
+    // Upper arm at world (s*1.1, 3.8, 0)
+    const uArm=bn(p+'_upper_arm',s*0.1,-0.8,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.3,1.0,0.3),dk,0,0,0);
+
+    // Elbow at world (s*1.1, 3.35, 0.025)
+    const elbow=bn(p+'_elbow',0,-0.45,0.025); uArm.add(elbow);
+
+    // Forearm at world (s*1.1, 2.9, 0.05)
+    const forearm=bn(p+'_forearm',0,-0.45,0.025); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.35,0.9,0.4),main,0,0,0);
+
+    // Hand at world (s*1.1, 2.3, 0.1)
+    const wep=bn(p+'_weapon',0,-0.6,0.05); forearm.add(wep);
+    bx(wep,new THREE.SphereGeometry(0.2,8,8),acc,0,0,0);
   });
-  bx(g,new THREE.BoxGeometry(1.0,0.4,0.7),dk,0,3.3,0);
+
+  // Legs (standard humanoid)
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(0.4,1.3,0.45),main,s*0.45,2.3,0);
-    bx(g,new THREE.SphereGeometry(0.2,6,6),jt,s*0.45,1.5,0);
-    bx(g,new THREE.BoxGeometry(0.35,1.2,0.4),main,s*0.45,0.7,0);
-    bx(g,new THREE.BoxGeometry(0.5,0.2,0.8),dk,s*0.45,0.1,0.1);
+    const p=s===-1?'L':'R';
+    // Hip at world (s*0.45, 2.9, 0) — no explicit hip sphere, use upper leg top
+    const hip=bn(p+'_hip',s*0.45,-0.4,0); pelvis.add(hip);
+
+    const thigh=bn(p+'_thigh',0,0,0); hip.add(thigh);
+    bx(thigh,new THREE.BoxGeometry(0.4,1.3,0.45),main,0,-0.6,0);
+
+    // Knee at world (s*0.45, 1.5, 0)
+    const knee=bn(p+'_knee',0,-1.4,0); thigh.add(knee);
+    bx(knee,new THREE.SphereGeometry(0.2,6,6),jt,0,0,0);
+
+    const shin=bn(p+'_shin',0,0,0); knee.add(shin);
+    bx(shin,new THREE.BoxGeometry(0.35,1.2,0.4),main,0,-0.8,0);
+
+    // Ankle/foot at world (s*0.45, 0.1, 0.1)
+    const ankle=bn(p+'_ankle',0,-1.4,0.1); shin.add(ankle);
+    const foot=bn(p+'_foot',0,0,0); ankle.add(foot);
+    bx(foot,new THREE.BoxGeometry(0.5,0.2,0.8),dk,0,0,0);
   });
+
+  // Drones — stay as children of root group g (not pelvis) for orbit animation
   for(let i=0;i<3;i++){
     const d=bx(g,new THREE.OctahedronGeometry(0.15),acc,0,5,0);
     const a=(i/3)*Math.PI*2;d.position.set(Math.cos(a)*2,5,Math.sin(a)*2);
@@ -549,27 +816,73 @@ function buildSpecter(def){
 
 function buildViper(def){
   const g=new THREE.Group(),main=M(0x1e2a1e,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x151e15),jt=M(0x3a4a3a,null,0.9,0.2);
-  bx(g,new THREE.BoxGeometry(1.5,1.5,1.0),main,0,4.0,0);
-  for(let i=0;i<3;i++) bx(g,new THREE.BoxGeometry(0.8,0.06,0.15),acc,0,4.3-i*0.2,0.55);
-  bx(g,new THREE.BoxGeometry(0.55,0.45,0.55),dk,0,5.1,0);
-  [-0.12,0.12].forEach(x=>bx(g,new THREE.SphereGeometry(0.08,8,8),acc,x,5.12,0.3));
-  bx(g,new THREE.BoxGeometry(0.06,0.4,0.5),acc,0,5.4,-0.05);
+  const PY=3.1;
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(0.9,0.35,0.7),dk,0,0,0);
+
+  // Torso at world 4.0
+  const torso=bn('Torso',0,0.9,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(1.5,1.5,1.0),main,0,0,0);
+  for(let i=0;i<3;i++) bx(torso,new THREE.BoxGeometry(0.8,0.06,0.15),acc,0,0.3-i*0.2,0.55);
+
+  // Head at world 5.1
+  const head=bn('Head',0,1.1,0); torso.add(head);
+  bx(head,new THREE.BoxGeometry(0.55,0.45,0.55),dk,0,0,0);
+  [-0.12,0.12].forEach(x=>bx(head,new THREE.SphereGeometry(0.08,8,8),acc,x,0.02,0.3));
+  bx(head,new THREE.BoxGeometry(0.06,0.4,0.5),acc,0,0.3,-0.05);
+
+  // Arms
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(0.5,0.4,0.5),main,s*1.0,4.5,0);
-    bx(g,new THREE.BoxGeometry(0.3,1.0,0.3),dk,s*1.1,3.7,0);
-    bx(g,new THREE.BoxGeometry(0.28,0.9,0.35),main,s*1.1,2.5,0.05);
-    bx(g,new THREE.BoxGeometry(0.12,0.15,0.8),jt,s*1.1,2.2,0.45);
-    bx(g,new THREE.CylinderGeometry(0.04,0.04,0.4,6),dk,s*1.1,2.2,0.95,Math.PI/2);
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*1.0, 4.5, 0)
+    const shoulder=bn(p+'_shoulder',s*1.0,0.5,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(0.5,0.4,0.5),main,0,0,0);
+
+    // Upper arm at world (s*1.1, 3.7, 0)
+    const uArm=bn(p+'_upper_arm',s*0.1,-0.8,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.3,1.0,0.3),dk,0,0,0);
+
+    // Elbow at world (s*1.1, 3.1, 0.025)
+    const elbow=bn(p+'_elbow',0,-0.6,0.025); uArm.add(elbow);
+
+    // Forearm at world (s*1.1, 2.5, 0.05)
+    const forearm=bn(p+'_forearm',0,-0.6,0.025); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.28,0.9,0.35),main,0,0,0);
+
+    // Wrist weapon at world (s*1.1, 2.2, 0.45)
+    const wep=bn(p+'_weapon',0,-0.3,0.4); forearm.add(wep);
+    bx(wep,new THREE.BoxGeometry(0.12,0.15,0.8),jt,0,0,0);
+    const b=bx(wep,new THREE.CylinderGeometry(0.04,0.04,0.4,6),dk,0,0,0.5);b.rotation.x=Math.PI/2;
   });
-  bx(g,new THREE.BoxGeometry(0.9,0.35,0.7),dk,0,3.1,0);
+
+  // Jetpack at world (0, 4.0, -0.7)
+  const jetpack=bn('Jetpack',0,0,-0.7); torso.add(jetpack);
+  bx(jetpack,new THREE.BoxGeometry(0.8,0.8,0.5),dk,0,0,0);
+
+  // Legs (standard humanoid)
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(0.4,1.2,0.45),main,s*0.4,2.2,0);
-    bx(g,new THREE.SphereGeometry(0.18,6,6),jt,s*0.4,1.5,0.1);
-    bx(g,new THREE.BoxGeometry(0.35,1.2,0.4),main,s*0.4,0.7,0.05);
-    bx(g,new THREE.BoxGeometry(0.05,0.6,0.2),acc,s*0.4,0.7,0.3);
-    bx(g,new THREE.BoxGeometry(0.4,0.18,0.85),dk,s*0.4,0.1,0.15);
+    const p=s===-1?'L':'R';
+    // Hip at world (s*0.4, 2.8, 0)
+    const hip=bn(p+'_hip',s*0.4,-0.3,0); pelvis.add(hip);
+
+    const thigh=bn(p+'_thigh',0,0,0); hip.add(thigh);
+    bx(thigh,new THREE.BoxGeometry(0.4,1.2,0.45),main,0,-0.6,0);
+
+    // Knee at world (s*0.4, 1.5, 0.1)
+    const knee=bn(p+'_knee',0,-1.3,0.1); thigh.add(knee);
+    bx(knee,new THREE.SphereGeometry(0.18,6,6),jt,0,0,0);
+
+    const shin=bn(p+'_shin',0,0,0); knee.add(shin);
+    bx(shin,new THREE.BoxGeometry(0.35,1.2,0.4),main,0,-0.8,-0.05);
+    bx(shin,new THREE.BoxGeometry(0.05,0.6,0.2),acc,0,-0.8,0.2);
+
+    // Ankle/foot at world (s*0.4, 0.1, 0.15)
+    const ankle=bn(p+'_ankle',0,-1.4,0.05); shin.add(ankle);
+    const foot=bn(p+'_foot',0,0,0); ankle.add(foot);
+    bx(foot,new THREE.BoxGeometry(0.4,0.18,0.85),dk,0,0,0);
   });
-  bx(g,new THREE.BoxGeometry(0.8,0.8,0.5),dk,0,4.0,-0.7);
+
   return g;
 }
 
@@ -580,159 +893,237 @@ function buildViper(def){
 function buildMadDog(def){
   // Fire support chicken walker — arms ARE missile racks
   const g=new THREE.Group(),main=M(0x3a2818,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x201510),jt=M(0x4a3a2a,null,0.9,0.2);
+  const PY=3.6;
 
-  // Wedge torso
-  bx(g,new THREE.BoxGeometry(2.0,1.4,1.3),main,0,4.5,0);
-  bx(g,new THREE.BoxGeometry(2.2,0.3,1.0),dk,0,5.2,0.2);
-  bx(g,new THREE.BoxGeometry(0.8,0.8,0.2),acc,0,4.5,0.75);
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(1.2,0.4,0.9),dk,0,0,0);
 
-  // Low-profile cockpit
-  bx(g,new THREE.BoxGeometry(0.8,0.4,0.7),dk,0,5.6,0.1);
-  bx(g,new THREE.BoxGeometry(0.7,0.1,0.25),acc,0,5.62,0.5);
+  // Torso_Head at world 4.5
+  const torso=bn('Torso_Head',0,0.9,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(2.0,1.4,1.3),main,0,0,0);
+  bx(torso,new THREE.BoxGeometry(2.2,0.3,1.0),dk,0,0.7,0.2);
+  bx(torso,new THREE.BoxGeometry(0.8,0.8,0.2),acc,0,0,0.75);
+  // Cockpit
+  bx(torso,new THREE.BoxGeometry(0.8,0.4,0.7),dk,0,1.1,0.1);
+  bx(torso,new THREE.BoxGeometry(0.7,0.1,0.25),acc,0,1.12,0.5);
 
   // Arms = massive LRM racks
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(0.5,0.5,0.8),main,s*1.3,5.0,0);
-    bx(g,new THREE.BoxGeometry(0.4,1.0,0.5),dk,s*1.5,4.2,0);
-    bx(g,new THREE.BoxGeometry(0.7,0.8,1.4),main,s*1.5,3.4,0.3);
-    // 3x3 missile tubes per arm
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*1.3, 5.0, 0)
+    const shoulder=bn(p+'_shoulder',s*1.3,0.5,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(0.5,0.5,0.8),main,0,0,0);
+
+    // Upper arm at world (s*1.5, 4.2, 0)
+    const uArm=bn(p+'_upper_arm',s*0.2,-0.8,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.4,1.0,0.5),dk,0,0,0);
+
+    // Elbow at world (s*1.5, 3.8, 0.15)
+    const elbow=bn(p+'_elbow',0,-0.4,0.15); uArm.add(elbow);
+
+    // Forearm = LRM housing at world (s*1.5, 3.4, 0.3)
+    const forearm=bn(p+'_forearm',0,-0.4,0.15); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.7,0.8,1.4),main,0,0,0);
+    // 3x3 missile tubes
     const tm=new THREE.MeshStandardMaterial({color:0x111111,metalness:0.95,roughness:0.1});
     for(let r=0;r<3;r++) for(let c=0;c<3;c++){
       const t=new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.055,1.5,6),tm);
-      t.rotation.x=Math.PI/2;t.position.set(s*1.5+(c-1)*0.18,3.6+(r-1)*0.2,0.85);g.add(t);
+      t.rotation.x=Math.PI/2;t.position.set((c-1)*0.18,0.2+(r-1)*0.2,0.55);t.castShadow=true;forearm.add(t);
     }
-    bx(g,new THREE.BoxGeometry(0.72,0.06,0.4),acc,s*1.5,3.82,1.0);
-    bx(g,new THREE.BoxGeometry(0.72,0.06,0.4),acc,s*1.5,2.98,1.0);
+    bx(forearm,new THREE.BoxGeometry(0.72,0.06,0.4),acc,0,0.42,0.7);
+    bx(forearm,new THREE.BoxGeometry(0.72,0.06,0.4),acc,0,-0.42,0.7);
   });
 
-  // Narrow waist
-  bx(g,new THREE.BoxGeometry(1.2,0.4,0.9),dk,0,3.6,0);
+  // Exhaust at world (0, 4.5, -0.85)
+  const exhaust=bn('Exhaust',0,0,-0.85); torso.add(exhaust);
+  [-0.4,0.4].forEach(x=>{
+    bx(exhaust,new THREE.CylinderGeometry(0.18,0.25,0.6,8),dk,x,0,0);
+    bx(exhaust,new THREE.CylinderGeometry(0.14,0.2,0.08,8),acc,x,-0.35,0);
+  });
 
   // Chicken legs
-  [-1,1].forEach(s=>chickenLeg(g,s,0.55,3.4,1.5,1.4,main,dk,jt,acc));
+  [-1,1].forEach(s=>chickenLeg(pelvis,s,0.55,3.4,1.5,1.4,main,dk,jt,acc,PY));
 
-  // Rear exhaust
-  [-0.4,0.4].forEach(x=>{
-    bx(g,new THREE.CylinderGeometry(0.18,0.25,0.6,8),dk,x,4.5,-0.85);
-    bx(g,new THREE.CylinderGeometry(0.14,0.2,0.08,8),acc,x,4.15,-0.85);
-  });
   return g;
 }
 
 function buildTimberWolf(def){
   // Iconic heavy omnimech — shoulder LRMs, arm lasers, chicken legs
   const g=new THREE.Group(),main=M(0x283844,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x182028),jt=M(0x3a4550,null,0.9,0.2);
+  const PY=3.5;
 
-  // Wide torso
-  bx(g,new THREE.BoxGeometry(2.2,1.6,1.4),main,0,4.5,0);
-  bx(g,new THREE.BoxGeometry(0.6,0.4,0.15),acc,0,4.4,0.78);
-  // Chest lasers
-  [-0.1,0.1].forEach(x=>bx(g,new THREE.CylinderGeometry(0.04,0.04,0.3,6),acc,x,4.4,0.9,Math.PI/2));
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(1.3,0.4,1.0),dk,0,0,0);
 
-  // Angular cockpit
-  bx(g,new THREE.BoxGeometry(0.7,0.5,0.8),dk,0,5.6,0.15);
-  bx(g,new THREE.BoxGeometry(0.6,0.15,0.3),acc,0,5.6,0.55);
+  // Torso_Head at world 4.5
+  const torso=bn('Torso_Head',0,1.0,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(2.2,1.6,1.4),main,0,0,0);
+  bx(torso,new THREE.BoxGeometry(0.6,0.4,0.15),acc,0,-0.1,0.78);
+  [-0.1,0.1].forEach(x=>{const b=bx(torso,new THREE.CylinderGeometry(0.04,0.04,0.3,6),acc,x,-0.1,0.9);b.rotation.x=Math.PI/2;});
+  // Cockpit
+  bx(torso,new THREE.BoxGeometry(0.7,0.5,0.8),dk,0,1.1,0.15);
+  bx(torso,new THREE.BoxGeometry(0.6,0.15,0.3),acc,0,1.1,0.55);
 
-  // SHOULDER LRM RACKS
+  // Shoulder LRM mounts
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(0.3,0.8,0.4),dk,s*1.2,5.6,-0.2);
-    lrmRack(g,s*1.2,6.1,0,4,main,acc);
+    const p=s===-1?'L':'R';
+    const mount=bn(p+'_shoulder_mount',s*1.2,1.1,-0.2); torso.add(mount);
+    bx(mount,new THREE.BoxGeometry(0.3,0.8,0.4),dk,0,0,0);
+    lrmRack(mount,0,0.5,0.2,4,main,acc);
   });
 
   // Arms with laser barrels
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(0.5,0.5,0.7),main,s*1.4,4.8,0);
-    bx(g,new THREE.BoxGeometry(0.35,1.1,0.4),dk,s*1.5,3.9,0);
-    bx(g,new THREE.SphereGeometry(0.18,8,8),jt,s*1.5,3.2,0);
-    bx(g,new THREE.BoxGeometry(0.4,1.0,0.45),main,s*1.5,2.5,0.05);
-    bx(g,new THREE.CylinderGeometry(0.08,0.08,1.0,8),jt,s*1.5,2.3,0.6,Math.PI/2);
-    bx(g,new THREE.CylinderGeometry(0.12,0.09,0.15,8),acc,s*1.5,2.3,1.15,Math.PI/2);
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*1.4, 4.8, 0)
+    const shoulder=bn(p+'_shoulder',s*1.4,0.3,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(0.5,0.5,0.7),main,0,0,0);
+
+    // Upper arm at world (s*1.5, 3.9, 0)
+    const uArm=bn(p+'_upper_arm',s*0.1,-0.9,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.35,1.1,0.4),dk,0,0,0);
+
+    // Elbow at world (s*1.5, 3.2, 0)
+    const elbow=bn(p+'_elbow',0,-0.7,0); uArm.add(elbow);
+    bx(elbow,new THREE.SphereGeometry(0.18,8,8),jt,0,0,0);
+
+    // Forearm at world (s*1.5, 2.5, 0.05)
+    const forearm=bn(p+'_forearm',0,-0.7,0.05); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.4,1.0,0.45),main,0,0,0);
+
+    // Laser weapon
+    const wep=bn(p+'_weapon',0,-0.2,0.55); forearm.add(wep);
+    const b=bx(wep,new THREE.CylinderGeometry(0.08,0.08,1.0,8),jt,0,0,0);b.rotation.x=Math.PI/2;
+    const t=bx(wep,new THREE.CylinderGeometry(0.12,0.09,0.15,8),acc,0,0,0.55);t.rotation.x=Math.PI/2;
   });
 
-  bx(g,new THREE.BoxGeometry(1.3,0.4,1.0),dk,0,3.5,0);
+  // Engine at world (0, 4.5, -1.0)
+  const engine=bn('Engine',0,0,-1.0); torso.add(engine);
+  bx(engine,new THREE.BoxGeometry(1.2,1.0,0.7),dk,0,0,0);
+  [-0.3,0.3].forEach(x=>{
+    bx(engine,new THREE.CylinderGeometry(0.2,0.28,0.5,8),dk,x,0,-0.4);
+    bx(engine,new THREE.CylinderGeometry(0.16,0.22,0.08,8),acc,x,-0.3,-0.4);
+  });
 
   // Chicken legs
-  [-1,1].forEach(s=>chickenLeg(g,s,0.55,3.3,1.5,1.5,main,dk,jt,acc));
+  [-1,1].forEach(s=>chickenLeg(pelvis,s,0.55,3.3,1.5,1.5,main,dk,jt,acc,PY));
 
-  // Engine block
-  bx(g,new THREE.BoxGeometry(1.2,1.0,0.7),dk,0,4.5,-1.0);
-  [-0.3,0.3].forEach(x=>{
-    bx(g,new THREE.CylinderGeometry(0.2,0.28,0.5,8),dk,x,4.5,-1.4);
-    bx(g,new THREE.CylinderGeometry(0.16,0.22,0.08,8),acc,x,4.2,-1.4);
-  });
   return g;
 }
 
 function buildVulture(def){
   // Pure missile boat — twin massive shoulder racks, tall chicken legs
   const g=new THREE.Group(),main=M(0x2e2e18,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x1a1a0e),jt=M(0x404028,null,0.9,0.2);
+  const PY=4.0;
 
-  // Narrow torso
-  bx(g,new THREE.BoxGeometry(1.4,1.5,1.0),main,0,5.0,0);
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(1.0,0.35,0.8),dk,0,0,0);
+
+  // Torso_Head at world 5.0
+  const torso=bn('Torso_Head',0,1.0,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(1.4,1.5,1.0),main,0,0,0);
   // Cockpit
-  bx(g,new THREE.BoxGeometry(0.6,0.35,0.6),dk,0,6.0,0.1);
-  bx(g,new THREE.BoxGeometry(0.5,0.08,0.2),acc,0,6.02,0.42);
+  bx(torso,new THREE.BoxGeometry(0.6,0.35,0.6),dk,0,1.0,0.1);
+  bx(torso,new THREE.BoxGeometry(0.5,0.08,0.2),acc,0,1.02,0.42);
 
-  // MASSIVE double-stacked LRM racks on each shoulder
+  // Shoulder LRM mounts — double-stacked
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(0.4,0.6,0.5),main,s*1.0,5.6,0);
-    lrmRack(g,s*1.1,6.2,0.1,5,main,acc);
-    lrmRack(g,s*1.1,5.65,0.1,5,main,acc);
-    bx(g,new THREE.BoxGeometry(0.08,1.2,0.6),acc,s*0.7,5.9,0);
+    const p=s===-1?'L':'R';
+    const mount=bn(p+'_shoulder_mount',s*1.0,0.6,0); torso.add(mount);
+    bx(mount,new THREE.BoxGeometry(0.4,0.6,0.5),main,0,0,0);
+    lrmRack(mount,s*0.1,0.6,0.1,5,main,acc);
+    lrmRack(mount,s*0.1,0.05,0.1,5,main,acc);
+    bx(mount,new THREE.BoxGeometry(0.08,1.2,0.6),acc,s*-0.3,0.3,0);
   });
 
   // Slim arms
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(0.3,0.9,0.3),dk,s*1.0,4.5,0);
-    bx(g,new THREE.BoxGeometry(0.25,0.8,0.3),main,s*1.0,3.5,0.05);
-    bx(g,new THREE.CylinderGeometry(0.05,0.05,0.6,6),acc,s*1.0,3.3,0.4,Math.PI/2);
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*1.0, 4.95, 0) — top of arm
+    const shoulder=bn(p+'_shoulder',s*1.0,-0.05,0); torso.add(shoulder);
+
+    // Upper arm at world (s*1.0, 4.5, 0)
+    const uArm=bn(p+'_upper_arm',0,-0.45,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.3,0.9,0.3),dk,0,0,0);
+
+    // Elbow at world (s*1.0, 3.95, 0.025)
+    const elbow=bn(p+'_elbow',0,-0.55,0.025); uArm.add(elbow);
+
+    // Forearm at world (s*1.0, 3.5, 0.05)
+    const forearm=bn(p+'_forearm',0,-0.45,0.025); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.25,0.8,0.3),main,0,0,0);
+
+    // Laser weapon
+    const wep=bn(p+'_weapon',0,-0.2,0.35); forearm.add(wep);
+    const b=bx(wep,new THREE.CylinderGeometry(0.05,0.05,0.6,6),acc,0,0,0);b.rotation.x=Math.PI/2;
   });
 
-  bx(g,new THREE.BoxGeometry(1.0,0.35,0.8),dk,0,4.0,0);
+  // Ammo bins at world (0, 5.0, -0.8)
+  const ammo=bn('Ammo_Bins',0,0,-0.8); torso.add(ammo);
+  bx(ammo,new THREE.BoxGeometry(1.0,1.2,0.6),dk,0,0,0);
+  bx(ammo,new THREE.BoxGeometry(0.6,0.08,0.3),acc,0,0.6,0);
 
   // Tall chicken legs
-  [-1,1].forEach(s=>chickenLeg(g,s,0.5,3.8,1.7,1.6,main,dk,jt,acc));
+  [-1,1].forEach(s=>chickenLeg(pelvis,s,0.5,3.8,1.7,1.6,main,dk,jt,acc,PY));
 
-  // Ammo bins
-  bx(g,new THREE.BoxGeometry(1.0,1.2,0.6),dk,0,5.0,-0.8);
-  bx(g,new THREE.BoxGeometry(0.6,0.08,0.3),acc,0,5.6,-0.8);
   return g;
 }
 
 function buildCougar(def){
   // Light fast chicken walker — SRM pods + energy weapons
   const g=new THREE.Group(),main=M(0x2a1e30,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x181020),jt=M(0x3a2e40,null,0.9,0.2);
+  const PY=3.4;
 
-  // Compact torso
-  bx(g,new THREE.BoxGeometry(1.2,1.2,0.8),main,0,4.2,0);
-  [-0.15,0.15].forEach(y=>bx(g,new THREE.BoxGeometry(0.7,0.04,0.1),acc,0,4.2+y,0.45));
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(0.8,0.3,0.6),dk,0,0,0);
 
+  // Torso_Head at world 4.2
+  const torso=bn('Torso_Head',0,0.8,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(1.2,1.2,0.8),main,0,0,0);
+  [-0.15,0.15].forEach(y=>bx(torso,new THREE.BoxGeometry(0.7,0.04,0.1),acc,0,y,0.45));
   // Cockpit
-  bx(g,new THREE.BoxGeometry(0.5,0.35,0.5),dk,0,5.1,0.05);
-  bx(g,new THREE.BoxGeometry(0.45,0.08,0.18),acc,0,5.12,0.3);
+  bx(torso,new THREE.BoxGeometry(0.5,0.35,0.5),dk,0,0.9,0.05);
+  bx(torso,new THREE.BoxGeometry(0.45,0.08,0.18),acc,0,0.92,0.3);
   // Ear fins
-  [-1,1].forEach(s=>bx(g,new THREE.BoxGeometry(0.06,0.35,0.4),acc,s*0.35,5.2,-0.1,0,0,s*0.15));
+  [-1,1].forEach(s=>bx(torso,new THREE.BoxGeometry(0.06,0.35,0.4),acc,s*0.35,1.0,-0.1,0,0,s*0.15));
 
   // Arms with SRM pods
   [-1,1].forEach(s=>{
-    bx(g,new THREE.BoxGeometry(0.35,0.35,0.45),main,s*0.85,4.6,0);
-    bx(g,new THREE.BoxGeometry(0.25,0.8,0.28),dk,s*0.95,3.9,0);
-    bx(g,new THREE.SphereGeometry(0.13,6,6),jt,s*0.95,3.4,0);
-    bx(g,new THREE.BoxGeometry(0.28,0.7,0.32),main,s*0.95,2.8,0.05);
-    rocketPod(g,s*0.95,3.3,0.25,2,2,dk,acc);
-    bx(g,new THREE.CylinderGeometry(0.04,0.04,0.5,6),acc,s*0.95,2.5,0.4,Math.PI/2);
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*0.85, 4.6, 0)
+    const shoulder=bn(p+'_shoulder',s*0.85,0.4,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(0.35,0.35,0.45),main,0,0,0);
+
+    // Upper arm at world (s*0.95, 3.9, 0)
+    const uArm=bn(p+'_upper_arm',s*0.1,-0.7,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.25,0.8,0.28),dk,0,0,0);
+
+    // Elbow at world (s*0.95, 3.4, 0)
+    const elbow=bn(p+'_elbow',0,-0.5,0); uArm.add(elbow);
+    bx(elbow,new THREE.SphereGeometry(0.13,6,6),jt,0,0,0);
+
+    // Forearm at world (s*0.95, 2.8, 0.05)
+    const forearm=bn(p+'_forearm',0,-0.6,0.05); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.28,0.7,0.32),main,0,0,0);
+
+    // SRM pod weapon — relative to elbow at world (s*0.95, 3.3, 0.25)
+    const wepPod=bn(p+'_weapon',0,0.5,0.2); forearm.add(wepPod);
+    rocketPod(wepPod,0,0,0,2,2,dk,acc);
+
+    // Laser barrel
+    const b=bx(forearm,new THREE.CylinderGeometry(0.04,0.04,0.5,6),acc,0,-0.3,0.35);b.rotation.x=Math.PI/2;
   });
 
-  bx(g,new THREE.BoxGeometry(0.8,0.3,0.6),dk,0,3.4,0);
+  // Jump jets at world (±0.3, 4.2, -0.6)
+  const jets=bn('Jump_Jets',0,0,-0.6); torso.add(jets);
+  [-0.3,0.3].forEach(x=>{
+    bx(jets,new THREE.CylinderGeometry(0.1,0.15,0.4,6),dk,x,0,0);
+    bx(jets,new THREE.CylinderGeometry(0.08,0.12,0.06,6),acc,x,-0.22,0);
+  });
 
   // Nimble chicken legs
-  [-1,1].forEach(s=>chickenLeg(g,s,0.4,3.2,1.2,1.1,main,dk,jt,acc));
+  [-1,1].forEach(s=>chickenLeg(pelvis,s,0.4,3.2,1.2,1.1,main,dk,jt,acc,PY));
 
-  // Jump jets
-  [-0.3,0.3].forEach(x=>{
-    bx(g,new THREE.CylinderGeometry(0.1,0.15,0.4,6),dk,x,4.2,-0.6);
-    bx(g,new THREE.CylinderGeometry(0.08,0.12,0.06,6),acc,x,3.98,-0.6);
-  });
   return g;
 }
 
@@ -783,6 +1174,7 @@ function buildUI(){
 function exportGLTF(){
   const btn=document.getElementById('exportBtn');
   btn.classList.add('exporting');btn.textContent='⬡ Exporting...';
+  const exportBones=document.getElementById('exportBones').checked;
   setTimeout(()=>{
     const exp=new GLTFExporter();
     const clone=currentMechGroup.clone();
@@ -794,8 +1186,8 @@ function exportGLTF(){
       a.download=`${MECHS[currentMechIdx].id}_mech.glb`;
       a.click();URL.revokeObjectURL(url);
       btn.classList.remove('exporting');btn.textContent='⬡ Export GLTF';
-      showToast(`${MECHS[currentMechIdx].name} exported as GLB`);
-    });
+      showToast(`${MECHS[currentMechIdx].name} exported as GLB`+(exportBones?' (with bones)':''));
+    },{exportBones});
   },100);
 }
 
