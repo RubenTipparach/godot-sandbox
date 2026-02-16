@@ -1,6 +1,7 @@
 extends Control
 
 signal node_purchased(key: String)
+signal back_pressed
 
 const NODE_SIZE = 50.0
 const HALF_NODE = NODE_SIZE / 2.0
@@ -155,6 +156,12 @@ var drag_start_pan: Vector2 = Vector2.ZERO
 const DRAG_THRESHOLD = 5.0
 const PAN_MARGIN = 60.0  # Extra margin beyond outermost nodes
 
+# Controller cursor
+var cursor_node: String = ""  # Currently selected node key for controller
+var cursor_active: bool = false  # Whether controller cursor is shown
+var cursor_input_cooldown: float = 0.0
+const CURSOR_COOLDOWN = 0.15
+
 
 func _ready():
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -176,7 +183,9 @@ func _has_prerequisites(key: String) -> bool:
 	return true
 
 
-func _process(_delta):
+func _process(delta):
+	cursor_input_cooldown = maxf(0.0, cursor_input_cooldown - delta)
+	_handle_controller_input()
 	queue_redraw()
 
 
@@ -195,6 +204,12 @@ func _draw():
 	for key in NODE_LAYOUT.keys():
 		var pos = tree_center + pan_offset + NODE_LAYOUT[key]
 		_draw_node(key, pos)
+
+	# Draw controller cursor
+	if cursor_active and cursor_node != "" and cursor_node in NODE_LAYOUT:
+		var cpos = tree_center + pan_offset + NODE_LAYOUT[cursor_node]
+		var pulse = 0.7 + sin(Time.get_ticks_msec() * 0.005) * 0.3
+		draw_arc(cpos, HALF_NODE + 6, 0, TAU, 24, Color(0.3, 0.9, 1.0, pulse), 3.0)
 
 	# Draw tooltip for hovered node
 	if hovered_node != "":
@@ -592,6 +607,106 @@ func _clamp_pan():
 	var max_pan_y = maxf(0.0, tree_half.y - view_half.y)
 	pan_offset.x = clampf(pan_offset.x, center_pan.x - max_pan_x, center_pan.x + max_pan_x)
 	pan_offset.y = clampf(pan_offset.y, center_pan.y - max_pan_y, center_pan.y + max_pan_y)
+
+
+func activate_cursor():
+	cursor_active = true
+	if cursor_node == "" or cursor_node not in NODE_LAYOUT:
+		cursor_node = "max_health"
+	hovered_node = cursor_node
+
+
+func _handle_controller_input():
+	if not is_visible_in_tree() or cursor_input_cooldown > 0.0:
+		return
+
+	# Check any connected joystick (device 0 for single player)
+	var lx = Input.get_joy_axis(0, JOY_AXIS_LEFT_X)
+	var ly = Input.get_joy_axis(0, JOY_AXIS_LEFT_Y)
+	var stick = Vector2(lx, ly)
+	if stick.length() > 0.4:
+		cursor_active = true
+		_move_cursor(stick.normalized())
+		cursor_input_cooldown = CURSOR_COOLDOWN
+
+
+func _move_cursor(direction: Vector2):
+	if cursor_node == "" or cursor_node not in NODE_LAYOUT:
+		cursor_node = "max_health"
+		hovered_node = cursor_node
+		return
+
+	var current_pos = NODE_LAYOUT[cursor_node]
+	var best_key = ""
+	var best_score = INF
+
+	for key in NODE_LAYOUT.keys():
+		if key == cursor_node:
+			continue
+		var delta_pos = NODE_LAYOUT[key] - current_pos
+		var dot = delta_pos.normalized().dot(direction)
+		if dot < 0.3:
+			continue
+		# Score: prefer nodes aligned with direction, penalize distance
+		var dist = delta_pos.length()
+		var score = dist * (1.0 - dot * 0.5)
+		if score < best_score:
+			best_score = score
+			best_key = key
+
+	if best_key != "":
+		cursor_node = best_key
+		hovered_node = cursor_node
+		# Pan to keep cursor node visible
+		var node_screen_pos = tree_center + pan_offset + NODE_LAYOUT[cursor_node]
+		var margin = 80.0
+		if node_screen_pos.x < margin:
+			pan_offset.x += margin - node_screen_pos.x
+		elif node_screen_pos.x > size.x - margin:
+			pan_offset.x -= node_screen_pos.x - (size.x - margin)
+		if node_screen_pos.y < margin:
+			pan_offset.y += margin - node_screen_pos.y
+		elif node_screen_pos.y > size.y - margin:
+			pan_offset.y -= node_screen_pos.y - (size.y - margin)
+		_clamp_pan()
+
+
+func _input(event: InputEvent):
+	if not is_visible_in_tree():
+		return
+	if event is InputEventJoypadButton and event.pressed:
+		match event.button_index:
+			JOY_BUTTON_A:
+				if cursor_active and cursor_node != "":
+					_try_purchase(cursor_node)
+					get_viewport().set_input_as_handled()
+			JOY_BUTTON_B, JOY_BUTTON_BACK:
+				# Back - emit signal so hud can handle it
+				back_pressed.emit()
+				get_viewport().set_input_as_handled()
+			JOY_BUTTON_DPAD_UP:
+				cursor_active = true
+				_move_cursor(Vector2.UP)
+				cursor_input_cooldown = CURSOR_COOLDOWN
+				get_viewport().set_input_as_handled()
+			JOY_BUTTON_DPAD_DOWN:
+				cursor_active = true
+				_move_cursor(Vector2.DOWN)
+				cursor_input_cooldown = CURSOR_COOLDOWN
+				get_viewport().set_input_as_handled()
+			JOY_BUTTON_DPAD_LEFT:
+				cursor_active = true
+				_move_cursor(Vector2.LEFT)
+				cursor_input_cooldown = CURSOR_COOLDOWN
+				get_viewport().set_input_as_handled()
+			JOY_BUTTON_DPAD_RIGHT:
+				cursor_active = true
+				_move_cursor(Vector2.RIGHT)
+				cursor_input_cooldown = CURSOR_COOLDOWN
+				get_viewport().set_input_as_handled()
+	# Mouse movement deactivates controller cursor
+	if event is InputEventMouseMotion:
+		cursor_active = false
 
 
 func _gui_input(event: InputEvent):
