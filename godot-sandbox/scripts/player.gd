@@ -651,6 +651,7 @@ func _solve_leg_ik(hip_bone: Node3D, knee_bone: Node3D, thigh_rest_x: float, shi
 		hip_bone.rotation.x += PI
 
 
+
 func _process_nuke(delta):
 	nuke_radius += CFG.nuke_expand_speed * delta
 	var can_deal_damage = not NetworkManager.is_multiplayer_active() or NetworkManager.is_host()
