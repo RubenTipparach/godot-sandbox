@@ -8,6 +8,8 @@
 [node name="Player" type="Node3D" unique_id=1671698601]
 script = ExtResource("1")
 hp_bar_y_offset = 70.0
+ik_stride_length = 25.0
+ik_step_height = 10.0
 
 [node name="MiningSFXPlayer" type="AudioStreamPlayer2D" parent="." unique_id=44345520]
 stream = ExtResource("2_g2els")

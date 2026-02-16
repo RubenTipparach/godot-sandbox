@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MECH FORGE — 3D Model Viewer</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Share+Tech+Mono&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --accent: #00ffcc;
+    --accent-dim: #00ffcc44;
+    --danger: #ff3344;
+    --bg: #0a0c10;
+    --panel: #0d1117;
+    --border: #1a2030;
+    --text: #c8d0dc;
+    --text-dim: #5a6678;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Chakra Petch', sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  #canvas-container { position: fixed; inset: 0; z-index: 0; }
+  canvas { display: block; }
+
+  .ui-overlay { position: fixed; inset: 0; z-index: 10; pointer-events: none; }
+
+  .corner { position: absolute; width: 30px; height: 30px; pointer-events: none; }
+  .corner-tl { top: 16px; left: 16px; border-top: 2px solid var(--accent); border-left: 2px solid var(--accent); }
+  .corner-tr { top: 16px; right: 16px; border-top: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+  .corner-bl { bottom: 16px; left: 16px; border-bottom: 2px solid var(--accent); border-left: 2px solid var(--accent); }
+  .corner-br { bottom: 16px; right: 16px; border-bottom: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+
+  .header {
+    position: absolute; top: 24px; left: 56px; pointer-events: none;
+  }
+  .header h1 {
+    font-size: 14px; font-weight: 700; letter-spacing: 6px;
+    color: var(--accent); text-transform: uppercase; text-shadow: 0 0 20px var(--accent-dim);
+  }
+  .header .sub {
+    font-family: 'Share Tech Mono', monospace; font-size: 10px;
+    color: var(--text-dim); letter-spacing: 3px; margin-top: 4px;
+  }
+
+  .mech-selector {
+    position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; pointer-events: all; flex-wrap: wrap; justify-content: center; max-width: 90vw;
+  }
+
+  .mech-btn {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text-dim);
+    font-family: 'Chakra Petch', sans-serif; font-size: 10px; font-weight: 600;
+    letter-spacing: 2px; text-transform: uppercase; padding: 8px 14px; cursor: pointer;
+    transition: all 0.3s ease;
+    clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+  }
+  .mech-btn:hover { background: #141a24; color: var(--text); border-color: var(--accent-dim); }
+  .mech-btn.active {
+    background: linear-gradient(135deg, #0d2a2a, #0a1a1a);
+    border-color: var(--accent); color: var(--accent);
+    box-shadow: 0 0 20px var(--accent-dim), inset 0 0 20px #00ffcc08;
+  }
+
+  .stats-panel { position: absolute; right: 30px; top: 50%; transform: translateY(-50%); pointer-events: none; width: 180px; }
+  .stat-label {
+    font-family: 'Share Tech Mono', monospace; font-size: 9px; color: var(--text-dim);
+    letter-spacing: 2px; text-transform: uppercase; margin-bottom: 4px;
+  }
+  .stat-bar-container { width: 100%; height: 4px; background: var(--border); margin-bottom: 16px; position: relative; overflow: hidden; }
+  .stat-bar { height: 100%; background: var(--accent); box-shadow: 0 0 8px var(--accent-dim); transition: width 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+  .stat-value { font-family: 'Share Tech Mono', monospace; font-size: 10px; color: var(--accent); position: absolute; right: 0; top: -16px; }
+
+  .mech-class { position: absolute; left: 30px; top: 50%; transform: translateY(-50%); pointer-events: none; }
+  .class-name {
+    font-size: 28px; font-weight: 700; letter-spacing: 4px; color: var(--text);
+    text-transform: uppercase; writing-mode: vertical-lr; text-orientation: mixed; opacity: 0.15;
+  }
+
+  .crosshair { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 60px; height: 60px; pointer-events: none; opacity: 0.15; }
+  .crosshair::before, .crosshair::after { content: ''; position: absolute; background: var(--accent); }
+  .crosshair::before { width: 1px; height: 100%; left: 50%; }
+  .crosshair::after { width: 100%; height: 1px; top: 50%; }
+
+  .scanlines {
+    position: fixed; inset: 0; pointer-events: none; z-index: 20;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+  }
+
+  .controls-hint {
+    position: absolute; bottom: 86px; left: 50%; transform: translateX(-50%);
+    font-family: 'Share Tech Mono', monospace; font-size: 9px;
+    color: var(--text-dim); letter-spacing: 2px; pointer-events: none; opacity: 0.5;
+  }
+
+  /* Export button */
+  .export-btn {
+    position: absolute; top: 24px; right: 56px; pointer-events: all;
+    background: transparent; border: 1px solid var(--accent); color: var(--accent);
+    font-family: 'Chakra Petch', sans-serif; font-size: 11px; font-weight: 600;
+    letter-spacing: 3px; text-transform: uppercase; padding: 10px 22px; cursor: pointer;
+    transition: all 0.3s ease;
+    clip-path: polygon(10px 0%, 100% 0%, calc(100% - 10px) 100%, 0% 100%);
+  }
+  .export-btn:hover {
+    background: var(--accent); color: var(--bg);
+    box-shadow: 0 0 30px var(--accent-dim);
+  }
+  .export-btn:active { transform: scale(0.96); }
+  .export-btn.exporting { opacity: 0.5; pointer-events: none; }
+
+  .export-options {
+    position: absolute; top: 60px; right: 56px; pointer-events: all;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .export-options label {
+    font-family: 'Share Tech Mono', monospace; font-size: 10px;
+    color: var(--text-dim); letter-spacing: 1px; cursor: pointer;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .export-options input[type="checkbox"] {
+    accent-color: var(--accent); cursor: pointer;
+  }
+
+  .toast {
+    position: fixed; top: 80px; right: 56px; background: var(--panel); border: 1px solid var(--accent);
+    color: var(--accent); font-family: 'Share Tech Mono', monospace; font-size: 11px;
+    padding: 10px 20px; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 30;
+    letter-spacing: 1px;
+  }
+  .toast.show { opacity: 1; }
+
+  .tonnage {
+    position: absolute; top: 24px; left: 50%; transform: translateX(-50%);
+    font-family: 'Share Tech Mono', monospace; font-size: 10px; color: var(--text-dim);
+    letter-spacing: 2px; pointer-events: none; text-align: center;
+  }
+  .tonnage .tons {
+    font-size: 22px; color: var(--text); font-family: 'Chakra Petch', sans-serif;
+    font-weight: 700; letter-spacing: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div id="canvas-container"></div>
+
+<div class="ui-overlay">
+  <div class="corner corner-tl"></div>
+  <div class="corner corner-tr"></div>
+  <div class="corner corner-bl"></div>
+  <div class="corner corner-br"></div>
+
+  <div class="header">
+    <h1>Mech Forge</h1>
+    <div class="sub">Model Viewer v3.1 — Prototype Bay</div>
+  </div>
+
+  <div class="tonnage" id="tonnageDisplay">
+    <div class="tons" id="tonnageValue">85</div>
+    TONS
+  </div>
+
+  <button class="export-btn" id="exportBtn">⬡ Export GLTF</button>
+  <div class="export-options">
+    <label><input type="checkbox" id="exportBones" checked> EXPORT BONES</label>
+  </div>
+
+  <div class="crosshair"></div>
+  <div class="mech-class"><div class="class-name" id="classLabel">TITAN</div></div>
+  <div class="stats-panel" id="statsPanel"></div>
+  <div class="mech-selector" id="mechSelector"></div>
+  <div class="controls-hint">DRAG TO ROTATE · SCROLL TO ZOOM</div>
+</div>
+
+<div class="scanlines"></div>
+<div class="toast" id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ══════════════════════════════════════
+// INLINE GLB EXPORTER (r128-compatible)
+// ══════════════════════════════════════
+class GLTFExporter {
+  parse(rootObj, onDone, options) {
+    const opts = options || {};
+    rootObj.updateMatrixWorld(true);
+    const json = { asset:{version:'2.0',generator:'MechForge'},scenes:[{nodes:[]}],scene:0,nodes:[],meshes:[],accessors:[],bufferViews:[],buffers:[],materials:[] };
+    const chunks = [];
+    let byteOff = 0;
+    const matMap = new Map();
+    const nodeMap = new Map();
+    const boneList = [];
+    if(opts.exportBones!==false) rootObj.traverse(obj=>{ if(obj.userData&&obj.userData.isBone) boneList.push(obj); });
+
+    const addMat = (m) => {
+      if (matMap.has(m.uuid)) return matMap.get(m.uuid);
+      const i = json.materials.length;
+      const c = m.color||new THREE.Color(.5,.5,.5), e = m.emissive||new THREE.Color(0,0,0);
+      json.materials.push({ pbrMetallicRoughness:{ baseColorFactor:[c.r,c.g,c.b,1], metallicFactor:m.metalness??0.5, roughnessFactor:m.roughness??0.5 }, emissiveFactor:[e.r*(m.emissiveIntensity||1),e.g*(m.emissiveIntensity||1),e.b*(m.emissiveIntensity||1)] });
+      matMap.set(m.uuid,i); return i;
+    };
+
+    const pad4 = () => { const p=(4-(byteOff%4))%4; if(p>0){chunks.push(new Uint8Array(p));byteOff+=p;} };
+
+    const addBuf = (arr, target) => {
+      pad4();
+      const buf = arr.buffer.slice(arr.byteOffset, arr.byteOffset+arr.byteLength);
+      const bv = json.bufferViews.length;
+      const bvObj={buffer:0,byteOffset:byteOff,byteLength:buf.byteLength};
+      if(target!==undefined) bvObj.target=target;
+      json.bufferViews.push(bvObj);
+      chunks.push(new Uint8Array(buf)); byteOff+=buf.byteLength;
+      return bv;
+    };
+
+    const processNode = (obj) => {
+      const nd = {name:obj.name||'node'};
+      const p=obj.position, q=obj.quaternion, s=obj.scale;
+      if(p.x||p.y||p.z) nd.translation=[p.x,p.y,p.z];
+      if(q.x||q.y||q.z||q.w!==1) nd.rotation=[q.x,q.y,q.z,q.w];
+      if(s.x!==1||s.y!==1||s.z!==1) nd.scale=[s.x,s.y,s.z];
+
+      if(obj.isMesh && obj.geometry) {
+        const geo = obj.geometry;
+        const mi = addMat(obj.material);
+        const prim = {attributes:{},material:mi};
+
+        // Position
+        const pos = geo.attributes.position;
+        if(pos){
+          const fa=new Float32Array(pos.array);
+          let mn=[1e9,1e9,1e9],mx=[-1e9,-1e9,-1e9];
+          for(let i=0;i<fa.length;i+=3) for(let j=0;j<3;j++){mn[j]=Math.min(mn[j],fa[i+j]);mx[j]=Math.max(mx[j],fa[i+j]);}
+          const bv=addBuf(fa,34962);
+          const ai=json.accessors.length;
+          json.accessors.push({bufferView:bv,componentType:5126,count:pos.count,type:'VEC3',min:mn,max:mx});
+          prim.attributes.POSITION=ai;
+        }
+        // Normal
+        const norm = geo.attributes.normal;
+        if(norm){
+          const bv=addBuf(new Float32Array(norm.array),34962);
+          const ai=json.accessors.length;
+          json.accessors.push({bufferView:bv,componentType:5126,count:norm.count,type:'VEC3'});
+          prim.attributes.NORMAL=ai;
+        }
+        // Index
+        if(geo.index){
+          const src = geo.index;
+          const arr = src.count>65535 ? new Uint32Array(src.array) : new Uint16Array(src.array);
+          const bv=addBuf(arr,34963);
+          const ai=json.accessors.length;
+          json.accessors.push({bufferView:bv,componentType:arr.BYTES_PER_ELEMENT===4?5125:5123,count:src.count,type:'SCALAR'});
+          prim.indices=ai;
+        }
+        const mi2=json.meshes.length;
+        json.meshes.push({primitives:[prim]});
+        nd.mesh=mi2;
+      }
+
+      const ni=json.nodes.length; json.nodes.push(nd);
+      nodeMap.set(obj.uuid, ni);
+      if(obj.children.length){
+        nd.children=[];
+        obj.children.forEach(ch=>{ if(ch.isMesh||ch.isGroup||ch.isObject3D) nd.children.push(processNode(ch)); });
+      }
+      return ni;
+    };
+
+    json.scenes[0].nodes.push(processNode(rootObj));
+
+    // Add skin/armature if bone nodes exist
+    if(boneList.length>0){
+      const nB=boneList.length;
+      // Inverse bind matrices — one MAT4 per bone
+      const ibm=new Float32Array(nB*16);
+      const joints=[];
+      boneList.forEach((b,i)=>{
+        const idx=nodeMap.get(b.uuid);
+        if(idx!==undefined) joints.push(idx);
+        b.matrixWorld.clone().invert().toArray(ibm,i*16);
+      });
+      const ibmBV=addBuf(ibm);
+      const ibmAcc=json.accessors.length;
+      json.accessors.push({bufferView:ibmBV,componentType:5126,count:nB,type:'MAT4'});
+
+      // Helper mesh: one degenerate triangle per bone so each joint gets vertex weight
+      const nV=nB*3;
+      const hp=new Float32Array(nV*3), hn=new Float32Array(nV*3);
+      const hj=new Uint8Array(nV*4), hw=new Float32Array(nV*4);
+      const hi=new Uint16Array(nV);
+      for(let i=0;i<nB;i++) for(let v=0;v<3;v++){
+        const vi=i*3+v;
+        hp[vi*3]=v*0.0001; hp[vi*3+1]=i*0.0001; hp[vi*3+2]=0;
+        hn[vi*3+2]=1;
+        hj[vi*4]=i;
+        hw[vi*4]=1;
+        hi[vi]=vi;
+      }
+      const hpBV=addBuf(hp,34962),hnBV=addBuf(hn,34962),hjBV=addBuf(hj,34962),hwBV=addBuf(hw,34962);
+      const hiBV=addBuf(hi,34963);
+      const hpA=json.accessors.length;json.accessors.push({bufferView:hpBV,componentType:5126,count:nV,type:'VEC3',min:[0,0,0],max:[2*0.0001,nB*0.0001,0]});
+      const hnA=json.accessors.length;json.accessors.push({bufferView:hnBV,componentType:5126,count:nV,type:'VEC3'});
+      const hjA=json.accessors.length;json.accessors.push({bufferView:hjBV,componentType:5121,count:nV,type:'VEC4'});
+      const hwA=json.accessors.length;json.accessors.push({bufferView:hwBV,componentType:5126,count:nV,type:'VEC4'});
+      const hiA=json.accessors.length;json.accessors.push({bufferView:hiBV,componentType:5123,count:nV,type:'SCALAR'});
+
+      const hMat=json.materials.length;
+      json.materials.push({pbrMetallicRoughness:{baseColorFactor:[0,0,0,0]},alphaMode:'BLEND'});
+      const hMesh=json.meshes.length;
+      json.meshes.push({primitives:[{attributes:{POSITION:hpA,NORMAL:hnA,JOINTS_0:hjA,WEIGHTS_0:hwA},indices:hiA,material:hMat}]});
+
+      json.skins=[{joints,inverseBindMatrices:ibmAcc,skeleton:joints[0]}];
+      // Attach skin + helper mesh to root node so Blender sees armature as parent of bones
+      const rootNI=json.scenes[0].nodes[0];
+      json.nodes[rootNI].mesh=hMesh;
+      json.nodes[rootNI].skin=0;
+      json.nodes[rootNI].name='Armature';
+    }
+
+    const totalLen=chunks.reduce((a,b)=>a+b.byteLength,0);
+    json.buffers.push({byteLength:totalLen});
+    const binBuf=new Uint8Array(totalLen);
+    let o=0; chunks.forEach(c=>{binBuf.set(c,o);o+=c.byteLength;});
+
+    const jsonStr=JSON.stringify(json);
+    const jsonBuf=new TextEncoder().encode(jsonStr);
+    const jp=(4-(jsonBuf.byteLength%4))%4;
+    const bp=(4-(binBuf.byteLength%4))%4;
+    const total=12+8+jsonBuf.byteLength+jp+8+binBuf.byteLength+bp;
+    const glb=new ArrayBuffer(total);
+    const dv=new DataView(glb);
+    let w=0;
+    dv.setUint32(w,0x46546C67,true);w+=4; dv.setUint32(w,2,true);w+=4; dv.setUint32(w,total,true);w+=4;
+    dv.setUint32(w,jsonBuf.byteLength+jp,true);w+=4; dv.setUint32(w,0x4E4F534A,true);w+=4;
+    new Uint8Array(glb,w).set(jsonBuf);w+=jsonBuf.byteLength;
+    for(let i=0;i<jp;i++) dv.setUint8(w++,0x20);
+    dv.setUint32(w,binBuf.byteLength+bp,true);w+=4; dv.setUint32(w,0x004E4942,true);w+=4;
+    new Uint8Array(glb,w).set(binBuf);w+=binBuf.byteLength;
+    for(let i=0;i<bp;i++) dv.setUint8(w++,0);
+    onDone(glb);
+  }
+}
+
+// ══════════════════════════════════════
+// MECH DEFINITIONS
+// ══════════════════════════════════════
+const MECHS = [
+  { id:'titan', name:'Titan', class:'HEAVY ASSAULT', tons:85,
+    stats:{armor:95,firepower:88,speed:35,agility:25,systems:60}, color:0x00ffcc, emissive:0x003322 },
+  { id:'phantom', name:'Phantom', class:'STEALTH RECON', tons:35,
+    stats:{armor:40,firepower:55,speed:92,agility:95,systems:85}, color:0xff3366, emissive:0x330011 },
+  { id:'goliath', name:'Goliath', class:'SIEGE WALKER', tons:100,
+    stats:{armor:100,firepower:100,speed:15,agility:10,systems:70}, color:0xffaa00, emissive:0x331100 },
+  { id:'specter', name:'Specter', class:'ELECTRONIC WARFARE', tons:55,
+    stats:{armor:50,firepower:45,speed:80,agility:75,systems:100}, color:0x8855ff, emissive:0x110033 },
+  { id:'viper', name:'Viper', class:'RAPID STRIKE', tons:40,
+    stats:{armor:55,firepower:72,speed:88,agility:85,systems:55}, color:0x44ff44, emissive:0x003300 },
+  { id:'maddog', name:'Mad Dog', class:'FIRE SUPPORT', tons:60,
+    stats:{armor:60,firepower:95,speed:65,agility:50,systems:55}, color:0xff6622, emissive:0x331100 },
+  { id:'timberwolf', name:'Timber Wolf', class:'OMNIMECH', tons:75,
+    stats:{armor:80,firepower:90,speed:60,agility:55,systems:75}, color:0x33ccff, emissive:0x002233 },
+  { id:'vulture', name:'Vulture', class:'MISSILE BOAT', tons:60,
+    stats:{armor:55,firepower:98,speed:70,agility:45,systems:60}, color:0xdddd33, emissive:0x222200 },
+  { id:'cougar', name:'Cougar', class:'LIGHT STRIKER', tons:35,
+    stats:{armor:42,firepower:65,speed:95,agility:90,systems:70}, color:0xff44cc, emissive:0x220022 },
+];
+
+let currentMechIdx=0, currentMechGroup=null;
+let scene, camera, renderer, clock;
+let targetRotY=0, targetRotX=0;
+let isDragging=false, prevMouseX=0, prevMouseY=0;
+let cameraDistance=12;
+
+// ══════════════════════════════════════
+// INIT
+// ══════════════════════════════════════
+function init() {
+  scene = new THREE.Scene();
+  scene.fog = new THREE.FogExp2(0x080c14, 0.015);
+  const bgCanvas=document.createElement('canvas');bgCanvas.width=2;bgCanvas.height=256;
+  const ctx=bgCanvas.getContext('2d'),grad=ctx.createLinearGradient(0,0,0,256);
+  grad.addColorStop(0,'#1a2a44');grad.addColorStop(0.5,'#0e1824');grad.addColorStop(1,'#060a10');
+  ctx.fillStyle=grad;ctx.fillRect(0,0,2,256);
+  const bgTex=new THREE.CanvasTexture(bgCanvas);bgTex.mapping=THREE.EquirectangularReflectionMapping;
+  scene.background=bgTex;
+  clock = new THREE.Clock();
+
+  camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 100);
+  camera.position.set(0,4,cameraDistance);
+
+  renderer = new THREE.WebGLRenderer({antialias:true});
+  renderer.setSize(innerWidth,innerHeight);
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+  renderer.shadowMap.enabled=true;
+  renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  renderer.toneMapping=THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure=1.2;
+  document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+  scene.add(new THREE.AmbientLight(0x1a2030, 0.3));
+  const key=new THREE.DirectionalLight(0xffeedd,1.0); key.position.set(5,8,4); key.castShadow=true;
+  key.shadow.mapSize.set(2048,2048); key.shadow.camera.near=0.5; key.shadow.camera.far=30;
+  key.shadow.camera.left=-10; key.shadow.camera.right=10; key.shadow.camera.top=10; key.shadow.camera.bottom=-10;
+  key.shadow.bias=-0.001; scene.add(key);
+  const fill=new THREE.DirectionalLight(0x4488ff,0.4); fill.position.set(-6,4,3); scene.add(fill);
+  const rim=new THREE.DirectionalLight(0x00ffcc,0.6); rim.position.set(0,6,-6); scene.add(rim);
+
+  createGround();
+  buildMech(0);
+  buildUI();
+
+  addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight);});
+  const c=renderer.domElement;
+  c.addEventListener('mousedown',e=>{isDragging=true;prevMouseX=e.clientX;prevMouseY=e.clientY;});
+  c.addEventListener('mousemove',e=>{if(!isDragging)return;targetRotY+=(e.clientX-prevMouseX)*0.005;targetRotX=Math.max(-0.5,Math.min(0.5,targetRotX+(e.clientY-prevMouseY)*0.003));prevMouseX=e.clientX;prevMouseY=e.clientY;});
+  c.addEventListener('mouseup',()=>isDragging=false);
+  c.addEventListener('mouseleave',()=>isDragging=false);
+  c.addEventListener('wheel',e=>{cameraDistance=Math.max(6,Math.min(25,cameraDistance+e.deltaY*0.01));});
+  c.addEventListener('touchstart',e=>{e.preventDefault();isDragging=true;prevMouseX=e.touches[0].clientX;prevMouseY=e.touches[0].clientY;},{passive:false});
+  c.addEventListener('touchmove',e=>{e.preventDefault();if(!isDragging)return;targetRotY+=(e.touches[0].clientX-prevMouseX)*0.005;targetRotX=Math.max(-0.5,Math.min(0.5,targetRotX+(e.touches[0].clientY-prevMouseY)*0.003));prevMouseX=e.touches[0].clientX;prevMouseY=e.touches[0].clientY;},{passive:false});
+  c.addEventListener('touchend',()=>isDragging=false);
+
+  document.getElementById('exportBtn').addEventListener('click', exportGLTF);
+  animate();
+}
+
+function createGround() {
+  scene.add(new THREE.GridHelper(40,40,0x1a2a2a,0x0d1518));
+  const p=new THREE.Mesh(new THREE.CylinderGeometry(3,3.2,0.15,6),new THREE.MeshStandardMaterial({color:0x151c24,metalness:0.8,roughness:0.4}));
+  p.position.y=0.075;p.receiveShadow=true;scene.add(p);
+  const r=new THREE.Mesh(new THREE.TorusGeometry(3.1,0.03,8,6),new THREE.MeshStandardMaterial({color:0x00ffcc,emissive:0x00ffcc,emissiveIntensity:0.5}));
+  r.rotation.x=-Math.PI/2;r.position.y=0.16;r.userData.isPlatformRing=true;scene.add(r);
+}
+
+// ══════════════════════════════════════
+// MATERIAL + PART HELPERS
+// ══════════════════════════════════════
+function M(c,e,met=0.7,rough=0.3){return new THREE.MeshStandardMaterial({color:c,emissive:e||0,emissiveIntensity:e?0.3:0,metalness:met,roughness:rough});}
+
+function bx(g,geo,mat,x,y,z,rx,ry,rz){
+  const m=new THREE.Mesh(geo,mat);m.position.set(x,y,z);
+  if(rx)m.rotation.x=rx;if(ry)m.rotation.y=ry;if(rz)m.rotation.z=rz;
+  m.castShadow=true;g.add(m);return m;
+}
+
+function bn(name,x,y,z){const b=new THREE.Group();b.name=name;b.position.set(x,y,z);b.userData.isBone=true;return b;}
+
+// Rocket pod: grid of tubes in a housing (local coords relative to parent)
+function rocketPod(g,x,y,z,rows,cols,mat,accentMat){
+  bx(g,new THREE.BoxGeometry(cols*0.14+0.2, rows*0.14+0.2, 0.7),mat,x,y,z);
+  const tubeMat=new THREE.MeshStandardMaterial({color:0x111111,metalness:0.95,roughness:0.1});
+  for(let r=0;r<rows;r++) for(let c=0;c<cols;c++){
+    const t=new THREE.Mesh(new THREE.CylinderGeometry(0.05,0.05,0.8,6),tubeMat);
+    t.rotation.x=Math.PI/2;
+    t.position.set(x+(c-(cols-1)/2)*0.14, y+(r-(rows-1)/2)*0.14, z+0.35);
+    g.add(t);
+  }
+  bx(g,new THREE.BoxGeometry(cols*0.14+0.22,0.05,0.3),accentMat,x,y+rows*0.07+0.12,z+0.05);
+}
+
+// LRM rack: wide missile box (local coords relative to parent)
+function lrmRack(g,x,y,z,count,mat,accentMat){
+  const w=count*0.11+0.15;
+  bx(g,new THREE.BoxGeometry(w,0.4,0.9),mat,x,y,z);
+  const tm=new THREE.MeshStandardMaterial({color:0x0e0e0e,metalness:0.95,roughness:0.1});
+  for(let i=0;i<count;i++){
+    const t=new THREE.Mesh(new THREE.CylinderGeometry(0.04,0.04,1.0,6),tm);
+    t.rotation.x=Math.PI/2;t.position.set(x+(i-(count-1)/2)*0.11,y,z+0.45);g.add(t);
+  }
+  bx(g,new THREE.BoxGeometry(w+0.04,0.06,0.15),accentMat,x,y+0.2,z+0.42);
+}
+
+// Chicken / reverse-joint legs — builds bone chain and attaches to pelvisBone
+// pelvisWorldY = world Y of the pelvis bone this leg attaches to
+function chickenLeg(pelvis,side,hipX,hipY,thighL,shinL,mat,dark,joint,accent,pelvisWorldY){
+  const p=side===-1?'L':'R';
+
+  const hip=bn(p+'_hip',side*hipX,hipY-pelvisWorldY,0);
+  pelvis.add(hip);
+  bx(hip,new THREE.SphereGeometry(0.22,8,8),joint,0,0,0);
+
+  const thigh=bn(p+'_thigh',0,0,0);
+  hip.add(thigh);
+  const th=bx(thigh,new THREE.BoxGeometry(0.42,thighL,0.48),mat,0,-thighL*0.38,-0.18);
+  th.rotation.x=-0.3;
+
+  const kneeY=hipY-thighL*0.72, kneeZ=-0.38;
+  const knee=bn(p+'_back_knee',0,-(thighL*0.72),-0.38);
+  thigh.add(knee);
+  bx(knee,new THREE.SphereGeometry(0.2,8,8),joint,0,0,0);
+  bx(knee,new THREE.BoxGeometry(0.32,0.28,0.22),accent,0,0,-0.16);
+
+  const ankleY=0.28, ankleZ=0.3;
+  const dy=kneeY-ankleY, dz=ankleZ-kneeZ;
+  const shinLen=Math.sqrt(dy*dy+dz*dz);
+
+  const shin=bn(p+'_shin',0,0,0);
+  knee.add(shin);
+  const sh=bx(shin,new THREE.BoxGeometry(0.36,shinLen,0.42),mat,0,(ankleY-kneeY)/2,(ankleZ-kneeZ)/2);
+  sh.rotation.x=-Math.atan2(dz,dy);
+
+  const ankle=bn(p+'_ankle',0,ankleY-kneeY,ankleZ-kneeZ);
+  shin.add(ankle);
+  bx(ankle,new THREE.SphereGeometry(0.14,6,6),joint,0,0,0);
+
+  const foot=bn(p+'_foot',0,0.1-ankleY,0.32-ankleZ);
+  ankle.add(foot);
+  bx(foot,new THREE.BoxGeometry(0.32,0.12,0.55),dark,0,0,0);
+  [-0.08,0.08].forEach(dx=>bx(foot,new THREE.BoxGeometry(0.06,0.06,0.22),accent,dx,-0.04,0.33));
+  bx(foot,new THREE.BoxGeometry(0.06,0.06,0.18),dark,0,-0.04,-0.30);
+}
+
+// ══════════════════════════════════════
+// MECH BUILDERS — ORIGINAL 5
+// ══════════════════════════════════════
+
+function buildTitan(def){
+  const g=new THREE.Group(),main=M(0x2a3040,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x1a1e28),jt=M(0x3a3a3a,null,0.9,0.2);
+  const PY=3.2; // pelvis world Y
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(1.4,0.5,1.2),dk,0,0,0);
+
+  // Torso at world 4.2
+  const torso=bn('Torso',0,1.0,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(2.4,1.6,1.6),main,0,0,0);
+  bx(torso,new THREE.BoxGeometry(2.6,0.6,1.0),acc,0,0.6,0.4);
+
+  // Head at world 5.3
+  const head=bn('Head',0,1.1,0); torso.add(head);
+  bx(head,new THREE.BoxGeometry(0.7,0.5,0.7),dk,0,0,0);
+  bx(head,new THREE.BoxGeometry(0.75,0.15,0.3),acc,0,0.05,0.25);
+
+  // Arms
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*1.8, 4.8, 0)
+    const shoulder=bn(p+'_shoulder',s*1.8,0.6,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(1.0,0.8,1.4),main,0,0,0);
+    bx(shoulder,new THREE.BoxGeometry(1.05,0.15,1.0),acc,0,0.35,0);
+
+    // Upper arm at world (s*1.8, 3.8, 0)
+    const uArm=bn(p+'_upper_arm',0,-1.0,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.5,1.2,0.5),dk,0,0,0);
+
+    // Elbow at world (s*1.8, 3.25, 0.05)
+    const elbow=bn(p+'_elbow',0,-0.55,0.05); uArm.add(elbow);
+
+    // Forearm at world (s*1.8, 2.7, 0.1)
+    const forearm=bn(p+'_forearm',0,-0.55,0.05); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.6,1.0,0.7),main,0,0,0);
+
+    if(s===1){
+      const wep=bn(p+'_weapon',0,-0.2,0.8); forearm.add(wep);
+      const b=bx(wep,new THREE.CylinderGeometry(0.15,0.15,1.2,8),jt,0,0,0);b.rotation.x=Math.PI/2;
+    }
+    if(s===-1){
+      const wep=bn(p+'_weapon',-0.4,0,0); forearm.add(wep);
+      bx(wep,new THREE.BoxGeometry(0.15,1.0,1.0),acc,0,0,0);
+    }
+  });
+
+  // Jetpack at world (0, 4.0, -1.0)
+  const jetpack=bn('Jetpack',0,-0.2,-1.0); torso.add(jetpack);
+  [-0.5,0.5].forEach(x=>{
+    bx(jetpack,new THREE.CylinderGeometry(0.25,0.35,0.8,8),dk,x,0,0);
+    bx(jetpack,new THREE.CylinderGeometry(0.2,0.3,0.1,8),acc,x,-0.45,0);
+  });
+
+  // Legs (standard humanoid)
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Hip at world (s*0.6, 3.0, 0)
+    const hip=bn(p+'_hip',s*0.6,-0.2,0); pelvis.add(hip);
+    bx(hip,new THREE.SphereGeometry(0.3,8,8),jt,0,0,0);
+
+    const thigh=bn(p+'_thigh',0,0,0); hip.add(thigh);
+    bx(thigh,new THREE.BoxGeometry(0.7,1.4,0.8),main,0,-0.9,0);
+
+    // Knee at world (s*0.6, 1.3, 0.1)
+    const knee=bn(p+'_knee',0,-1.7,0.1); thigh.add(knee);
+    bx(knee,new THREE.SphereGeometry(0.25,8,8),jt,0,0,0);
+
+    const shin=bn(p+'_shin',0,0,0); knee.add(shin);
+    bx(shin,new THREE.BoxGeometry(0.6,1.4,0.7),main,0,-0.8,-0.05);
+    bx(shin,new THREE.BoxGeometry(0.65,0.8,0.2),acc,0,-0.6,0.3);
+
+    // Ankle/foot at world (s*0.6, 0.12, 0.15)
+    const ankle=bn(p+'_ankle',0,-1.18,0.05); shin.add(ankle);
+    const foot=bn(p+'_foot',0,0,0); ankle.add(foot);
+    bx(foot,new THREE.BoxGeometry(0.8,0.25,1.1),dk,0,0,0);
+  });
+
+  return g;
+}
+
+function buildPhantom(def){
+  const g=new THREE.Group(),main=M(0x1e1e2a,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x151520),jt=M(0x333340,null,0.9,0.2);
+  const PY=2.9;
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(0.8,0.4,0.6),dk,0,0,0);
+
+  // Torso at world 4.0
+  const torso=bn('Torso',0,1.1,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(1.2,1.8,0.8),main,0,0,0);
+
+  // Head at world 5.2
+  const head=bn('Head',0,1.2,0); torso.add(head);
+  bx(head,new THREE.BoxGeometry(0.5,0.4,0.6),dk,0,0,0);
+  bx(head,new THREE.BoxGeometry(0.35,0.08,0.15),acc,-0.12,0.02,0.32,0,0,0.15);
+  bx(head,new THREE.BoxGeometry(0.35,0.08,0.15),acc,0.12,0.02,0.32,0,0,-0.15);
+  bx(head,new THREE.BoxGeometry(0.04,0.5,0.04),acc,0.3,0.3,-0.1,0,0,-0.2);
+
+  // Arms
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*0.9, 4.7, 0)
+    const shoulder=bn(p+'_shoulder',s*0.9,0.7,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(0.4,0.35,0.6),main,0,0,0);
+
+    // Upper arm at world (s*1.0, 3.9, 0)
+    const uArm=bn(p+'_upper_arm',s*0.1,-0.8,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.3,1.0,0.3),dk,0,0,0);
+
+    // Elbow at world (s*1.0, 3.3, 0)
+    const elbow=bn(p+'_elbow',0,-0.6,0); uArm.add(elbow);
+    bx(elbow,new THREE.SphereGeometry(0.15,6,6),jt,0,0,0);
+
+    // Forearm at world (s*1.0, 2.6, 0.05)
+    const forearm=bn(p+'_forearm',0,-0.7,0.05); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.25,1.0,0.35),main,0,0,0);
+
+    // Blade weapon
+    const wep=bn(p+'_weapon',0,-0.5,0.45); forearm.add(wep);
+    bx(wep,new THREE.BoxGeometry(0.04,0.6,0.8),acc,0,0,0,0.3);
+  });
+
+  // Wings on torso
+  const wings=bn('Wings',0,0.3,-0.9); torso.add(wings);
+  [-1,1].forEach(s=>{
+    bx(wings,new THREE.BoxGeometry(0.08,0.8,1.2),main,s*0.7,0,0);
+    bx(wings,new THREE.BoxGeometry(0.08,0.3,0.6),acc,s*0.75,0.3,-0.4);
+  });
+
+  // Chicken legs
+  [-1,1].forEach(s=>chickenLeg(pelvis,s,0.4,2.7,1.3,1.2,main,dk,jt,acc,PY));
+
+  return g;
+}
+
+function buildGoliath(def){
+  const g=new THREE.Group(),main=M(0x3a3020,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x252015),jt=M(0x4a4030,null,0.9,0.2);
+  const PY=3.2;
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(2.2,0.7,1.6),dk,0,0,0);
+
+  // Torso at world 4.5
+  const torso=bn('Torso',0,1.3,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(3.0,2.0,2.0),main,0,0,0);
+  bx(torso,new THREE.BoxGeometry(2.8,1.4,0.2),dk,0,0,1.1);
+
+  // Head at world 5.8
+  const head=bn('Head',0,1.3,0); torso.add(head);
+  bx(head,new THREE.BoxGeometry(1.0,0.5,0.8),dk,0,0,0);
+  bx(head,new THREE.BoxGeometry(0.8,0.12,0.3),acc,0,-0.02,0.45);
+  // Head-mounted cannons
+  [-1,1].forEach(s=>{
+    bx(head,new THREE.BoxGeometry(0.6,0.6,0.6),dk,s*1.3,0,-0.3);
+    const b=bx(head,new THREE.CylinderGeometry(0.2,0.25,1.8,8),jt,s*1.3,0,0.7);b.rotation.x=Math.PI/2;
+    const t=bx(head,new THREE.CylinderGeometry(0.28,0.22,0.3,8),acc,s*1.3,0,1.6);t.rotation.x=Math.PI/2;
+  });
+
+  // Arms
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*2.2, 4.8, 0)
+    const shoulder=bn(p+'_shoulder',s*2.2,0.3,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(1.0,1.0,1.2),main,0,0,0);
+
+    // Upper arm at world (s*2.2, 3.6, 0)
+    const uArm=bn(p+'_upper_arm',0,-1.2,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.7,1.4,0.7),dk,0,0,0);
+
+    // Elbow at world (s*2.2, 2.85, 0.05)
+    const elbow=bn(p+'_elbow',0,-0.75,0.05); uArm.add(elbow);
+
+    // Forearm at world (s*2.2, 2.3, 0.1)
+    const forearm=bn(p+'_forearm',0,-0.55,0.05); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.8,1.3,0.9),main,0,0,0);
+
+    // Fist at world (s*2.2, 1.4, 0.1)
+    const wep=bn(p+'_weapon',0,-0.9,0); forearm.add(wep);
+    bx(wep,new THREE.BoxGeometry(0.9,0.7,0.9),dk,0,0,0);
+  });
+
+  // Reactor at world (0, 4.5, -1.3)
+  const engine=bn('Engine',0,0,-1.3); torso.add(engine);
+  bx(engine,new THREE.CylinderGeometry(0.6,0.6,1.4,8),dk,0,0,0);
+  bx(engine,new THREE.CylinderGeometry(0.45,0.45,0.1,8),acc,0,0.7,0);
+
+  // Legs (standard humanoid)
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Hip at world (s*0.8, 2.9, 0)
+    const hip=bn(p+'_hip',s*0.8,-0.3,0); pelvis.add(hip);
+    bx(hip,new THREE.SphereGeometry(0.4,8,8),jt,0,0,0);
+
+    const thigh=bn(p+'_thigh',0,0,0); hip.add(thigh);
+    bx(thigh,new THREE.BoxGeometry(0.9,1.5,1.0),main,0,-1.0,0);
+
+    // Knee at world (s*0.8, 1.15, 0)
+    const knee=bn(p+'_knee',0,-1.75,0); thigh.add(knee);
+
+    const shin=bn(p+'_shin',0,0,0); knee.add(shin);
+    bx(shin,new THREE.BoxGeometry(0.8,1.2,0.9),main,0,-0.75,0.05);
+
+    // Ankle/foot at world (s*0.8, 0.15, 0.2)
+    const ankle=bn(p+'_ankle',0,-1.0,0.2); shin.add(ankle);
+    const foot=bn(p+'_foot',0,0,0); ankle.add(foot);
+    bx(foot,new THREE.BoxGeometry(1.1,0.3,1.4),dk,0,0,0);
+  });
+
+  return g;
+}
+
+function buildSpecter(def){
+  const g=new THREE.Group(),main=M(0x252035,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x18152a),jt=M(0x3a3545,null,0.9,0.2);
+  const PY=3.3;
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(1.0,0.4,0.7),dk,0,0,0);
+
+  // Torso at world 4.2
+  const torso=bn('Torso',0,0.9,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(1.6,1.4,1.0),main,0,0,0);
+  // Antennas
+  [-1,1].forEach(s=>{for(let i=0;i<3;i++) bx(torso,new THREE.BoxGeometry(0.03,0.4+i*0.15,0.03),acc,s*(0.9+i*0.12),1.0+i*0.1,-0.2);});
+
+  // Head at world 5.3
+  const head=bn('Head',0,1.1,0); torso.add(head);
+  const hd=bx(head,new THREE.SphereGeometry(0.4,8,8),dk,0,0,0);hd.scale.y=0.7;
+  bx(head,new THREE.TorusGeometry(0.25,0.04,6,16),acc,0,-0.05,0.3);
+  bx(head,new THREE.SphereGeometry(0.1,8,8),acc,0,-0.05,0.35);
+
+  // Radar dish at world (0, 4.8, -0.8)
+  const radar=bn('Radar',0,0.6,-0.8); torso.add(radar);
+  bx(radar,new THREE.CylinderGeometry(0.9,0.9,0.15,16),main,0,0,0);
+  const rt=bx(radar,new THREE.TorusGeometry(0.9,0.04,6,16),acc,0,0,0);rt.rotation.x=Math.PI/2;
+
+  // Arms
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*1.0, 4.6, 0)
+    const shoulder=bn(p+'_shoulder',s*1.0,0.4,0); torso.add(shoulder);
+    bx(shoulder,new THREE.SphereGeometry(0.3,8,8),jt,0,0,0);
+
+    // Upper arm at world (s*1.1, 3.8, 0)
+    const uArm=bn(p+'_upper_arm',s*0.1,-0.8,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.3,1.0,0.3),dk,0,0,0);
+
+    // Elbow at world (s*1.1, 3.35, 0.025)
+    const elbow=bn(p+'_elbow',0,-0.45,0.025); uArm.add(elbow);
+
+    // Forearm at world (s*1.1, 2.9, 0.05)
+    const forearm=bn(p+'_forearm',0,-0.45,0.025); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.35,0.9,0.4),main,0,0,0);
+
+    // Hand at world (s*1.1, 2.3, 0.1)
+    const wep=bn(p+'_weapon',0,-0.6,0.05); forearm.add(wep);
+    bx(wep,new THREE.SphereGeometry(0.2,8,8),acc,0,0,0);
+  });
+
+  // Legs (standard humanoid)
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Hip at world (s*0.45, 2.9, 0) — no explicit hip sphere, use upper leg top
+    const hip=bn(p+'_hip',s*0.45,-0.4,0); pelvis.add(hip);
+
+    const thigh=bn(p+'_thigh',0,0,0); hip.add(thigh);
+    bx(thigh,new THREE.BoxGeometry(0.4,1.3,0.45),main,0,-0.6,0);
+
+    // Knee at world (s*0.45, 1.5, 0)
+    const knee=bn(p+'_knee',0,-1.4,0); thigh.add(knee);
+    bx(knee,new THREE.SphereGeometry(0.2,6,6),jt,0,0,0);
+
+    const shin=bn(p+'_shin',0,0,0); knee.add(shin);
+    bx(shin,new THREE.BoxGeometry(0.35,1.2,0.4),main,0,-0.8,0);
+
+    // Ankle/foot at world (s*0.45, 0.1, 0.1)
+    const ankle=bn(p+'_ankle',0,-1.4,0.1); shin.add(ankle);
+    const foot=bn(p+'_foot',0,0,0); ankle.add(foot);
+    bx(foot,new THREE.BoxGeometry(0.5,0.2,0.8),dk,0,0,0);
+  });
+
+  // Drones — stay as children of root group g (not pelvis) for orbit animation
+  for(let i=0;i<3;i++){
+    const d=bx(g,new THREE.OctahedronGeometry(0.15),acc,0,5,0);
+    const a=(i/3)*Math.PI*2;d.position.set(Math.cos(a)*2,5,Math.sin(a)*2);
+    d.userData={isDrone:true,orbitAngle:a,orbitSpeed:0.5+i*0.2};
+  }
+  return g;
+}
+
+function buildViper(def){
+  const g=new THREE.Group(),main=M(0x1e2a1e,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x151e15),jt=M(0x3a4a3a,null,0.9,0.2);
+  const PY=3.1;
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(0.9,0.35,0.7),dk,0,0,0);
+
+  // Torso at world 4.0
+  const torso=bn('Torso',0,0.9,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(1.5,1.5,1.0),main,0,0,0);
+  for(let i=0;i<3;i++) bx(torso,new THREE.BoxGeometry(0.8,0.06,0.15),acc,0,0.3-i*0.2,0.55);
+
+  // Head at world 5.1
+  const head=bn('Head',0,1.1,0); torso.add(head);
+  bx(head,new THREE.BoxGeometry(0.55,0.45,0.55),dk,0,0,0);
+  [-0.12,0.12].forEach(x=>bx(head,new THREE.SphereGeometry(0.08,8,8),acc,x,0.02,0.3));
+  bx(head,new THREE.BoxGeometry(0.06,0.4,0.5),acc,0,0.3,-0.05);
+
+  // Arms
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*1.0, 4.5, 0)
+    const shoulder=bn(p+'_shoulder',s*1.0,0.5,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(0.5,0.4,0.5),main,0,0,0);
+
+    // Upper arm at world (s*1.1, 3.7, 0)
+    const uArm=bn(p+'_upper_arm',s*0.1,-0.8,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.3,1.0,0.3),dk,0,0,0);
+
+    // Elbow at world (s*1.1, 3.1, 0.025)
+    const elbow=bn(p+'_elbow',0,-0.6,0.025); uArm.add(elbow);
+
+    // Forearm at world (s*1.1, 2.5, 0.05)
+    const forearm=bn(p+'_forearm',0,-0.6,0.025); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.28,0.9,0.35),main,0,0,0);
+
+    // Wrist weapon at world (s*1.1, 2.2, 0.45)
+    const wep=bn(p+'_weapon',0,-0.3,0.4); forearm.add(wep);
+    bx(wep,new THREE.BoxGeometry(0.12,0.15,0.8),jt,0,0,0);
+    const b=bx(wep,new THREE.CylinderGeometry(0.04,0.04,0.4,6),dk,0,0,0.5);b.rotation.x=Math.PI/2;
+  });
+
+  // Jetpack at world (0, 4.0, -0.7)
+  const jetpack=bn('Jetpack',0,0,-0.7); torso.add(jetpack);
+  bx(jetpack,new THREE.BoxGeometry(0.8,0.8,0.5),dk,0,0,0);
+
+  // Legs (standard humanoid)
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Hip at world (s*0.4, 2.8, 0)
+    const hip=bn(p+'_hip',s*0.4,-0.3,0); pelvis.add(hip);
+
+    const thigh=bn(p+'_thigh',0,0,0); hip.add(thigh);
+    bx(thigh,new THREE.BoxGeometry(0.4,1.2,0.45),main,0,-0.6,0);
+
+    // Knee at world (s*0.4, 1.5, 0.1)
+    const knee=bn(p+'_knee',0,-1.3,0.1); thigh.add(knee);
+    bx(knee,new THREE.SphereGeometry(0.18,6,6),jt,0,0,0);
+
+    const shin=bn(p+'_shin',0,0,0); knee.add(shin);
+    bx(shin,new THREE.BoxGeometry(0.35,1.2,0.4),main,0,-0.8,-0.05);
+    bx(shin,new THREE.BoxGeometry(0.05,0.6,0.2),acc,0,-0.8,0.2);
+
+    // Ankle/foot at world (s*0.4, 0.1, 0.15)
+    const ankle=bn(p+'_ankle',0,-1.4,0.05); shin.add(ankle);
+    const foot=bn(p+'_foot',0,0,0); ankle.add(foot);
+    bx(foot,new THREE.BoxGeometry(0.4,0.18,0.85),dk,0,0,0);
+  });
+
+  return g;
+}
+
+// ══════════════════════════════════════
+// NEW MECHWARRIOR-STYLE MECHS
+// ══════════════════════════════════════
+
+function buildMadDog(def){
+  // Fire support chicken walker — arms ARE missile racks
+  const g=new THREE.Group(),main=M(0x3a2818,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x201510),jt=M(0x4a3a2a,null,0.9,0.2);
+  const PY=3.6;
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(1.2,0.4,0.9),dk,0,0,0);
+
+  // Torso_Head at world 4.5
+  const torso=bn('Torso_Head',0,0.9,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(2.0,1.4,1.3),main,0,0,0);
+  bx(torso,new THREE.BoxGeometry(2.2,0.3,1.0),dk,0,0.7,0.2);
+  bx(torso,new THREE.BoxGeometry(0.8,0.8,0.2),acc,0,0,0.75);
+  // Cockpit
+  bx(torso,new THREE.BoxGeometry(0.8,0.4,0.7),dk,0,1.1,0.1);
+  bx(torso,new THREE.BoxGeometry(0.7,0.1,0.25),acc,0,1.12,0.5);
+
+  // Arms = massive LRM racks
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*1.3, 5.0, 0)
+    const shoulder=bn(p+'_shoulder',s*1.3,0.5,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(0.5,0.5,0.8),main,0,0,0);
+
+    // Upper arm at world (s*1.5, 4.2, 0)
+    const uArm=bn(p+'_upper_arm',s*0.2,-0.8,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.4,1.0,0.5),dk,0,0,0);
+
+    // Elbow at world (s*1.5, 3.8, 0.15)
+    const elbow=bn(p+'_elbow',0,-0.4,0.15); uArm.add(elbow);
+
+    // Forearm = LRM housing at world (s*1.5, 3.4, 0.3)
+    const forearm=bn(p+'_forearm',0,-0.4,0.15); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.7,0.8,1.4),main,0,0,0);
+    // 3x3 missile tubes
+    const tm=new THREE.MeshStandardMaterial({color:0x111111,metalness:0.95,roughness:0.1});
+    for(let r=0;r<3;r++) for(let c=0;c<3;c++){
+      const t=new THREE.Mesh(new THREE.CylinderGeometry(0.055,0.055,1.5,6),tm);
+      t.rotation.x=Math.PI/2;t.position.set((c-1)*0.18,0.2+(r-1)*0.2,0.55);t.castShadow=true;forearm.add(t);
+    }
+    bx(forearm,new THREE.BoxGeometry(0.72,0.06,0.4),acc,0,0.42,0.7);
+    bx(forearm,new THREE.BoxGeometry(0.72,0.06,0.4),acc,0,-0.42,0.7);
+  });
+
+  // Exhaust at world (0, 4.5, -0.85)
+  const exhaust=bn('Exhaust',0,0,-0.85); torso.add(exhaust);
+  [-0.4,0.4].forEach(x=>{
+    bx(exhaust,new THREE.CylinderGeometry(0.18,0.25,0.6,8),dk,x,0,0);
+    bx(exhaust,new THREE.CylinderGeometry(0.14,0.2,0.08,8),acc,x,-0.35,0);
+  });
+
+  // Chicken legs
+  [-1,1].forEach(s=>chickenLeg(pelvis,s,0.55,3.4,1.5,1.4,main,dk,jt,acc,PY));
+
+  return g;
+}
+
+function buildTimberWolf(def){
+  // Iconic heavy omnimech — shoulder LRMs, arm lasers, chicken legs
+  const g=new THREE.Group(),main=M(0x283844,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x182028),jt=M(0x3a4550,null,0.9,0.2);
+  const PY=3.5;
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(1.3,0.4,1.0),dk,0,0,0);
+
+  // Torso_Head at world 4.5
+  const torso=bn('Torso_Head',0,1.0,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(2.2,1.6,1.4),main,0,0,0);
+  bx(torso,new THREE.BoxGeometry(0.6,0.4,0.15),acc,0,-0.1,0.78);
+  [-0.1,0.1].forEach(x=>{const b=bx(torso,new THREE.CylinderGeometry(0.04,0.04,0.3,6),acc,x,-0.1,0.9);b.rotation.x=Math.PI/2;});
+  // Cockpit
+  bx(torso,new THREE.BoxGeometry(0.7,0.5,0.8),dk,0,1.1,0.15);
+  bx(torso,new THREE.BoxGeometry(0.6,0.15,0.3),acc,0,1.1,0.55);
+
+  // Shoulder LRM mounts
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    const mount=bn(p+'_shoulder_mount',s*1.2,1.1,-0.2); torso.add(mount);
+    bx(mount,new THREE.BoxGeometry(0.3,0.8,0.4),dk,0,0,0);
+    lrmRack(mount,0,0.5,0.2,4,main,acc);
+  });
+
+  // Arms with laser barrels
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*1.4, 4.8, 0)
+    const shoulder=bn(p+'_shoulder',s*1.4,0.3,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(0.5,0.5,0.7),main,0,0,0);
+
+    // Upper arm at world (s*1.5, 3.9, 0)
+    const uArm=bn(p+'_upper_arm',s*0.1,-0.9,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.35,1.1,0.4),dk,0,0,0);
+
+    // Elbow at world (s*1.5, 3.2, 0)
+    const elbow=bn(p+'_elbow',0,-0.7,0); uArm.add(elbow);
+    bx(elbow,new THREE.SphereGeometry(0.18,8,8),jt,0,0,0);
+
+    // Forearm at world (s*1.5, 2.5, 0.05)
+    const forearm=bn(p+'_forearm',0,-0.7,0.05); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.4,1.0,0.45),main,0,0,0);
+
+    // Laser weapon
+    const wep=bn(p+'_weapon',0,-0.2,0.55); forearm.add(wep);
+    const b=bx(wep,new THREE.CylinderGeometry(0.08,0.08,1.0,8),jt,0,0,0);b.rotation.x=Math.PI/2;
+    const t=bx(wep,new THREE.CylinderGeometry(0.12,0.09,0.15,8),acc,0,0,0.55);t.rotation.x=Math.PI/2;
+  });
+
+  // Engine at world (0, 4.5, -1.0)
+  const engine=bn('Engine',0,0,-1.0); torso.add(engine);
+  bx(engine,new THREE.BoxGeometry(1.2,1.0,0.7),dk,0,0,0);
+  [-0.3,0.3].forEach(x=>{
+    bx(engine,new THREE.CylinderGeometry(0.2,0.28,0.5,8),dk,x,0,-0.4);
+    bx(engine,new THREE.CylinderGeometry(0.16,0.22,0.08,8),acc,x,-0.3,-0.4);
+  });
+
+  // Chicken legs
+  [-1,1].forEach(s=>chickenLeg(pelvis,s,0.55,3.3,1.5,1.5,main,dk,jt,acc,PY));
+
+  return g;
+}
+
+function buildVulture(def){
+  // Pure missile boat — twin massive shoulder racks, tall chicken legs
+  const g=new THREE.Group(),main=M(0x2e2e18,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x1a1a0e),jt=M(0x404028,null,0.9,0.2);
+  const PY=4.0;
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(1.0,0.35,0.8),dk,0,0,0);
+
+  // Torso_Head at world 5.0
+  const torso=bn('Torso_Head',0,1.0,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(1.4,1.5,1.0),main,0,0,0);
+  // Cockpit
+  bx(torso,new THREE.BoxGeometry(0.6,0.35,0.6),dk,0,1.0,0.1);
+  bx(torso,new THREE.BoxGeometry(0.5,0.08,0.2),acc,0,1.02,0.42);
+
+  // Shoulder LRM mounts — double-stacked
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    const mount=bn(p+'_shoulder_mount',s*1.0,0.6,0); torso.add(mount);
+    bx(mount,new THREE.BoxGeometry(0.4,0.6,0.5),main,0,0,0);
+    lrmRack(mount,s*0.1,0.6,0.1,5,main,acc);
+    lrmRack(mount,s*0.1,0.05,0.1,5,main,acc);
+    bx(mount,new THREE.BoxGeometry(0.08,1.2,0.6),acc,s*-0.3,0.3,0);
+  });
+
+  // Slim arms
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*1.0, 4.95, 0) — top of arm
+    const shoulder=bn(p+'_shoulder',s*1.0,-0.05,0); torso.add(shoulder);
+
+    // Upper arm at world (s*1.0, 4.5, 0)
+    const uArm=bn(p+'_upper_arm',0,-0.45,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.3,0.9,0.3),dk,0,0,0);
+
+    // Elbow at world (s*1.0, 3.95, 0.025)
+    const elbow=bn(p+'_elbow',0,-0.55,0.025); uArm.add(elbow);
+
+    // Forearm at world (s*1.0, 3.5, 0.05)
+    const forearm=bn(p+'_forearm',0,-0.45,0.025); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.25,0.8,0.3),main,0,0,0);
+
+    // Laser weapon
+    const wep=bn(p+'_weapon',0,-0.2,0.35); forearm.add(wep);
+    const b=bx(wep,new THREE.CylinderGeometry(0.05,0.05,0.6,6),acc,0,0,0);b.rotation.x=Math.PI/2;
+  });
+
+  // Ammo bins at world (0, 5.0, -0.8)
+  const ammo=bn('Ammo_Bins',0,0,-0.8); torso.add(ammo);
+  bx(ammo,new THREE.BoxGeometry(1.0,1.2,0.6),dk,0,0,0);
+  bx(ammo,new THREE.BoxGeometry(0.6,0.08,0.3),acc,0,0.6,0);
+
+  // Tall chicken legs
+  [-1,1].forEach(s=>chickenLeg(pelvis,s,0.5,3.8,1.7,1.6,main,dk,jt,acc,PY));
+
+  return g;
+}
+
+function buildCougar(def){
+  // Light fast chicken walker — SRM pods + energy weapons
+  const g=new THREE.Group(),main=M(0x2a1e30,def.emissive),acc=M(def.color,def.color,0.5,0.4),dk=M(0x181020),jt=M(0x3a2e40,null,0.9,0.2);
+  const PY=3.4;
+
+  const pelvis=bn('root_Pelvis',0,PY,0); g.add(pelvis);
+  bx(pelvis,new THREE.BoxGeometry(0.8,0.3,0.6),dk,0,0,0);
+
+  // Torso_Head at world 4.2
+  const torso=bn('Torso_Head',0,0.8,0); pelvis.add(torso);
+  bx(torso,new THREE.BoxGeometry(1.2,1.2,0.8),main,0,0,0);
+  [-0.15,0.15].forEach(y=>bx(torso,new THREE.BoxGeometry(0.7,0.04,0.1),acc,0,y,0.45));
+  // Cockpit
+  bx(torso,new THREE.BoxGeometry(0.5,0.35,0.5),dk,0,0.9,0.05);
+  bx(torso,new THREE.BoxGeometry(0.45,0.08,0.18),acc,0,0.92,0.3);
+  // Ear fins
+  [-1,1].forEach(s=>bx(torso,new THREE.BoxGeometry(0.06,0.35,0.4),acc,s*0.35,1.0,-0.1,0,0,s*0.15));
+
+  // Arms with SRM pods
+  [-1,1].forEach(s=>{
+    const p=s===-1?'L':'R';
+    // Shoulder at world (s*0.85, 4.6, 0)
+    const shoulder=bn(p+'_shoulder',s*0.85,0.4,0); torso.add(shoulder);
+    bx(shoulder,new THREE.BoxGeometry(0.35,0.35,0.45),main,0,0,0);
+
+    // Upper arm at world (s*0.95, 3.9, 0)
+    const uArm=bn(p+'_upper_arm',s*0.1,-0.7,0); shoulder.add(uArm);
+    bx(uArm,new THREE.BoxGeometry(0.25,0.8,0.28),dk,0,0,0);
+
+    // Elbow at world (s*0.95, 3.4, 0)
+    const elbow=bn(p+'_elbow',0,-0.5,0); uArm.add(elbow);
+    bx(elbow,new THREE.SphereGeometry(0.13,6,6),jt,0,0,0);
+
+    // Forearm at world (s*0.95, 2.8, 0.05)
+    const forearm=bn(p+'_forearm',0,-0.6,0.05); elbow.add(forearm);
+    bx(forearm,new THREE.BoxGeometry(0.28,0.7,0.32),main,0,0,0);
+
+    // SRM pod weapon — relative to elbow at world (s*0.95, 3.3, 0.25)
+    const wepPod=bn(p+'_weapon',0,0.5,0.2); forearm.add(wepPod);
+    rocketPod(wepPod,0,0,0,2,2,dk,acc);
+
+    // Laser barrel
+    const b=bx(forearm,new THREE.CylinderGeometry(0.04,0.04,0.5,6),acc,0,-0.3,0.35);b.rotation.x=Math.PI/2;
+  });
+
+  // Jump jets at world (±0.3, 4.2, -0.6)
+  const jets=bn('Jump_Jets',0,0,-0.6); torso.add(jets);
+  [-0.3,0.3].forEach(x=>{
+    bx(jets,new THREE.CylinderGeometry(0.1,0.15,0.4,6),dk,x,0,0);
+    bx(jets,new THREE.CylinderGeometry(0.08,0.12,0.06,6),acc,x,-0.22,0);
+  });
+
+  // Nimble chicken legs
+  [-1,1].forEach(s=>chickenLeg(pelvis,s,0.4,3.2,1.2,1.1,main,dk,jt,acc,PY));
+
+  return g;
+}
+
+// ══════════════════════════════════════
+// BUILD / SWITCH / UI
+// ══════════════════════════════════════
+const builders=[buildTitan,buildPhantom,buildGoliath,buildSpecter,buildViper,buildMadDog,buildTimberWolf,buildVulture,buildCougar];
+
+function buildMech(idx){
+  if(currentMechGroup){scene.remove(currentMechGroup);currentMechGroup.traverse(c=>{if(c.geometry)c.geometry.dispose();if(c.material)c.material.dispose();});}
+  const def=MECHS[idx];
+  currentMechGroup=builders[idx](def);
+  currentMechGroup.rotation.y=targetRotY;
+  scene.add(currentMechGroup);
+  currentMechIdx=idx;
+  document.getElementById('classLabel').textContent=def.class;
+  document.getElementById('tonnageValue').textContent=def.tons;
+  updateStats(def.stats,def.color);
+  document.querySelectorAll('.mech-btn').forEach((b,i)=>{
+    const h='#'+MECHS[i].color.toString(16).padStart(6,'0');
+    b.classList.toggle('active',i===idx);
+    b.style.borderColor=i===idx?h:'';b.style.color=i===idx?h:'';
+  });
+  scene.traverse(c=>{if(c.userData.isPlatformRing){c.material.color.setHex(def.color);c.material.emissive.setHex(def.color);}});
+}
+
+function updateStats(stats,color){
+  const h='#'+color.toString(16).padStart(6,'0');
+  document.getElementById('statsPanel').innerHTML=Object.entries(stats).map(([k,v])=>`
+    <div class="stat-label">${k} <span class="stat-value" style="color:${h}">${v}</span></div>
+    <div class="stat-bar-container"><div class="stat-bar" style="width:${v}%;background:${h};box-shadow:0 0 8px ${h}44"></div></div>`).join('');
+}
+
+function buildUI(){
+  const sel=document.getElementById('mechSelector');
+  MECHS.forEach((m,i)=>{
+    const b=document.createElement('button');
+    b.className='mech-btn'+(i===0?' active':'');
+    b.textContent=m.name;
+    b.addEventListener('click',()=>buildMech(i));
+    sel.appendChild(b);
+  });
+}
+
+// ══════════════════════════════════════
+// GLTF EXPORT
+// ══════════════════════════════════════
+function exportGLTF(){
+  const btn=document.getElementById('exportBtn');
+  btn.classList.add('exporting');btn.textContent='⬡ Exporting...';
+  const exportBones=document.getElementById('exportBones').checked;
+  setTimeout(()=>{
+    const exp=new GLTFExporter();
+    const clone=currentMechGroup.clone();
+    clone.rotation.set(0,0,0);clone.position.set(0,0,0);
+    exp.parse(clone,(glb)=>{
+      const blob=new Blob([glb],{type:'model/gltf-binary'});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;
+      a.download=`${MECHS[currentMechIdx].id}_mech.glb`;
+      a.click();URL.revokeObjectURL(url);
+      btn.classList.remove('exporting');btn.textContent='⬡ Export GLTF';
+      showToast(`${MECHS[currentMechIdx].name} exported as GLB`+(exportBones?' (with bones)':''));
+    },{exportBones});
+  },100);
+}
+
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
+
+// ══════════════════════════════════════
+// ANIMATION
+// ══════════════════════════════════════
+function animate(){
+  requestAnimationFrame(animate);
+  const t=clock.getElapsedTime();
+  if(currentMechGroup){
+    if(!isDragging) targetRotY+=0.003;
+    currentMechGroup.rotation.y+=(targetRotY-currentMechGroup.rotation.y)*0.08;
+    currentMechGroup.position.y=Math.sin(t*1.5)*0.05;
+    currentMechGroup.traverse(c=>{
+      if(c.userData.isDrone){
+        const a=c.userData.orbitAngle+t*c.userData.orbitSpeed;
+        c.position.set(Math.cos(a)*2,5+Math.sin(t*2+c.userData.orbitAngle)*0.3,Math.sin(a)*2);
+        c.rotation.y=t*2;c.rotation.x=t;
+      }
+    });
+  }
+  camera.position.set(Math.sin(targetRotY*0.1)*0.5,3.5+targetRotX*3,cameraDistance);
+  camera.lookAt(0,3.2,0);
+  renderer.render(scene,camera);
+}
+
+init();
+</script>
+</body>
+</html>
