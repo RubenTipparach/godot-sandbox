@@ -925,6 +925,7 @@ func _build_research_panel(root: Control):
 	tech_tree.offset_left = 50
 	tech_tree.offset_right = -50
 	tech_tree.node_purchased.connect(_on_tech_node_purchased)
+	tech_tree.back_pressed.connect(_on_research_back)
 	research_panel.add_child(tech_tree)
 
 	var back_btn = Button.new()
@@ -2706,6 +2707,8 @@ func _auto_select_menu():
 
 
 func _building_controller_input(event):
+	if not is_inside_tree():
+		return
 	if not _game_started or get_tree().paused:
 		return
 	if not (event is InputEventJoypadButton and event.pressed):
