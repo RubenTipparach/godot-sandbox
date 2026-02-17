@@ -101,6 +101,7 @@ var next_net_id: int = 1
 var alien_net_ids: Dictionary = {}  # net_id -> Node3D
 var resource_net_ids: Dictionary = {}  # net_id -> Node3D
 var player_names: Dictionary = {}  # peer_id -> String
+var player_vehicles: Dictionary = {}  # peer_id -> String ("lander" or "mech")
 var run_prestige: int = 0  # Prestige collected this run (host-authoritative)
 var _client_own_research: Dictionary = {}  # Client's own research, saved before host override
 var _waiting_for_clients: bool = false
@@ -373,6 +374,9 @@ func _init_game_world():
 	player_node.name = "Player"
 	player_node.peer_id = 1
 	player_node.is_local = true
+	# Set vehicle type from HUD selection
+	if is_instance_valid(hud_node):
+		player_node.vehicle_type = hud_node.selected_vehicle
 	game_world_2d.add_child(player_node)
 	player_node.level_up.connect(_on_player_level_up)
 	players[1] = player_node
@@ -1258,9 +1262,8 @@ func _sync_3d_lights():
 		var t_rtype = target.resource_type if "resource_type" in target else "iron"
 		var t_center_y = t_sz * 0.3 if t_rtype == "iron" else t_sz * 0.5
 		var laser_y = 50.0
-		var marker = p_node.get_node_or_null("PlayerShip/Model/LaserOrigin")
-		if marker:
-			laser_y = marker.global_position.y
+		if "laser_origin" in p_node and p_node.laser_origin:
+			laser_y = p_node.laser_origin.global_position.y
 		var start = Vector3(ppos.x, laser_y, ppos.z)
 		var raw_end = Vector3(tpos.x, t_center_y, tpos.z)
 		var to_player = start - raw_end
@@ -1331,9 +1334,8 @@ func _sync_3d_lights():
 		if not "repair_targets" in p: continue
 		var ppos = p.global_position
 		var repair_laser_y = 50.0
-		var repair_marker = p.get_node_or_null("PlayerShip/Model/LaserOrigin")
-		if repair_marker:
-			repair_laser_y = repair_marker.global_position.y
+		if "laser_origin" in p and p.laser_origin:
+			repair_laser_y = p.laser_origin.global_position.y
 		for target in p.repair_targets:
 			if not is_instance_valid(target): continue
 			active_player_repair[target] = true
@@ -2703,7 +2705,19 @@ func _sync_3d_meshes():
 				alien_meshes[a] = new_mesh
 				a.visible = false
 			else:
-				alien_meshes[a] = a
+				# Use alien's own visual if it has one (e.g. AnimatedSprite3D), otherwise fallback to code mesh
+				var has_visual = false
+				for child in a.get_children():
+					if child is MeshInstance3D or child is AnimatedSprite3D or child is Sprite3D:
+						has_visual = true
+						break
+				if has_visual:
+					alien_meshes[a] = a
+				else:
+					var new_mesh = _create_alien_mesh(a)
+					add_child(new_mesh)
+					alien_meshes[a] = new_mesh
+					a.visible = false
 		var mr = alien_meshes[a]
 		if mr != a:
 			var ap = a.global_position
@@ -3675,9 +3689,10 @@ func _on_game_started(start_wave: int):
 			player_node.auto_fire = true
 			player_node.auto_aim = true
 		# Spawn additional local players for other controllers
+		var vtype = hud_node.selected_vehicle if is_instance_valid(hud_node) else "lander"
 		for i in range(1, devices.size()):
 			var color_idx = i % PLAYER_COLORS.size()
-			var p = _spawn_local_coop_player(devices[i], PLAYER_COLORS[color_idx])
+			var p = _spawn_local_coop_player(devices[i], PLAYER_COLORS[color_idx], vtype)
 			p.resource_owner = player_node
 		# Show controller hints during gameplay
 		hud_node.show_controller_hints(true)
@@ -3693,16 +3708,21 @@ func _on_game_started(start_wave: int):
 		var local_name = hud_node.local_player_name if is_instance_valid(hud_node) and hud_node.local_player_name != "" else "Player"
 		player_node.player_name = local_name
 		player_names[my_id] = local_name
+		# Store local player vehicle choice
+		player_vehicles[my_id] = player_node.vehicle_type
 		if NetworkManager.is_host():
 			player_node.player_color = PLAYER_COLORS[0]
 			var peers = multiplayer.get_peers()
 			var peer_info: Array = []
+			# Include host info so clients know host's vehicle
+			peer_info.append([my_id, 0, local_name, player_node.vehicle_type])
 			for i in range(peers.size()):
 				var pid = peers[i]
 				var color_idx = (i + 1) % PLAYER_COLORS.size()
-				_spawn_remote_player(pid, PLAYER_COLORS[color_idx])
+				var vtype = player_vehicles.get(pid, "lander")
+				_spawn_remote_player(pid, PLAYER_COLORS[color_idx], vtype)
 				players[pid].player_name = player_names.get(pid, "Player")
-				peer_info.append([pid, color_idx, player_names.get(pid, "Player")])
+				peer_info.append([pid, color_idx, player_names.get(pid, "Player"), vtype])
 			# Wait for all clients to finish loading before starting gameplay
 			if peers.size() > 0:
 				_waiting_for_clients = true
@@ -3715,7 +3735,8 @@ func _on_game_started(start_wave: int):
 		else:
 			var my_color_idx = _get_color_index_for_peer(my_id)
 			player_node.player_color = PLAYER_COLORS[my_color_idx]
-			_spawn_remote_player(1, PLAYER_COLORS[0])
+			var host_vtype = player_vehicles.get(1, "lander")
+			_spawn_remote_player(1, PLAYER_COLORS[0], host_vtype)
 
 
 func _input(event):
@@ -4362,7 +4383,7 @@ func _get_color_index_for_peer(peer_id: int) -> int:
 	return clampi(peer_id - 1, 1, PLAYER_COLORS.size() - 1)
 
 
-func _spawn_local_coop_player(dev_id: int, color: Color) -> Node3D:
+func _spawn_local_coop_player(dev_id: int, color: Color, vtype: String = "lander") -> Node3D:
 	var player_scene = load("res://scenes/player.tscn")
 	var p = player_scene.instantiate()
 	var fake_pid = dev_id + 100  # Offset to avoid conflicts with network peer IDs
@@ -4371,6 +4392,7 @@ func _spawn_local_coop_player(dev_id: int, color: Color) -> Node3D:
 	p.is_local = true
 	p.device_id = dev_id
 	p.player_color = color
+	p.vehicle_type = vtype
 	p.auto_fire = true
 	p.auto_aim = true
 	# Distribute spawn positions in a circle
@@ -4390,13 +4412,14 @@ func _spawn_local_coop_player(dev_id: int, color: Color) -> Node3D:
 	return p
 
 
-func _spawn_remote_player(pid: int, color: Color):
+func _spawn_remote_player(pid: int, color: Color, vtype: String = "lander"):
 	var player_scene = load("res://scenes/player.tscn")
 	var remote = player_scene.instantiate()
 	remote.name = "Player_%d" % pid
 	remote.peer_id = pid
 	remote.is_local = false
 	remote.player_color = color
+	remote.vehicle_type = vtype
 	# Distribute spawn positions in a circle
 	var player_index = players.size()
 	var total = maxi(players.size() + 1, 2)
@@ -4424,9 +4447,11 @@ func _rpc_start_game(wave: int, all_peers: Array = [], host_research: Dictionary
 		var pid: int = info[0]
 		var color_idx: int = info[1]
 		var pname: String = info[2] if info.size() > 2 else "Player"
+		var vtype: String = info[3] if info.size() > 3 else "lander"
 		player_names[pid] = pname
+		player_vehicles[pid] = vtype
 		if pid != my_id and not players.has(pid):
-			_spawn_remote_player(pid, PLAYER_COLORS[color_idx])
+			_spawn_remote_player(pid, PLAYER_COLORS[color_idx], vtype)
 			players[pid].player_name = pname
 	# Also set host name from peer info
 	if player_names.has(1) and players.has(1) and is_instance_valid(players[1]):
@@ -4732,6 +4757,39 @@ func _rpc_receive_names(names_array: Array):
 		hud_node.update_lobby_player_list(player_names)
 
 
+# --- Vehicle sync ---
+
+func send_player_vehicle(vtype: String):
+	var my_id = multiplayer.get_unique_id()
+	player_vehicles[my_id] = vtype
+	if NetworkManager.is_host():
+		_broadcast_vehicles()
+	else:
+		_rpc_send_vehicle.rpc_id(1, vtype)
+
+
+@rpc("any_peer", "call_remote", "reliable")
+func _rpc_send_vehicle(vtype: String):
+	var sender_id = multiplayer.get_remote_sender_id()
+	player_vehicles[sender_id] = vtype
+	_broadcast_vehicles()
+
+
+func _broadcast_vehicles():
+	var vehicles_array: Array = []
+	for pid in player_vehicles:
+		vehicles_array.append([pid, player_vehicles[pid]])
+	_rpc_receive_vehicles.rpc(vehicles_array)
+
+
+@rpc("authority", "call_remote", "reliable")
+func _rpc_receive_vehicles(vehicles_array: Array):
+	for entry in vehicles_array:
+		var pid: int = entry[0]
+		var vtype: String = entry[1]
+		player_vehicles[pid] = vtype
+
+
 # --- Upgrade voting (multiplayer) ---
 
 func _start_vote_round():
@@ -4925,6 +4983,7 @@ func _on_game_peer_disconnected(pid: int):
 			players[pid].queue_free()
 		players.erase(pid)
 	player_names.erase(pid)
+	player_vehicles.erase(pid)
 
 
 # --- Building recycling ---

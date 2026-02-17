@@ -3,10 +3,13 @@
 [ext_resource type="Script" uid="uid://vak1p1gshcdi" path="res://scripts/player.gd" id="1"]
 [ext_resource type="AudioStream" uid="uid://c605m7wnf8mmk" path="res://resources/sounds/sfx/mining_laser_sound.wav" id="2_g2els"]
 [ext_resource type="PackedScene" uid="uid://c0chwc5amw8re" path="res://scenes/player_ship.tscn" id="3_qhqgy"]
+[ext_resource type="PackedScene" path="res://scenes/player_mech.tscn" id="4_mech"]
 
 [node name="Player" type="Node3D" unique_id=1671698601]
 script = ExtResource("1")
 hp_bar_y_offset = 70.0
+ik_stride_length = 25.0
+ik_step_height = 10.0
 
 [node name="MiningSFXPlayer" type="AudioStreamPlayer2D" parent="." unique_id=44345520]
 stream = ExtResource("2_g2els")
@@ -14,3 +17,7 @@ stream = ExtResource("2_g2els")
 [node name="ShootingSFXPlayer" type="AudioStreamPlayer2D" parent="." unique_id=707374448]
 
 [node name="PlayerShip" parent="." unique_id=1593469570 instance=ExtResource("3_qhqgy")]
+visible = false
+
+[node name="PlayerMech" parent="." unique_id=2128208715 instance=ExtResource("4_mech")]
+transform = Transform3D(1.5, 0, 0, 0, 1.5, 0, 0, 0, 1.5, 0, 0, 0)

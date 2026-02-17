@@ -1,38 +1,25 @@
 [gd_scene format=3 uid="uid://iwh4htmlb1a"]
 
 [ext_resource type="Script" uid="uid://c0tdrs604uihx" path="res://scripts/alien.gd" id="1"]
-[ext_resource type="Texture2D" uid="uid://yjgpa7ado8aj" path="res://resources/sprites/mantis.png" id="2_u8rjw"]
-
-[sub_resource type="AtlasTexture" id="AtlasTexture_3vbw7"]
-atlas = ExtResource("2_u8rjw")
-region = Rect2(0, 0, 112, 122)
-
-[sub_resource type="AtlasTexture" id="AtlasTexture_np108"]
-atlas = ExtResource("2_u8rjw")
-region = Rect2(112, 0, 112, 122)
-
-[sub_resource type="AtlasTexture" id="AtlasTexture_vxp04"]
-atlas = ExtResource("2_u8rjw")
-region = Rect2(224, 0, 112, 122)
-
-[sub_resource type="AtlasTexture" id="AtlasTexture_kufd8"]
-atlas = ExtResource("2_u8rjw")
-region = Rect2(336, 0, 112, 122)
+[ext_resource type="Texture2D" path="res://resources/sprites/mantis_0.png" id="frame_0"]
+[ext_resource type="Texture2D" path="res://resources/sprites/mantis_1.png" id="frame_1"]
+[ext_resource type="Texture2D" path="res://resources/sprites/mantis_2.png" id="frame_2"]
+[ext_resource type="Texture2D" path="res://resources/sprites/mantis_3.png" id="frame_3"]
 
 [sub_resource type="SpriteFrames" id="SpriteFrames_g58bj"]
 animations = [{
 "frames": [{
 "duration": 1.0,
-"texture": SubResource("AtlasTexture_3vbw7")
+"texture": ExtResource("frame_0")
 }, {
 "duration": 1.0,
-"texture": SubResource("AtlasTexture_np108")
+"texture": ExtResource("frame_1")
 }, {
 "duration": 1.0,
-"texture": SubResource("AtlasTexture_vxp04")
+"texture": ExtResource("frame_2")
 }, {
 "duration": 1.0,
-"texture": SubResource("AtlasTexture_kufd8")
+"texture": ExtResource("frame_3")
 }],
 "loop": true,
 "name": &"default",

@@ -15,10 +15,59 @@ const MINING_LASER_SOUND_END = preload("uid://ckujswy7m8f0r")
 ## ----------- ##
 
 ## SHIP VISUALS ##
-@onready var player_ship: Node3D = $PlayerShip
-@onready var gun_node: Node3D = $PlayerShip/Model/gun
+@onready var lander_node: Node3D = $PlayerShip
+@onready var mech_node: Node3D = $PlayerMech
+var player_ship: Node3D  # Active model (set in _ready based on vehicle_type)
+var gun_node: Node3D
+var laser_origin: Marker3D  # Active model's laser origin
 @export var hp_bar_y_offset: float = 18.0
 @export var turret_lerp_speed: float = 20.0
+var vehicle_type: String = "lander"  # "lander" or "mech"
+
+# Mech procedural animation (inspector-tunable)
+@export_group("Mech Animation")
+@export var mech_arm_pitch: float = 0.8
+@export var mech_idle_bob: float = 0.03
+@export var mech_idle_sway: float = 0.005
+@export var mech_idle_speed: float = 4.0
+@export_group("Mech IK Walk")
+@export var ik_stride_length: float = 14.0
+@export var ik_step_height: float = 3.0
+@export var ik_step_duration: float = 0.3
+@export var ik_foot_spread: float = 5.0
+@export var ik_plant_lerp_speed: float = 8.0
+
+var _mech_pelvis: Node3D = null
+var _mech_torso: Node3D = null
+var _mech_l_hip: Node3D = null
+var _mech_l_knee: Node3D = null
+var _mech_r_hip: Node3D = null
+var _mech_r_knee: Node3D = null
+var _mech_l_upper_arm: Node3D = null
+var _mech_r_upper_arm: Node3D = null
+var _mech_l_elbow: Node3D = null
+var _mech_r_elbow: Node3D = null
+var _mech_l_ankle: Node3D = null
+var _mech_r_ankle: Node3D = null
+var _mech_pelvis_angle: float = 0.0
+var _mech_idle_phase: float = 0.0
+var _mech_model: Node3D = null
+var _mech_rest_x: Dictionary = {}
+
+# IK foot placement state
+var _ik_l_thigh_rest_x: float = 0.0
+var _ik_l_shin_rest_x: float = 0.0
+var _ik_r_thigh_rest_x: float = 0.0
+var _ik_r_shin_rest_x: float = 0.0
+var _ik_upper_len: float = 0.0
+var _ik_lower_len: float = 0.0
+var _ik_model_scale: float = 9.0
+var _ik_initialized: bool = false
+var _ik_l_foot_pos: Vector3 = Vector3.ZERO
+var _ik_r_foot_pos: Vector3 = Vector3.ZERO
+var _walk_active_leg: int = 0  # 0 = left, 1 = right
+var _walk_t: float = 0.0
+var _walk_started: bool = false
 
 var health: int = CFG.player_health
 var max_health: int = CFG.player_health
@@ -116,10 +165,62 @@ var _remote_target_pos: Vector3 = Vector3.ZERO
 
 func _ready():
 	add_to_group("player")
-	# Set bullet origin from the ship's gun marker
-	var bo = get_node_or_null("PlayerShip/Model/gun/BulletOrigin")
-	if bo:
-		bullet_origin = bo
+	# Toggle visibility based on vehicle selection
+	if vehicle_type == "mech":
+		lander_node.visible = false
+		mech_node.visible = true
+		player_ship = mech_node
+	else:
+		lander_node.visible = true
+		mech_node.visible = false
+		player_ship = lander_node
+	gun_node = player_ship.get_node_or_null("Model/gun")
+	bullet_origin = player_ship.get_node_or_null("Model/gun/BulletOrigin")
+	laser_origin = player_ship.get_node_or_null("Model/LaserOrigin")
+	if vehicle_type == "mech":
+		_init_mech_bones()
+
+
+func _init_mech_bones():
+	var model = player_ship.get_node_or_null("Model")
+	if not model:
+		return
+	_mech_model = model
+	# Stop the AnimationPlayer idle anim — we drive sway procedurally now
+	var anim_player = player_ship.get_node_or_null("AnimationPlayer")
+	if anim_player:
+		anim_player.stop()
+	_mech_pelvis = model.find_child("root_Pelvis", true, false)
+	_mech_torso = model.find_child("Torso-head", true, false)
+	# Left side (clean names, no suffix)
+	_mech_l_hip = model.find_child("L_pelvis_thigh", true, false)
+	_mech_l_knee = model.find_child("L_back_knee", true, false)
+	_mech_l_upper_arm = model.find_child("L_upper_arm", true, false)
+	_mech_l_elbow = model.find_child("L_elbow", true, false)
+	# Right side: Godot replaces '.' with '_' on GLTF import, so .001 becomes _001
+	_mech_r_hip = model.find_child("R_pelvis_thigh_001", true, false)
+	_mech_r_knee = model.find_child("R_back_knee_001", true, false)
+	_mech_r_upper_arm = model.find_child("R_upper_arm_001", true, false)
+	_mech_r_elbow = model.find_child("R_elbow_001", true, false)
+	# IK: find intermediate and ankle bones
+	var l_thigh = model.find_child("L_thigh", true, false)
+	var l_shin = model.find_child("L_shin", true, false)
+	_mech_l_ankle = model.find_child("L_ankle", true, false)
+	var r_thigh = model.find_child("R_thigh_001", true, false)
+	var r_shin = model.find_child("R_shin_001", true, false)
+	_mech_r_ankle = model.find_child("R_ankle_001", true, false)
+	# Capture intermediate rest rotations for IK solver
+	if l_thigh: _ik_l_thigh_rest_x = l_thigh.rotation.x
+	if l_shin: _ik_l_shin_rest_x = l_shin.rotation.x
+	if r_thigh: _ik_r_thigh_rest_x = r_thigh.rotation.x
+	if r_shin: _ik_r_shin_rest_x = r_shin.rotation.x
+	# Compute segment lengths from bone local positions
+	if _mech_l_knee: _ik_upper_len = _mech_l_knee.position.length()
+	if _mech_l_ankle: _ik_lower_len = _mech_l_ankle.position.length()
+	# Capture GLTF rest rotations so we add offsets instead of replacing
+	for node in [_mech_l_hip, _mech_l_knee, _mech_r_hip, _mech_r_knee, _mech_l_upper_arm, _mech_r_upper_arm, _mech_l_elbow, _mech_r_elbow]:
+		if node:
+			_mech_rest_x[node] = node.rotation.x
 
 
 func _get_res() -> Node3D:
@@ -231,7 +332,9 @@ func _process(delta):
 			if Input.is_action_pressed("move_left"): input.x -= 1
 			if Input.is_action_pressed("move_right"): input.x += 1
 			if input != Vector3.ZERO and device_id < 0:
-				input_mode = "keyboard"
+				# Only switch to keyboard if actual keyboard keys are pressed (not D-pad via action map)
+				if Input.is_physical_key_pressed(KEY_W) or Input.is_physical_key_pressed(KEY_A) or Input.is_physical_key_pressed(KEY_S) or Input.is_physical_key_pressed(KEY_D) or Input.is_physical_key_pressed(KEY_UP) or Input.is_physical_key_pressed(KEY_DOWN) or Input.is_physical_key_pressed(KEY_LEFT) or Input.is_physical_key_pressed(KEY_RIGHT):
+					input_mode = "keyboard"
 
 	if input != Vector3.ZERO:
 		move_direction = input.normalized()
@@ -382,14 +485,171 @@ func _process(delta):
 
 func _update_ship_visual():
 	if player_ship:
-		player_ship.rotation.y = -facing_angle - PI / 2
 		player_ship.visible = not is_dead
+		if vehicle_type == "mech" and _mech_pelvis:
+			_update_mech_visual()
+			return
+		player_ship.rotation.y = -facing_angle - PI / 2
 	if gun_node:
 		# Gun aims independently; rotation is relative to the ship
 		var target_y = -(gun_angle - facing_angle) - PI / 2
 		var diff = wrapf(target_y - gun_visual_angle, -PI, PI)
 		gun_visual_angle += diff * minf(1.0, turret_lerp_speed * get_process_delta_time())
 		gun_node.rotation.y = gun_visual_angle
+
+
+func _update_mech_visual():
+	var dt = get_process_delta_time()
+	var is_walking = move_direction.length() > 0.1
+
+	# --- Pelvis faces movement direction (smooth lerp) ---
+	if is_walking:
+		var target_angle = atan2(move_direction.z, move_direction.x)
+		var diff = wrapf(target_angle - _mech_pelvis_angle, -PI, PI)
+		_mech_pelvis_angle += diff * minf(1.0, 8.0 * dt)
+	player_ship.rotation.y = 0.0
+	_mech_pelvis.rotation.y = -_mech_pelvis_angle + PI / 2.0
+
+	# --- Torso faces target/mouse (relative to pelvis) ---
+	if _mech_torso:
+		var torso_world_target = -gun_angle + PI / 2.0
+		var torso_local = torso_world_target - _mech_pelvis.rotation.y
+		var torso_diff = wrapf(torso_local - _mech_torso.rotation.y, -PI, PI)
+		_mech_torso.rotation.y += torso_diff * minf(1.0, turret_lerp_speed * dt)
+
+	# --- IK Walk cycle ---
+	if not _ik_initialized:
+		_init_foot_positions()
+	if is_walking:
+		if not _walk_started:
+			_begin_walk_cycle()
+		_update_walk_cycle(dt)
+	else:
+		if _walk_started:
+			_walk_started = false
+		_update_feet_idle(dt)
+	_solve_leg_ik(_mech_l_hip, _mech_l_knee, _ik_l_thigh_rest_x, _ik_l_shin_rest_x, _ik_l_foot_pos)
+	_solve_leg_ik(_mech_r_hip, _mech_r_knee, _ik_r_thigh_rest_x, _ik_r_shin_rest_x, _ik_r_foot_pos)
+
+	# --- Idle sway (procedural, replaces AnimationPlayer idle) ---
+	_mech_idle_phase = fmod(_mech_idle_phase + dt * mech_idle_speed, TAU)
+	if _mech_model:
+		_mech_model.position.y = sin(_mech_idle_phase * 2.0) * mech_idle_bob
+		_mech_model.rotation.z = sin(_mech_idle_phase) * mech_idle_sway
+
+	# --- Arms aim forward: upper arm pitches forward, elbow bends to level the forearm ---
+	if _mech_l_upper_arm:
+		_mech_l_upper_arm.rotation.x = _mech_rest_x.get(_mech_l_upper_arm, 0.0) - mech_arm_pitch
+	if _mech_l_elbow:
+		_mech_l_elbow.rotation.x = _mech_rest_x.get(_mech_l_elbow, 0.0) - mech_arm_pitch
+	if _mech_r_upper_arm:
+		_mech_r_upper_arm.rotation.x = _mech_rest_x.get(_mech_r_upper_arm, 0.0) - mech_arm_pitch
+	if _mech_r_elbow:
+		_mech_r_elbow.rotation.x = _mech_rest_x.get(_mech_r_elbow, 0.0) - mech_arm_pitch
+
+	# --- Gun node follows aim for bullet origin positioning ---
+	if gun_node:
+		var target_y = -gun_angle - PI / 2.0
+		var gdiff = wrapf(target_y - gun_visual_angle, -PI, PI)
+		gun_visual_angle += gdiff * minf(1.0, turret_lerp_speed * dt)
+		gun_node.rotation.y = gun_visual_angle
+
+
+func _init_foot_positions():
+	_ik_initialized = true
+	if _mech_l_hip and _mech_r_hip:
+		_ik_l_foot_pos = Vector3(_mech_l_hip.global_position.x, 0, _mech_l_hip.global_position.z)
+		_ik_r_foot_pos = Vector3(_mech_r_hip.global_position.x, 0, _mech_r_hip.global_position.z)
+
+
+func _begin_walk_cycle():
+	_walk_started = true
+	_walk_active_leg = 0
+	_walk_t = 0.0
+
+
+func _update_walk_cycle(delta: float):
+	_walk_t = minf(_walk_t + delta / ik_step_duration, 1.0)
+	var t = _walk_t * _walk_t * (3.0 - 2.0 * _walk_t)
+	var fwd = _mech_pelvis.global_transform.basis.z.normalized()
+	var half = ik_stride_length * 0.5
+	var l_hip = Vector3(_mech_l_hip.global_position.x, 0, _mech_l_hip.global_position.z)
+	var r_hip = Vector3(_mech_r_hip.global_position.x, 0, _mech_r_hip.global_position.z)
+	# Active leg: sweeps from -half (back) to +half (front) with Y arc
+	# Inactive leg: sweeps from +half (front) to -half (back) on ground
+	var active_offset = lerpf(-half, half, t)
+	var inactive_offset = lerpf(half, -half, t)
+	if _walk_active_leg == 0:
+		_ik_l_foot_pos = l_hip + fwd * active_offset
+		_ik_l_foot_pos.y = sin(t * PI) * ik_step_height
+		_ik_r_foot_pos = r_hip + fwd * inactive_offset
+	else:
+		_ik_r_foot_pos = r_hip + fwd * active_offset
+		_ik_r_foot_pos.y = sin(t * PI) * ik_step_height
+		_ik_l_foot_pos = l_hip + fwd * inactive_offset
+	if _walk_t >= 1.0:
+		_walk_active_leg = 1 - _walk_active_leg
+		_walk_t = 0.0
+
+
+func _update_feet_idle(delta: float):
+	var spd = minf(1.0, ik_plant_lerp_speed * delta)
+	if _mech_l_hip:
+		var l_rest = Vector3(_mech_l_hip.global_position.x, 0, _mech_l_hip.global_position.z)
+		_ik_l_foot_pos = _ik_l_foot_pos.lerp(l_rest, spd)
+		_ik_l_foot_pos.y = lerpf(_ik_l_foot_pos.y, 0.0, spd)
+	if _mech_r_hip:
+		var r_rest = Vector3(_mech_r_hip.global_position.x, 0, _mech_r_hip.global_position.z)
+		_ik_r_foot_pos = _ik_r_foot_pos.lerp(r_rest, spd)
+		_ik_r_foot_pos.y = lerpf(_ik_r_foot_pos.y, 0.0, spd)
+
+
+func _solve_leg_ik(hip_bone: Node3D, knee_bone: Node3D, thigh_rest_x: float, shin_rest_x: float, foot_world_pos: Vector3):
+	if not hip_bone or not knee_bone or not _mech_pelvis:
+		return
+	var a = _ik_upper_len * _ik_model_scale  # upper leg world length
+	var b = _ik_lower_len * _ik_model_scale  # lower leg world length
+	if a < 0.01 or b < 0.01:
+		return
+
+	var hip_world = hip_bone.global_position
+	var to_foot = foot_world_pos - hip_world
+
+	# Project into pelvis sagittal plane (Y = up/down, Z = forward/back)
+	var pelvis_basis = _mech_pelvis.global_transform.basis
+	var up = pelvis_basis.y.normalized()
+	var fwd = pelvis_basis.z.normalized()
+
+	var comp_vert = to_foot.dot(up)    # positive = above hip
+	var comp_fwd = to_foot.dot(fwd)    # positive = forward of hip
+
+	var d = sqrt(comp_vert * comp_vert + comp_fwd * comp_fwd)
+	d = clampf(d, abs(a - b) + 0.01, a + b - 0.01)
+
+	# Law of cosines
+	var cos_a = clampf((a * a + d * d - b * b) / (2.0 * a * d), -1.0, 1.0)
+	var cos_b = clampf((a * a + b * b - d * d) / (2.0 * a * b), -1.0, 1.0)
+
+	var angle_a = acos(cos_a)  # angle at hip in triangle
+	var angle_b = acos(cos_b)  # angle at knee in triangle
+
+	# Angle of target from straight down (positive = forward)
+	var target_angle = atan2(comp_fwd, -comp_vert)
+
+	# Hip: swing toward target, subtract triangle angle so knee fills the gap
+	var hip_rot = target_angle - angle_a
+
+	# Knee: PI - interior angle = the bend amount
+	var knee_rot = PI - angle_b
+
+	# Apply, accounting for intermediate bone rest rotations
+	hip_bone.rotation.x = hip_rot - thigh_rest_x
+	knee_bone.rotation.x = knee_rot - shin_rest_x
+
+	# Mirrored leg correction (GLTF mirror uses scale -1,-1,-1 on hip bone)
+	if hip_bone.scale.x < 0:
+		hip_bone.rotation.x += PI
+
 
 
 func _process_nuke(delta):
@@ -433,12 +693,19 @@ func _shoot():
 	if upgrades["shotgun"] > 0:
 		count = 2 + upgrades["shotgun"]
 		spread = 0.3 + upgrades["shotgun"] * 0.06
+	# Calculate aim angle from bullet origin to target (not player center)
+	var aim_angle = gun_angle
+	if bullet_origin:
+		var nearest = _find_nearest_alien()
+		if nearest:
+			var aim_dir = nearest.global_position - bullet_origin.global_position
+			aim_angle = atan2(aim_dir.z, aim_dir.x)
 	for i in range(count):
 		var b = preload("res://scenes/bullet.tscn").instantiate()
 		var off = 0.0
 		if count > 1:
 			off = lerpf(-spread / 2.0, spread / 2.0, float(i) / float(count - 1))
-		b.direction = Vector3(cos(gun_angle + off), 0, sin(gun_angle + off))
+		b.direction = Vector3(cos(aim_angle + off), 0, sin(aim_angle + off))
 		b.damage = CFG.bullet_damage + research_damage
 		b.crit_chance = upgrades["crit_chance"] * CFG.crit_per_level
 		b.chain_count = upgrades["chain_lightning"] + int(GameData.get_research_bonus("chain_count"))
@@ -451,7 +718,7 @@ func _shoot():
 		if bullet_origin:
 			spawn_pos = bullet_origin.global_position
 		else:
-			spawn_pos = global_position + Vector3(cos(gun_angle), 0, sin(gun_angle)) * 20.0
+			spawn_pos = global_position + Vector3(cos(aim_angle), 0, sin(aim_angle)) * 20.0
 		get_tree().current_scene.game_world_2d.add_child(b)
 		b.global_position = spawn_pos
 		get_tree().current_scene.spawn_synced_bullet(b.global_position, b.direction, false, b.burn_dps, b.slow_amount)
@@ -899,9 +1166,15 @@ func _spawn_death_particles():
 func _input(event):
 	if not is_local or is_dead:
 		return
-	# Auto-detect input mode from mouse movement
+	# Auto-detect input mode from mouse movement (ignore tiny jitter)
 	if device_id < 0 and event is InputEventMouseMotion:
-		input_mode = "keyboard"
+		if event.relative.length() > 2.0:
+			input_mode = "keyboard"
+		return
+	# Joystick axis movement switches to controller mode in single player
+	if device_id < 0 and event is InputEventJoypadMotion:
+		if abs(event.axis_value) > 0.3:
+			input_mode = "controller"
 		return
 	if not (event is InputEventJoypadButton and event.pressed):
 		return
