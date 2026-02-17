@@ -3,24 +3,19 @@
 importer="texture"
 type="CompressedTexture2D"
 uid="uid://c2ugfe6cnchhl"
-path.s3tc="res://.godot/imported/rock2_0.png-cc892176f2584e7b5acbe5f1cb2e8d67.s3tc.ctex"
-path.etc2="res://.godot/imported/rock2_0.png-cc892176f2584e7b5acbe5f1cb2e8d67.etc2.ctex"
+path="res://.godot/imported/rock2_0.png-cc892176f2584e7b5acbe5f1cb2e8d67.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc", "etc2_astc"],
-"vram_texture": true
-}
-generator_parameters={
-"md5": "8a20ef60f78ae2f2ce34cdfece4d7e5c"
+"vram_texture": false
 }
 
 [deps]
 
 source_file="res://resources/models/rock2_0.png"
-dest_files=["res://.godot/imported/rock2_0.png-cc892176f2584e7b5acbe5f1cb2e8d67.s3tc.ctex", "res://.godot/imported/rock2_0.png-cc892176f2584e7b5acbe5f1cb2e8d67.etc2.ctex"]
+dest_files=["res://.godot/imported/rock2_0.png-cc892176f2584e7b5acbe5f1cb2e8d67.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=0
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
