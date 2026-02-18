@@ -664,6 +664,19 @@ func _build_start_menu(root: Control):
 	title.offset_right = 300
 	start_menu.add_child(title)
 
+	var version_label = Label.new()
+	version_label.text = CFG.game_version
+	version_label.add_theme_font_size_override("font_size", 14)
+	version_label.add_theme_color_override("font_color", Color(0.4, 0.4, 0.5))
+	version_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	version_label.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+	version_label.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	version_label.offset_bottom = -10
+	version_label.offset_right = -10
+	version_label.offset_left = -200
+	version_label.offset_top = -30
+	start_menu.add_child(version_label)
+
 	start_stats_label = Label.new()
 	start_stats_label.add_theme_font_size_override("font_size", 16)
 	start_stats_label.add_theme_color_override("font_color", Color(0.6, 0.6, 0.7))
