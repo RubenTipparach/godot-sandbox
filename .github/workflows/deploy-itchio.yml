@@ -64,6 +64,59 @@ jobs:
         run: |
           butler push godot-sandbox/build/web ${{ env.ITCH_GAME }}:web
 
+  export-windows:
+    name: Windows Export
+    runs-on: ubuntu-latest
+    container:
+      image: barichello/godot-ci:4.4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
+          lfs: true
+          fetch-depth: 0
+
+      - name: Setup
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates/
+          mv /root/.local/share/godot/export_templates/* ~/.local/share/godot/export_templates/ || true
+
+      - name: Resolve version from latest tag
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo 'dev')" >> $GITHUB_ENV
+
+      - name: Inject version into game config
+        run: |
+          sed -i 's/game_version: String = "dev"/game_version: String = "'"${{ env.VERSION }}"'"/' godot-sandbox/scripts/game_config.gd
+
+      - name: Windows Build
+        run: |
+          mkdir -v -p build/windows
+          godot --headless --verbose --export-release "Windows" build/windows/MiningDefense.exe
+        working-directory: godot-sandbox
+
+      - name: Create zip
+        run: |
+          cd godot-sandbox/build/windows
+          zip -r ../../../${{ env.EXPORT_NAME }}-windows.zip .
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: ${{ env.EXPORT_NAME }}-windows.zip
+
+      - name: Install butler
+        uses: jdno/setup-butler@v1
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          butler push ${{ env.EXPORT_NAME }}-windows.zip ${{ env.ITCH_GAME }}:windows
+
   deploy-signaling:
     name: Deploy Signaling Server
     runs-on: ubuntu-latest
