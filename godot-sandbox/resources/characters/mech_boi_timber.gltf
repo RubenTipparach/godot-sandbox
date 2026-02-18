@@ -266,14 +266,14 @@
 		},
 		{
 			"mesh":19,
-			"name":"RL_forearm"
+			"name":"R_forearm"
 		},
 		{
 			"children":[
 				19
 			],
 			"mesh":20,
-			"name":"RL_elbow",
+			"name":"R_elbow",
 			"translation":[
 				0,
 				-1.25,
@@ -285,7 +285,7 @@
 				20
 			],
 			"mesh":21,
-			"name":"RL_upper_arm",
+			"name":"R_upper_arm",
 			"translation":[
 				0.7043095231056213,
 				-0.35000038146972656,
