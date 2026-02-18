@@ -19,6 +19,7 @@ on:
 env:
   EXPORT_NAME: godot-sandbox
   VERSION: ${{ github.event.inputs.version || github.ref_name }}
+  ITCH_GAME: ${{ secrets.ITCH_GAME }}  # Format: username/game-name
 
 jobs:
   build-windows:
@@ -57,13 +58,22 @@ jobs:
       - name: Create zip
         run: |
           cd godot-sandbox/build/windows
-          zip -r ../../../${{ env.EXPORT_NAME }}-windows-${{ env.VERSION }}.zip .
+          zip -r ../../../${{ env.EXPORT_NAME }}-windows.zip .
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: ${{ env.EXPORT_NAME }}-windows-${{ env.VERSION }}.zip
+          path: ${{ env.EXPORT_NAME }}-windows.zip
+
+      - name: Install butler
+        uses: jdno/setup-butler@v1
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          butler push ${{ env.EXPORT_NAME }}-windows.zip ${{ env.ITCH_GAME }}:windows
 
   build-linux:
     name: Linux Build
@@ -95,13 +105,22 @@ jobs:
       - name: Create zip
         run: |
           cd godot-sandbox/build/linux
-          zip -r ../../../${{ env.EXPORT_NAME }}-linux-${{ env.VERSION }}.zip .
+          zip -r ../../../${{ env.EXPORT_NAME }}-linux.zip .
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: linux-build
-          path: ${{ env.EXPORT_NAME }}-linux-${{ env.VERSION }}.zip
+          path: ${{ env.EXPORT_NAME }}-linux.zip
+
+      - name: Install butler
+        uses: jdno/setup-butler@v1
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          butler push ${{ env.EXPORT_NAME }}-linux.zip ${{ env.ITCH_GAME }}:linux
 
   build-mac:
     name: macOS Build
@@ -132,13 +151,22 @@ jobs:
 
       - name: Rename zip
         run: |
-          mv godot-sandbox/build/mac/MiningDefense.zip ${{ env.EXPORT_NAME }}-mac-${{ env.VERSION }}.zip
+          mv godot-sandbox/build/mac/MiningDefense.zip ${{ env.EXPORT_NAME }}-mac.zip
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: mac-build
-          path: ${{ env.EXPORT_NAME }}-mac-${{ env.VERSION }}.zip
+          path: ${{ env.EXPORT_NAME }}-mac.zip
+
+      - name: Install butler
+        uses: jdno/setup-butler@v1
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          butler push ${{ env.EXPORT_NAME }}-mac.zip ${{ env.ITCH_GAME }}:mac
 
   create-release:
     name: Create GitHub Release
@@ -169,6 +197,6 @@ jobs:
           name: Mining Defense ${{ env.VERSION }}
           generate_release_notes: true
           files: |
-            ${{ env.EXPORT_NAME }}-windows-${{ env.VERSION }}.zip
-            ${{ env.EXPORT_NAME }}-linux-${{ env.VERSION }}.zip
-            ${{ env.EXPORT_NAME }}-mac-${{ env.VERSION }}.zip
+            ${{ env.EXPORT_NAME }}-windows.zip
+            ${{ env.EXPORT_NAME }}-linux.zip
+            ${{ env.EXPORT_NAME }}-mac.zip

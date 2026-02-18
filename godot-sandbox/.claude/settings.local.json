@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Read(//c/Users/santi/repos/godot-sandbox/**)",
+      "Bash(find:*)",
+      "Bash(ls:*)"
+    ]
+  }
+}

@@ -22,7 +22,7 @@ var gun_node: Node3D
 var laser_origin: Marker3D  # Active model's laser origin
 @export var hp_bar_y_offset: float = 18.0
 @export var turret_lerp_speed: float = 20.0
-var vehicle_type: String = "lander"  # "lander" or "mech"
+var vehicle_type: String = "mech"
 
 # Mech procedural animation (inspector-tunable)
 @export_group("Mech Animation")
@@ -165,20 +165,13 @@ var _remote_target_pos: Vector3 = Vector3.ZERO
 
 func _ready():
 	add_to_group("player")
-	# Toggle visibility based on vehicle selection
-	if vehicle_type == "mech":
-		lander_node.visible = false
-		mech_node.visible = true
-		player_ship = mech_node
-	else:
-		lander_node.visible = true
-		mech_node.visible = false
-		player_ship = lander_node
+	lander_node.visible = false
+	mech_node.visible = true
+	player_ship = mech_node
 	gun_node = player_ship.get_node_or_null("Model/gun")
 	bullet_origin = player_ship.get_node_or_null("Model/gun/BulletOrigin")
 	laser_origin = player_ship.get_node_or_null("Model/LaserOrigin")
-	if vehicle_type == "mech":
-		_init_mech_bones()
+	_init_mech_bones()
 
 
 func _init_mech_bones():
@@ -197,18 +190,18 @@ func _init_mech_bones():
 	_mech_l_knee = model.find_child("L_back_knee", true, false)
 	_mech_l_upper_arm = model.find_child("L_upper_arm", true, false)
 	_mech_l_elbow = model.find_child("L_elbow", true, false)
-	# Right side: Godot replaces '.' with '_' on GLTF import, so .001 becomes _001
-	_mech_r_hip = model.find_child("R_pelvis_thigh_001", true, false)
-	_mech_r_knee = model.find_child("R_back_knee_001", true, false)
-	_mech_r_upper_arm = model.find_child("R_upper_arm_001", true, false)
-	_mech_r_elbow = model.find_child("R_elbow_001", true, false)
+	# Right side
+	_mech_r_hip = model.find_child("R_pelvis_thigh", true, false)
+	_mech_r_knee = model.find_child("R_back_knee", true, false)
+	_mech_r_upper_arm = model.find_child("R_upper_arm", true, false)
+	_mech_r_elbow = model.find_child("R_elbow", true, false)
 	# IK: find intermediate and ankle bones
 	var l_thigh = model.find_child("L_thigh", true, false)
 	var l_shin = model.find_child("L_shin", true, false)
 	_mech_l_ankle = model.find_child("L_ankle", true, false)
-	var r_thigh = model.find_child("R_thigh_001", true, false)
-	var r_shin = model.find_child("R_shin_001", true, false)
-	_mech_r_ankle = model.find_child("R_ankle_001", true, false)
+	var r_thigh = model.find_child("R_thigh", true, false)
+	var r_shin = model.find_child("R_shin", true, false)
+	_mech_r_ankle = model.find_child("R_ankle", true, false)
 	# Capture intermediate rest rotations for IK solver
 	if l_thigh: _ik_l_thigh_rest_x = l_thigh.rotation.x
 	if l_shin: _ik_l_shin_rest_x = l_shin.rotation.x

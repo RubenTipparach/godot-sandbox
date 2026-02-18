@@ -27,11 +27,21 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch || github.ref }}
           lfs: true
+          fetch-depth: 0
 
       - name: Setup
         run: |
           mkdir -v -p ~/.local/share/godot/export_templates/
           mv /root/.local/share/godot/export_templates/* ~/.local/share/godot/export_templates/ || true
+
+      - name: Resolve version from latest tag
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo 'dev')" >> $GITHUB_ENV
+
+      - name: Inject version into game config
+        run: |
+          sed -i 's/game_version: String = "dev"/game_version: String = "'"${{ env.VERSION }}"'"/' godot-sandbox/scripts/game_config.gd
 
       - name: Web Build
         run: |
@@ -54,8 +64,15 @@ jobs:
         run: |
           butler push godot-sandbox/build/web ${{ env.ITCH_GAME }}:web
 
-      - name: Bundle Vercel project
-        run: cp -r godot-sandbox/build/web vercel-signaling/game
+  deploy-signaling:
+    name: Deploy Signaling Server
+    runs-on: ubuntu-latest
+    needs: export-web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || github.ref }}
 
       - name: Install Node.js
         uses: actions/setup-node@v4
