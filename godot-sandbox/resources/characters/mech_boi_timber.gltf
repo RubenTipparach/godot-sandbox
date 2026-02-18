@@ -437,7 +437,6 @@
 			}
 		},
 		{
-			"doubleSided":true,
 			"name":"missile_launcher",
 			"pbrMetallicRoughness":{
 				"baseColorTexture":{
