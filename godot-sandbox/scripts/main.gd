@@ -107,6 +107,7 @@ var _client_own_research: Dictionary = {}  # Client's own research, saved before
 var _waiting_for_clients: bool = false
 var clients_ready: Dictionary = {}  # peer_id -> bool
 var local_coop: bool = false  # Local co-op mode (shared screen, camera averages players)
+var camera_zoom: float = 1.0  # Single-player scroll zoom (smaller = closer)
 var _player_build_labels: Dictionary = {}  # player Node3D -> Label (screen-space build indicator)
 var _other_build_previews: Dictionary = {}  # player Node3D -> {"mesh": Node3D, "type": String}
 
@@ -1025,6 +1026,8 @@ func _process(delta):
 		else:
 			var p2d = player_node.global_position
 			cam_target = Vector3(p2d.x, 0, p2d.z)
+			cam_height *= camera_zoom
+			cam_back *= camera_zoom
 		var cam_offset = Vector3(0, cam_height, cam_back)
 		camera_3d.position = camera_3d.position.lerp(cam_target + cam_offset, 8.0 * delta)
 
@@ -3689,7 +3692,7 @@ func _on_game_started(start_wave: int):
 			player_node.auto_fire = true
 			player_node.auto_aim = true
 		# Spawn additional local players for other controllers
-		var vtype = hud_node.selected_vehicle if is_instance_valid(hud_node) else "lander"
+		var vtype = hud_node.selected_vehicle if is_instance_valid(hud_node) else "mech"
 		for i in range(1, devices.size()):
 			var color_idx = i % PLAYER_COLORS.size()
 			var p = _spawn_local_coop_player(devices[i], PLAYER_COLORS[color_idx], vtype)
@@ -3719,7 +3722,7 @@ func _on_game_started(start_wave: int):
 			for i in range(peers.size()):
 				var pid = peers[i]
 				var color_idx = (i + 1) % PLAYER_COLORS.size()
-				var vtype = player_vehicles.get(pid, "lander")
+				var vtype = player_vehicles.get(pid, "mech")
 				_spawn_remote_player(pid, PLAYER_COLORS[color_idx], vtype)
 				players[pid].player_name = player_names.get(pid, "Player")
 				peer_info.append([pid, color_idx, player_names.get(pid, "Player"), vtype])
@@ -3735,7 +3738,7 @@ func _on_game_started(start_wave: int):
 		else:
 			var my_color_idx = _get_color_index_for_peer(my_id)
 			player_node.player_color = PLAYER_COLORS[my_color_idx]
-			var host_vtype = player_vehicles.get(1, "lander")
+			var host_vtype = player_vehicles.get(1, "mech")
 			_spawn_remote_player(1, PLAYER_COLORS[0], host_vtype)
 
 
@@ -3746,6 +3749,12 @@ func _input(event):
 	if event is InputEventJoypadButton and event.pressed and event.button_index == JOY_BUTTON_START:
 		if is_instance_valid(hud_node):
 			hud_node.toggle_pause()
+	# Mouse scroll zoom (single player only)
+	if event is InputEventMouseButton and not local_coop and not NetworkManager.is_multiplayer_active():
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
+			camera_zoom = maxf(0.3, camera_zoom - 0.1)
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
+			camera_zoom = minf(2.0, camera_zoom + 0.1)
 	# Debug dump: Ctrl+Shift+Home
 	if event is InputEventKey and event.pressed and event.keycode == KEY_HOME and event.ctrl_pressed and event.shift_pressed:
 		_debug_dump()
@@ -4383,7 +4392,7 @@ func _get_color_index_for_peer(peer_id: int) -> int:
 	return clampi(peer_id - 1, 1, PLAYER_COLORS.size() - 1)
 
 
-func _spawn_local_coop_player(dev_id: int, color: Color, vtype: String = "lander") -> Node3D:
+func _spawn_local_coop_player(dev_id: int, color: Color, vtype: String = "mech") -> Node3D:
 	var player_scene = load("res://scenes/player.tscn")
 	var p = player_scene.instantiate()
 	var fake_pid = dev_id + 100  # Offset to avoid conflicts with network peer IDs
@@ -4412,7 +4421,7 @@ func _spawn_local_coop_player(dev_id: int, color: Color, vtype: String = "lander
 	return p
 
 
-func _spawn_remote_player(pid: int, color: Color, vtype: String = "lander"):
+func _spawn_remote_player(pid: int, color: Color, vtype: String = "mech"):
 	var player_scene = load("res://scenes/player.tscn")
 	var remote = player_scene.instantiate()
 	remote.name = "Player_%d" % pid
@@ -4447,7 +4456,7 @@ func _rpc_start_game(wave: int, all_peers: Array = [], host_research: Dictionary
 		var pid: int = info[0]
 		var color_idx: int = info[1]
 		var pname: String = info[2] if info.size() > 2 else "Player"
-		var vtype: String = info[3] if info.size() > 3 else "lander"
+		var vtype: String = info[3] if info.size() > 3 else "mech"
 		player_names[pid] = pname
 		player_vehicles[pid] = vtype
 		if pid != my_id and not players.has(pid):

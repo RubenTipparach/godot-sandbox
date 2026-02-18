@@ -158,13 +158,13 @@ var debug_layer: CanvasLayer = null
 var disconnect_panel: Control = null
 
 # Vehicle selection
-var selected_vehicle: String = "lander"  # "lander" or "mech"
+var selected_vehicle: String = "mech"
 var _vehicle_lander_btn: Button = null
 var _vehicle_mech_btn: Button = null
 var _lander_preview_model: Node3D = null
 var _mech_preview_model: Node3D = null
-var _hovered_vehicle_card: String = ""  # "lander", "mech", or ""
-var lobby_vehicle_type: String = "lander"
+var _hovered_vehicle_card: String = ""
+var lobby_vehicle_type: String = "mech"
 var _lobby_vehicle_lander_btn: Button = null
 var _lobby_vehicle_mech_btn: Button = null
 
@@ -759,24 +759,26 @@ func _build_start_menu(root: Control):
 	wave_select_vbox.add_theme_constant_override("separation", 14)
 	wave_select_container.add_child(wave_select_vbox)
 
-	# Vehicle section title
+	# Vehicle section title (hidden for now — only mech available)
 	var vehicle_title = Label.new()
 	vehicle_title.text = "CHOOSE YOUR VEHICLE"
 	vehicle_title.add_theme_font_size_override("font_size", 22)
 	vehicle_title.add_theme_color_override("font_color", Color(0.7, 0.9, 1.0))
 	vehicle_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vehicle_title.visible = false
 	wave_select_vbox.add_child(vehicle_title)
 
-	# Vehicle cards side by side with 3D previews
+	# Vehicle cards side by side with 3D previews (hidden for now)
 	var vehicle_cards = HBoxContainer.new()
 	vehicle_cards.alignment = BoxContainer.ALIGNMENT_CENTER
 	vehicle_cards.add_theme_constant_override("separation", 24)
+	vehicle_cards.visible = false
 	wave_select_vbox.add_child(vehicle_cards)
 
 	_vehicle_lander_btn = _make_vehicle_preview_card(
 		"LANDER", "Fast hovering ship",
 		"res://resources/models/cross_lander.glb",
-		Color(0.3, 0.9, 0.5), Color(0.1, 0.3, 0.15), true
+		Color(0.3, 0.9, 0.5), Color(0.1, 0.3, 0.15), false
 	)
 	_vehicle_lander_btn.pressed.connect(_on_vehicle_card_pressed.bind("lander"))
 	_vehicle_lander_btn.mouse_entered.connect(_on_vehicle_hover.bind("lander"))
@@ -787,7 +789,7 @@ func _build_start_menu(root: Control):
 	_vehicle_mech_btn = _make_vehicle_preview_card(
 		"MECH", "Armored walking mech",
 		"res://resources/characters/mech_boi_timber.gltf",
-		Color(0.5, 0.7, 1.0), Color(0.15, 0.2, 0.4), false
+		Color(0.5, 0.7, 1.0), Color(0.15, 0.2, 0.4), true
 	)
 	_vehicle_mech_btn.pressed.connect(_on_vehicle_card_pressed.bind("mech"))
 	_vehicle_mech_btn.mouse_entered.connect(_on_vehicle_hover.bind("mech"))
@@ -1168,7 +1170,7 @@ func _build_lobby_panel(root: Control):
 	lobby_name_input.focus_exited.connect(_on_lobby_input_unfocused)
 	lobby_name_input.text_changed.connect(_on_lobby_name_changed)
 
-	# Vehicle picker row
+	# Vehicle picker row (hidden for now — only mech available)
 	var vehicle_row = HBoxContainer.new()
 	vehicle_row.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	vehicle_row.offset_top = 175
@@ -1176,6 +1178,7 @@ func _build_lobby_panel(root: Control):
 	vehicle_row.offset_right = 150
 	vehicle_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	vehicle_row.add_theme_constant_override("separation", 10)
+	vehicle_row.visible = false
 	lobby_panel.add_child(vehicle_row)
 
 	var veh_title = Label.new()
