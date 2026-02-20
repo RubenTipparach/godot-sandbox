@@ -56,6 +56,7 @@ var _mech_rest_x: Dictionary = {}
 var _mech_mesh_instances: Array = []  # Cached MeshInstance3D nodes for hit flash
 var _mech_original_materials: Array = []  # Original material_override per mesh
 var _mech_flash_mat: StandardMaterial3D = null
+var _mech_heal_mat: StandardMaterial3D = null
 var _mech_is_flashing: bool = false
 
 # IK foot placement state
@@ -90,6 +91,7 @@ var repair_targets: Array = []
 var auto_repair_timer: float = 0.0
 var is_dead: bool = false
 var hit_flash_timer: float = 0.0
+var heal_flash_timer: float = 0.0
 var death_particles: Array = []
 
 var xp: int = 0
@@ -223,10 +225,13 @@ func _init_mech_bones():
 	_mech_original_materials.clear()
 	for child in model.get_children():
 		_cache_mesh_instances(child)
-	# Create flash material (white unshaded)
+	# Create flash materials (white for damage, green for heal)
 	_mech_flash_mat = StandardMaterial3D.new()
 	_mech_flash_mat.albedo_color = Color(3.0, 3.0, 3.0)
 	_mech_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_mech_heal_mat = StandardMaterial3D.new()
+	_mech_heal_mat.albedo_color = Color(0.2, 3.0, 0.2)
+	_mech_heal_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 
 
 func _cache_mesh_instances(node: Node):
@@ -238,13 +243,17 @@ func _cache_mesh_instances(node: Node):
 
 
 func _update_hit_flash():
-	var should_flash = hit_flash_timer > 0.0
-	if should_flash and not _mech_is_flashing:
+	var flash_mat: StandardMaterial3D = null
+	if hit_flash_timer > 0.0:
+		flash_mat = _mech_flash_mat
+	elif heal_flash_timer > 0.0:
+		flash_mat = _mech_heal_mat
+	if flash_mat and not _mech_is_flashing:
 		_mech_is_flashing = true
 		for mi in _mech_mesh_instances:
 			if is_instance_valid(mi):
-				mi.material_override = _mech_flash_mat
-	elif not should_flash and _mech_is_flashing:
+				mi.material_override = flash_mat
+	elif not flash_mat and _mech_is_flashing:
 		_mech_is_flashing = false
 		for i in range(_mech_mesh_instances.size()):
 			if is_instance_valid(_mech_mesh_instances[i]):
@@ -311,6 +320,7 @@ func get_gem_range() -> float:
 
 func _process(delta):
 	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
+	heal_flash_timer = maxf(0.0, heal_flash_timer - delta)
 	if _mech_flash_mat:
 		_update_hit_flash()
 	_build_error_cooldown = maxf(0.0, _build_error_cooldown - delta)
@@ -703,6 +713,8 @@ func _process_regen(delta):
 	if regen_timer >= 1.0:
 		regen_timer -= 1.0
 		var heal_amount = upgrades["health_regen"] * CFG.health_regen_per_level
+		if health < max_health:
+			heal_flash_timer = 0.15
 		health = mini(health + heal_amount, max_health)
 
 
@@ -875,6 +887,7 @@ func _apply_powerup(type: String):
 			text = "WEAPON UP!"
 			color = Color(1.0, 0.8, 0.2)
 		"heal":
+			heal_flash_timer = 0.15
 			health = mini(health + CFG.heal_powerup_amount, max_health)
 			text = "+%d HP" % CFG.heal_powerup_amount
 			color = Color(1.0, 0.3, 0.4)
