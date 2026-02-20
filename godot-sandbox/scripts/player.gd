@@ -53,6 +53,10 @@ var _mech_pelvis_angle: float = 0.0
 var _mech_idle_phase: float = 0.0
 var _mech_model: Node3D = null
 var _mech_rest_x: Dictionary = {}
+var _mech_mesh_instances: Array = []  # Cached MeshInstance3D nodes for hit flash
+var _mech_original_materials: Array = []  # Original material_override per mesh
+var _mech_flash_mat: StandardMaterial3D = null
+var _mech_is_flashing: bool = false
 
 # IK foot placement state
 var _ik_l_thigh_rest_x: float = 0.0
@@ -214,6 +218,37 @@ func _init_mech_bones():
 	for node in [_mech_l_hip, _mech_l_knee, _mech_r_hip, _mech_r_knee, _mech_l_upper_arm, _mech_r_upper_arm, _mech_l_elbow, _mech_r_elbow]:
 		if node:
 			_mech_rest_x[node] = node.rotation.x
+	# Cache all MeshInstance3D nodes for hit flash effect
+	_mech_mesh_instances.clear()
+	_mech_original_materials.clear()
+	for child in model.get_children():
+		_cache_mesh_instances(child)
+	# Create flash material (white unshaded)
+	_mech_flash_mat = StandardMaterial3D.new()
+	_mech_flash_mat.albedo_color = Color(3.0, 3.0, 3.0)
+	_mech_flash_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+
+
+func _cache_mesh_instances(node: Node):
+	if node is MeshInstance3D:
+		_mech_mesh_instances.append(node)
+		_mech_original_materials.append(node.material_override)
+	for child in node.get_children():
+		_cache_mesh_instances(child)
+
+
+func _update_hit_flash():
+	var should_flash = hit_flash_timer > 0.0
+	if should_flash and not _mech_is_flashing:
+		_mech_is_flashing = true
+		for mi in _mech_mesh_instances:
+			if is_instance_valid(mi):
+				mi.material_override = _mech_flash_mat
+	elif not should_flash and _mech_is_flashing:
+		_mech_is_flashing = false
+		for i in range(_mech_mesh_instances.size()):
+			if is_instance_valid(_mech_mesh_instances[i]):
+				_mech_mesh_instances[i].material_override = _mech_original_materials[i]
 
 
 func _get_res() -> Node3D:
@@ -276,6 +311,8 @@ func get_gem_range() -> float:
 
 func _process(delta):
 	hit_flash_timer = maxf(0.0, hit_flash_timer - delta)
+	if _mech_flash_mat:
+		_update_hit_flash()
 	_build_error_cooldown = maxf(0.0, _build_error_cooldown - delta)
 
 	if is_dead:
