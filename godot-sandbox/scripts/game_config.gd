@@ -36,6 +36,20 @@ extends Resource
 @export var powerup_spawn_interval: float = 25.0
 @export var max_powerups: int = 5
 
+@export_group("Resource Deposits")
+## Fraction of target amount that deposits start with (0.5 = 50%)
+@export var resource_initial_pct: float = 0.5
+## Fraction of target amount deposits regrow to each round end (1.0 = 100%)
+@export var resource_growth_cap_pct: float = 1.0
+## How much of the missing resources to restore at end of each round (0.0-1.0)
+@export var resource_round_regrow_pct: float = 0.5
+## Scale multiplier for iron deposit amounts (higher = more iron per node)
+@export var resource_iron_scale: float = 1.3
+## Scale multiplier for crystal deposit amounts
+@export var resource_crystal_scale: float = 1.0
+## Duration of the pop-in scale animation (seconds)
+@export var resource_pop_in_duration: float = 0.35
+
 # =============================================================================
 # PLAYER
 # =============================================================================

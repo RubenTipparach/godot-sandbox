@@ -43,6 +43,7 @@ var _powerup_textures: Dictionary = {}  # String -> ImageTexture
 var orb_meshes: Dictionary = {}         # Node3D -> Node3D
 var _mat_cache: Dictionary = {}         # String -> StandardMaterial3D
 var resource_init_amt: Dictionary = {}   # Node3D -> int (initial amount for scale calc)
+var resource_pop_tweens: Dictionary = {} # Node3D -> Tween (active pop-in animations)
 var _laser_shader: Shader                # Cached laser beam shader
 var _crystal_shader: Shader              # Cached crystal shader
 var _iron_material: StandardMaterial3D   # Cached iron PBR material
@@ -850,8 +851,8 @@ func _spawn_resources():
 	var rng = RandomNumberGenerator.new()
 	rng.randomize()
 
-	# Iron veins: 10 veins, 4-5 nodes each, closer to center
-	_spawn_veins(resource_scene, rng, "iron", 10, 4, 5, 80, 700, 30, 60, 8, 20)
+	# Iron veins: 12 veins, 4-6 nodes each, closer to center (boosted iron)
+	_spawn_veins(resource_scene, rng, "iron", 12, 4, 6, 80, 700, 30, 60, 10, 25)
 
 	# Crystal veins: 8 veins, 3-4 nodes each, further out
 	_spawn_veins(resource_scene, rng, "crystal", 8, 3, 4, 200, 900, 25, 50, 5, 15)
@@ -862,7 +863,11 @@ func _spawn_resources():
 		var a = rng.randf() * TAU
 		res.position = Vector3(cos(a), 0, sin(a)) * rng.randf_range(100, 800)
 		res.resource_type = "iron" if rng.randf() < 0.6 else "crystal"
-		res.amount = rng.randi_range(4, 10)
+		var base_amt = rng.randi_range(4, 10)
+		var scale_mult = CFG.resource_iron_scale if res.resource_type == "iron" else CFG.resource_crystal_scale
+		var target = maxi(1, int(base_amt * scale_mult))
+		res.target_amount = target
+		res.amount = maxi(1, int(target * CFG.resource_initial_pct))
 		res.net_id = next_net_id
 		resource_net_ids[next_net_id] = res
 		next_net_id += 1
@@ -873,6 +878,7 @@ func _spawn_veins(scene: PackedScene, rng: RandomNumberGenerator, type: String,
 		vein_count: int, min_per_vein: int, max_per_vein: int,
 		min_dist: float, max_dist: float, min_spread: float, max_spread: float,
 		min_amt: int, max_amt: int):
+	var scale_mult = CFG.resource_iron_scale if type == "iron" else CFG.resource_crystal_scale
 	for _v in range(vein_count):
 		var angle = rng.randf() * TAU
 		var dist = rng.randf_range(min_dist, max_dist)
@@ -885,7 +891,10 @@ func _spawn_veins(scene: PackedScene, rng: RandomNumberGenerator, type: String,
 			var offset_d = rng.randf_range(0, spread)
 			res.position = center + Vector3(cos(offset_a), 0, sin(offset_a)) * offset_d
 			res.resource_type = type
-			res.amount = rng.randi_range(min_amt, max_amt)
+			var base_amt = rng.randi_range(min_amt, max_amt)
+			var target = maxi(1, int(base_amt * scale_mult))
+			res.target_amount = target
+			res.amount = maxi(1, int(target * CFG.resource_initial_pct))
 			res.net_id = next_net_id
 			resource_net_ids[next_net_id] = res
 			next_net_id += 1
@@ -953,6 +962,7 @@ func _process(delta):
 		if wave_active:
 			if alien_count == 0:
 				wave_active = false
+				_regrow_resources_end_of_round()
 		else:
 			wave_timer -= delta
 			if wave_timer <= 0:
@@ -1086,6 +1096,13 @@ func _regenerate_resources():
 	for r in get_tree().get_nodes_in_group("resources"):
 		if is_instance_valid(r) and r.has_method("regen"):
 			r.regen(regen_amount)
+
+
+func _regrow_resources_end_of_round():
+	# Called when a wave ends — regrow deposits toward their cap
+	for r in get_tree().get_nodes_in_group("resources"):
+		if is_instance_valid(r) and r.has_method("regrow_toward_cap"):
+			r.regrow_toward_cap(CFG.resource_growth_cap_pct, CFG.resource_round_regrow_pct)
 
 
 func _spawn_powerup():
@@ -2870,35 +2887,49 @@ func _sync_3d_meshes():
 	# ---- Spider Boss Telegraph Circles ----
 	_sync_spider_telegraph_rings()
 
-	# ---- Resources (shrink as they're mined) ----
+	# ---- Resources (shrink as they're mined, pop-in when they regrow) ----
 	_clean_mesh_dict(resource_meshes)
 	for key in resource_init_amt.keys():
 		if not is_instance_valid(key):
 			resource_init_amt.erase(key)
+	for key in resource_pop_tweens.keys():
+		if not is_instance_valid(key):
+			resource_pop_tweens.erase(key)
 	for r in get_tree().get_nodes_in_group("resources"):
 		if not is_instance_valid(r): continue
 		if r not in resource_meshes:
 			var _t0 = Time.get_ticks_usec()
 			var rtype = r.resource_type if "resource_type" in r else "iron"
-			var amt = r.amount if "amount" in r else 10
-			var new_mesh = _create_resource_mesh(rtype, amt)
+			var target = r.target_amount if "target_amount" in r else (r.amount if "amount" in r else 10)
+			var new_mesh = _create_resource_mesh(rtype, target)
 			add_child(new_mesh)
 			resource_meshes[r] = new_mesh
-			resource_init_amt[r] = amt
+			resource_init_amt[r] = target
 			r.visible = false
+			# Pop-in: start at scale 0 and tween to target scale
+			new_mesh.scale = Vector3.ZERO
 			print("[RESOURCE] Created ", rtype, " mesh in ", (Time.get_ticks_usec() - _t0) / 1000.0, "ms")
 		var mr = resource_meshes[r]
 		mr.position = Vector3(r.global_position.x, 0, r.global_position.z)
-		# Scale down as resource is mined
+		# Scale based on current amount vs target capacity
 		var cur_amt = r.amount if "amount" in r else 1
-		var init_amt = resource_init_amt.get(r, cur_amt)
-		if init_amt > 0:
-			var s = clampf(float(cur_amt) / float(init_amt), 0.15, 1.0)
+		var target_amt = resource_init_amt.get(r, cur_amt)
+		if target_amt > 0:
+			var s = clampf(float(cur_amt) / float(target_amt), 0.15, 1.0)
 			var prev_s = mr.scale.x
-			mr.scale = Vector3(s, s, s)
-			if abs(s - prev_s) > 0.001:
-				var _t1 = Time.get_ticks_usec()
-				print("[RESOURCE] Scaled ", r.resource_type if "resource_type" in r else "?", " to ", snapped(s, 0.01), " in ", (Time.get_ticks_usec() - _t1) / 1000.0, "ms")
+			# Check if resource increased (regrow) — animate pop-in
+			var increased = r.did_amount_increase() if r.has_method("did_amount_increase") else false
+			if increased and abs(s - prev_s) > 0.01:
+				# Tween from current scale to new scale with overshoot
+				if r in resource_pop_tweens and resource_pop_tweens[r] != null:
+					resource_pop_tweens[r].kill()
+				var tw = create_tween()
+				tw.set_ease(Tween.EASE_OUT)
+				tw.set_trans(Tween.TRANS_BACK)
+				tw.tween_property(mr, "scale", Vector3(s, s, s), CFG.resource_pop_in_duration)
+				resource_pop_tweens[r] = tw
+			elif not increased:
+				mr.scale = Vector3(s, s, s)
 
 	# ---- XP Gems (billboard) ----
 	_clean_mesh_dict(gem_meshes)
@@ -4584,7 +4615,7 @@ func _broadcast_state():
 		hq_hp = hq_node.hp
 		hq_max_hp = hq_node.max_hp
 
-	# Resource data: [net_id, type_id, pos_x, pos_y, amount]
+	# Resource data: [net_id, type_id, pos_x, pos_y, amount, target_amount]
 	var res_data = []
 	# Clean dead resources
 	var dead_res = []
@@ -4595,7 +4626,8 @@ func _broadcast_state():
 		resource_net_ids.erase(nid)
 	for nid in resource_net_ids:
 		var r = resource_net_ids[nid]
-		res_data.append([nid, 0 if r.resource_type == "iron" else 1, r.global_position.x, r.global_position.z, r.amount])
+		var tgt = r.target_amount if "target_amount" in r else r.amount
+		res_data.append([nid, 0 if r.resource_type == "iron" else 1, r.global_position.x, r.global_position.z, r.amount, tgt])
 
 	# Building data: [pos_x, pos_y, hp, max_hp]
 	var building_data = []
@@ -4705,15 +4737,18 @@ func _sync_resources(res_data: Array):
 		var pos = Vector3(rd[2], 0, rd[3])
 		var amt: int = rd[4]
 		live_ids[nid] = true
+		var tgt: int = rd[5] if rd.size() > 5 else amt
 		if resource_net_ids.has(nid) and is_instance_valid(resource_net_ids[nid]):
 			var r = resource_net_ids[nid]
 			r.global_position = pos
 			r.amount = amt
+			r.target_amount = tgt
 		else:
 			var r = resource_scene.instantiate()
 			r.global_position = pos
 			r.resource_type = "iron" if rtype == 0 else "crystal"
 			r.amount = amt
+			r.target_amount = tgt
 			r.net_id = nid
 			resources_node.add_child(r)
 			resource_net_ids[nid] = r
