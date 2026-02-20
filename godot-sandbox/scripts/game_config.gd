@@ -30,6 +30,7 @@ extends Resource
 @export var wave_interval: float = 20.0
 @export var first_wave_delay: float = 45.0
 @export var resource_regen_interval: float = 30.0
+@export var resource_regen_amount: int = 3
 @export var base_max_resources: int = 30
 @export var resources_per_wave: int = 3
 @export var powerup_spawn_interval: float = 25.0
@@ -337,6 +338,7 @@ extends Resource
 @export var mining_speed_per_level: float = 0.3
 @export var mining_range_per_level: float = 25.0
 @export var rock_regen_per_level: float = 0.4
+@export var rock_regen_amount_per_level: int = 2
 @export var health_per_level: int = 25
 @export var health_regen_per_level: int = 2
 @export var dodge_per_level: float = 0.08
@@ -352,6 +354,8 @@ extends Resource
 @export var slow_per_level: float = 0.15
 @export var pickup_range_per_level: float = 15.0
 @export var shoot_range_per_level: float = 40.0
+@export var reroll_base_iron: int = 10
+@export var reroll_base_crystal: int = 5
 
 
 func get_base_cost(type: String) -> Dictionary:
