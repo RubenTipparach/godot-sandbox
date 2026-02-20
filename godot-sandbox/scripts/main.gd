@@ -1123,6 +1123,10 @@ func world_to_screen(world_pos: Vector3) -> Vector2:
 
 
 func _sync_3d_lights():
+	# Camera position for distance culling (avoid creating too many GPU lights)
+	var cam_pos = camera_3d.position if is_instance_valid(camera_3d) else Vector3.ZERO
+	var light_cull_dist_sq: float = 800.0 * 800.0  # Only light entities within this range
+
 	# Clean up lights for destroyed entities
 	for key in building_lights.keys():
 		if not is_instance_valid(key):
@@ -1182,11 +1186,18 @@ func _sync_3d_lights():
 			player_lights[p] = light
 		player_lights[p].position = pos3d
 
-	# Alien lights (red/orange glow) — on mobile, only boss aliens get lights
+	# Alien lights (red/orange glow) — distance culled for non-boss aliens
 	for a in get_tree().get_nodes_in_group("aliens"):
 		if not is_instance_valid(a): continue
 		var is_boss = a.is_in_group("bosses")
 		var pos3d = Vector3(a.global_position.x, 30 if is_boss else 8, a.global_position.z)
+		if not is_boss:
+			var dist_sq = cam_pos.distance_squared_to(pos3d)
+			if dist_sq > light_cull_dist_sq:
+				if a in alien_lights:
+					alien_lights[a].queue_free()
+					alien_lights.erase(a)
+				continue
 		if a not in alien_lights:
 			var light = OmniLight3D.new()
 			light.light_energy = 0.6
@@ -1204,26 +1215,32 @@ func _sync_3d_lights():
 			alien_lights[a] = light
 		alien_lights[a].position = pos3d
 
-	# Resource lights (blue for crystal, red for iron)
-	for r in get_tree().get_nodes_in_group("resources"):
-		if not is_instance_valid(r): continue
-		var rtype = r.resource_type if "resource_type" in r else "iron"
-		var rpos = Vector3(r.global_position.x, 15, r.global_position.z)
-		if r not in resource_lights:
-			var light = OmniLight3D.new()
-			if rtype == "crystal":
-				light.light_color = CFG.resource_crystal_light_color
-				light.light_energy = CFG.resource_crystal_light_energy
-				light.omni_range = CFG.resource_crystal_light_range
-			else:
-				light.light_color = CFG.resource_iron_light_color
-				light.light_energy = CFG.resource_iron_light_energy
-				light.omni_range = CFG.resource_iron_light_range
-			light.omni_attenuation = 1.2
-			light.shadow_enabled = false
-			add_child(light)
-			resource_lights[r] = light
-		resource_lights[r].position = rpos
+	# Resource lights (blue for crystal, red for iron) — disabled to reduce GPU load
+	#for r in get_tree().get_nodes_in_group("resources"):
+	#	if not is_instance_valid(r): continue
+	#	var rpos = Vector3(r.global_position.x, 15, r.global_position.z)
+	#	var dist_sq = cam_pos.distance_squared_to(rpos)
+	#	if dist_sq > light_cull_dist_sq:
+	#		if r in resource_lights:
+	#			resource_lights[r].queue_free()
+	#			resource_lights.erase(r)
+	#		continue
+	#	var rtype = r.resource_type if "resource_type" in r else "iron"
+	#	if r not in resource_lights:
+	#		var light = OmniLight3D.new()
+	#		if rtype == "crystal":
+	#			light.light_color = CFG.resource_crystal_light_color
+	#			light.light_energy = CFG.resource_crystal_light_energy
+	#			light.omni_range = CFG.resource_crystal_light_range
+	#		else:
+	#			light.light_color = CFG.resource_iron_light_color
+	#			light.light_energy = CFG.resource_iron_light_energy
+	#			light.omni_range = CFG.resource_iron_light_range
+	#		light.omni_attenuation = 1.2
+	#		light.shadow_enabled = false
+	#		add_child(light)
+	#		resource_lights[r] = light
+	#	resource_lights[r].position = rpos
 
 	# Mining laser beams — use pre-created pool, zero allocation at runtime
 	var active_targets: Dictionary = {}
@@ -2977,16 +2994,6 @@ func _sync_3d_meshes():
 		mi.position.y = 50
 		mi.name = "BulletMesh"
 		mr.add_child(mi)
-		# Point light per bullet
-		var bl = OmniLight3D.new()
-		bl.light_color = col
-		bl.light_energy = 1.5 if is_enemy else 1.0
-		bl.omni_range = 25.0 if is_enemy else 20.0
-		bl.omni_attenuation = 1.5
-		bl.shadow_enabled = false
-		bl.position.y = 50
-		bl.name = "BulletLight"
-		mr.add_child(bl)
 		add_child(mr)
 		bullet_meshes[child] = mr
 		mr.set_meta("max_lifetime", child.lifetime)
