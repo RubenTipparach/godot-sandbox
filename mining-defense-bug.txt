@@ -1,0 +1,41 @@
+
+Multiplayer
+----------------
+host distance might influence on client construction
+repair on ly works for host
+upgrades need to be shared
+players dont get health
+
+Singleplayer
+--------------
+mech needs to blink a bit when hit
+
+research, draw agro
+
+boost attack power when near electricity
+
+enemy bullets get blocked by iron ore
+
+deposits shouldnt grow over your building
+
+dont need more resource spawning, maybe faster mining?
+
+make shovel pickup show that you have a 30 second boost of instant mine [show what they do!] <--- Buff Bar
+
+need to troubleshoot upgrades tree (long reach)
+
+when finish a run ---> go to the research tree!
+
+splendor game
+
+need more irons text should be bigger
+
+upgrades for other turrets (damage and stuff in game)
+
+upgrade screen should not pop up during combat
+
+boss skipped wave 25
+
+crashed at wave 26 or 27 <---make the game save progress for each wave (prestige points)
+
+arachnaphobia!!!

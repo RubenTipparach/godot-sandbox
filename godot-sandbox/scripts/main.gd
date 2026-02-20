@@ -89,7 +89,9 @@ var death_delay_cause: String = ""
 var world_visible: bool = false  # False until game starts (menu shows clean background)
 var resource_regen_timer: float = CFG.resource_regen_interval
 var powerup_timer: float = 10.0
-var pending_upgrades: int = 0
+var pending_upgrades: int = 0  # Legacy: used for network multiplayer
+var pending_upgrades_map: Dictionary = {}  # player Node3D -> int (per-player pending upgrades)
+var _upgrade_for_player: Node3D = null  # Which player the current upgrade picker is for
 var upgrade_cooldown: float = 0.0
 var bosses_killed: int = 0
 var starting_wave: int = 1
@@ -288,6 +290,7 @@ func _create_world():
 	hud_node = hud_scene.instantiate()
 	add_child(hud_node)
 	hud_node.upgrade_chosen.connect(_on_upgrade_chosen)
+	hud_node.reroll_requested.connect(_on_reroll_requested)
 	hud_node.game_started.connect(_on_game_started)
 	_debug_log("  HUD loaded OK. is_mobile=%s" % str(hud_node.is_mobile if "is_mobile" in hud_node else "N/A"))
 
@@ -379,7 +382,7 @@ func _init_game_world():
 	if is_instance_valid(hud_node):
 		player_node.vehicle_type = hud_node.selected_vehicle
 	game_world_2d.add_child(player_node)
-	player_node.level_up.connect(_on_player_level_up)
+	player_node.level_up.connect(_on_player_level_up.bind(player_node))
 	players[1] = player_node
 
 	aliens_node = Node3D.new()
@@ -970,8 +973,16 @@ func _process(delta):
 			_spawn_powerup()
 
 		upgrade_cooldown = maxf(0.0, upgrade_cooldown - delta)
-		if pending_upgrades > 0 and upgrade_cooldown <= 0:
-			_try_show_upgrade()
+		if upgrade_cooldown <= 0:
+			if NetworkManager.is_multiplayer_active():
+				if pending_upgrades > 0:
+					_try_show_upgrade()
+			else:
+				# Single player / local co-op: check per-player map
+				for p in pending_upgrades_map:
+					if pending_upgrades_map[p] > 0:
+						_try_show_upgrade()
+						break
 
 	# Network state sync
 	if NetworkManager.is_multiplayer_active():
@@ -1068,25 +1079,13 @@ func _process(delta):
 
 
 func _regenerate_resources():
-	var current = get_tree().get_nodes_in_group("resources").size()
-	var max_res = get_max_resources()
-	if current >= max_res:
-		return
-	var resource_scene = load("res://scenes/resource_node.tscn")
-	var rng = RandomNumberGenerator.new()
-	rng.randomize()
-	# Spawn more rocks per cycle as waves progress
-	var spawn_count = mini(5 + wave_number / 2, max_res - current)
-	for i in range(spawn_count):
-		var res = resource_scene.instantiate()
-		var a3 = rng.randf() * TAU
-		res.position = Vector3(cos(a3), 0, sin(a3)) * rng.randf_range(100, CFG.map_half_size * 0.85)
-		res.resource_type = "iron" if rng.randf() < 0.6 else "crystal"
-		res.amount = rng.randi_range(5 + wave_number, 15 + wave_number * 2)
-		res.net_id = next_net_id
-		resource_net_ids[next_net_id] = res
-		next_net_id += 1
-		resources_node.add_child(res)
+	# Refill existing resource nodes instead of spawning new ones
+	var regen_amount = CFG.resource_regen_amount
+	if is_instance_valid(player_node):
+		regen_amount += player_node.upgrades.get("rock_regen", 0) * CFG.rock_regen_amount_per_level
+	for r in get_tree().get_nodes_in_group("resources"):
+		if is_instance_valid(r) and r.has_method("regen"):
+			r.regen(regen_amount)
 
 
 func _spawn_powerup():
@@ -2099,6 +2098,8 @@ func _sync_hp_bars():
 			var pname: String = p.player_name if "player_name" in p else ""
 			if pname == "" or pname == "Player":
 				pname = "Player %d" % (pi + 1)
+			var shared_level = player_node.level if is_instance_valid(player_node) else (p.level if "level" in p else 0)
+			pname = "%s (Lv %d)" % [pname, shared_level]
 			entities.append({"node": p, "hp": p.health, "max_hp": p.max_health, "y_offset": hp_y, "bar_w": 32, "always": true, "player_label": pname})
 	for a in get_tree().get_nodes_in_group("aliens"):
 		if is_instance_valid(a) and "hp" in a and "max_hp" in a:
@@ -3605,15 +3606,46 @@ func _spawn_boss(rng: RandomNumberGenerator, wave_dir: float):
 	alien_net_ids[boss.net_id] = boss
 
 
-func _on_player_level_up():
-	pending_upgrades += 1
+func _on_player_level_up(player: Node3D = null):
+	if NetworkManager.is_multiplayer_active():
+		pending_upgrades += 1
+		return
+	# Single player / local co-op: ALL players get a pending upgrade pick (shared level)
+	for pid in players:
+		var p = players[pid]
+		if is_instance_valid(p):
+			pending_upgrades_map[p] = pending_upgrades_map.get(p, 0) + 1
 
 
 func _try_show_upgrade():
-	if is_instance_valid(hud_node) and not hud_node.is_upgrade_showing():
+	if not is_instance_valid(hud_node) or hud_node.is_upgrade_showing():
+		return
+	if NetworkManager.is_multiplayer_active():
+		# Network MP: use legacy pending_upgrades for local player
 		if is_instance_valid(player_node):
-			hud_node.show_upgrade_selection(player_node.upgrades)
+			_upgrade_for_player = player_node
+			hud_node.show_upgrade_selection(player_node.upgrades, "", player_node.iron, player_node.crystal)
 			get_tree().paused = true
+		return
+	# Single player / local co-op: find first player with pending upgrades
+	for p in pending_upgrades_map:
+		if not is_instance_valid(p):
+			pending_upgrades_map.erase(p)
+			continue
+		if pending_upgrades_map[p] > 0:
+			_upgrade_for_player = p
+			var player_label = ""
+			if local_coop:
+				# Find player index for display
+				var all_p = get_tree().get_nodes_in_group("player").filter(func(x): return is_instance_valid(x))
+				for i in range(all_p.size()):
+					if all_p[i] == p:
+						player_label = "PLAYER %d" % (i + 1)
+						break
+			var res = p if not ("resource_owner" in p and p.resource_owner) else p.resource_owner
+			hud_node.show_upgrade_selection(p.upgrades, player_label, res.iron, res.crystal)
+			get_tree().paused = true
+			return
 
 
 func _on_upgrade_chosen(upgrade_key: String):
@@ -3629,18 +3661,39 @@ func _on_upgrade_chosen(upgrade_key: String):
 		if not NetworkManager.is_host():
 			_rpc_player_upgrade.rpc_id(1, upgrade_key)
 		return
-	# Single player / local co-op path
-	if is_instance_valid(player_node):
-		player_node.apply_upgrade(upgrade_key)
-	# Apply personal upgrades to all local co-op players
-	if local_coop:
-		for pid in players:
-			var p = players[pid]
-			if p != player_node and is_instance_valid(p) and p.is_local:
-				p.apply_upgrade(upgrade_key)
-	pending_upgrades -= 1
+	# Single player / local co-op path: apply only to the upgrading player
+	if is_instance_valid(_upgrade_for_player):
+		_upgrade_for_player.apply_upgrade(upgrade_key)
+		pending_upgrades_map[_upgrade_for_player] = maxi(0, pending_upgrades_map.get(_upgrade_for_player, 1) - 1)
+	_upgrade_for_player = null
 	get_tree().paused = false
 	upgrade_cooldown = 0.4
+
+
+func _on_reroll_requested():
+	if not is_instance_valid(hud_node):
+		return
+	# Determine who pays for the reroll
+	var p = _upgrade_for_player if is_instance_valid(_upgrade_for_player) else player_node
+	if not is_instance_valid(p):
+		return
+	var res = p if not ("resource_owner" in p and p.resource_owner) else p.resource_owner
+	var cost_iron = CFG.reroll_base_iron * (hud_node._reroll_count + 1)
+	var cost_crystal = CFG.reroll_base_crystal * (hud_node._reroll_count + 1)
+	if res.iron < cost_iron or res.crystal < cost_crystal:
+		return
+	res.iron -= cost_iron
+	res.crystal -= cost_crystal
+	hud_node._reroll_count += 1
+	# Rebuild player label for co-op
+	var player_label = ""
+	if local_coop:
+		var all_p = get_tree().get_nodes_in_group("player").filter(func(x): return is_instance_valid(x))
+		for i in range(all_p.size()):
+			if all_p[i] == p:
+				player_label = "PLAYER %d" % (i + 1)
+				break
+	hud_node.show_upgrade_selection(p.upgrades, player_label, res.iron, res.crystal, true)
 
 
 func _on_game_started(start_wave: int):
@@ -4830,7 +4883,7 @@ func _start_vote_round():
 	get_tree().paused = true
 
 	# Show locally on host
-	hud_node.show_vote_selection(vote_upgrade_keys, player_node.upgrades, vote_choices, players, player_names)
+	hud_node.show_vote_selection(vote_upgrade_keys, player_node.upgrades, vote_choices, players, player_names, player_node.iron, player_node.crystal)
 	# Send to all clients
 	_rpc_start_vote.rpc(vote_upgrade_keys, vote_round)
 
@@ -4845,7 +4898,9 @@ func _rpc_start_vote(keys: Array, round_num: int):
 		vote_choices[pid] = ""
 	get_tree().paused = true
 	if is_instance_valid(hud_node):
-		hud_node.show_vote_selection(keys, player_node.upgrades if is_instance_valid(player_node) else {}, vote_choices, players, player_names)
+		var p_iron = player_node.iron if is_instance_valid(player_node) else 0
+		var p_crystal = player_node.crystal if is_instance_valid(player_node) else 0
+		hud_node.show_vote_selection(keys, player_node.upgrades if is_instance_valid(player_node) else {}, vote_choices, players, player_names, p_iron, p_crystal)
 
 
 @rpc("any_peer", "call_remote", "reliable")

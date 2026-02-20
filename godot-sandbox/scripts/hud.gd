@@ -3,6 +3,7 @@ extends CanvasLayer
 const CFG = preload("res://resources/game_config.tres")
 
 signal upgrade_chosen(upgrade_key: String)
+signal reroll_requested
 signal game_started(wave: int)
 
 # ── HUD Color Theme ──────────────────────────────────────────────────
@@ -61,8 +62,13 @@ var xp_bar_fill: ColorRect
 var alert_timer: float = 0.0
 
 var upgrade_panel: Control
+var upgrade_title_label: Label
 var card_info: Array = []
 var _upgrade_showing: bool = false
+var _reroll_count: int = 0
+var reroll_btn: Button
+var _upgrade_player_iron: int = 0
+var _upgrade_player_crystal: int = 0
 var vote_status_label: Label
 var _local_vote_key: String = ""
 
@@ -396,15 +402,15 @@ func _build_upgrade_panel(root: Control):
 	bg.mouse_filter = Control.MOUSE_FILTER_STOP
 	upgrade_panel.add_child(bg)
 
-	var title = Label.new()
-	title.text = "CHOOSE AN UPGRADE"
-	title.add_theme_font_size_override("font_size", 28)
-	title.add_theme_color_override("font_color", Color(1, 0.9, 0.3))
-	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	title.set_anchors_preset(Control.PRESET_CENTER_TOP)
-	title.offset_top = 120; title.offset_left = -200; title.offset_right = 200
-	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	upgrade_panel.add_child(title)
+	upgrade_title_label = Label.new()
+	upgrade_title_label.text = "CHOOSE AN UPGRADE"
+	upgrade_title_label.add_theme_font_size_override("font_size", 28)
+	upgrade_title_label.add_theme_color_override("font_color", Color(1, 0.9, 0.3))
+	upgrade_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	upgrade_title_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	upgrade_title_label.offset_top = 120; upgrade_title_label.offset_left = -300; upgrade_title_label.offset_right = 300
+	upgrade_title_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	upgrade_panel.add_child(upgrade_title_label)
 
 	var hbox = HBoxContainer.new()
 	hbox.set_anchors_preset(Control.PRESET_CENTER)
@@ -462,6 +468,16 @@ func _build_upgrade_panel(root: Control):
 
 		card.gui_input.connect(_on_card_click.bind(i))
 		card_info.append({"panel": card, "name_lbl": nl, "lvl_lbl": ll, "desc_lbl": dl, "vote_count_lbl": vote_lbl, "voters_lbl": voters_lbl, "key": ""})
+
+	reroll_btn = Button.new()
+	reroll_btn.text = "Reroll (10 Iron, 5 Crystal)"
+	reroll_btn.add_theme_font_size_override("font_size", 16)
+	reroll_btn.set_anchors_preset(Control.PRESET_CENTER)
+	reroll_btn.offset_top = 145; reroll_btn.offset_bottom = 180
+	reroll_btn.offset_left = -120; reroll_btn.offset_right = 120
+	reroll_btn.process_mode = Node.PROCESS_MODE_ALWAYS
+	reroll_btn.pressed.connect(_on_reroll_pressed)
+	upgrade_panel.add_child(reroll_btn)
 
 	vote_status_label = Label.new()
 	vote_status_label.add_theme_font_size_override("font_size", 16)
@@ -2599,6 +2615,7 @@ func _upgrade_controller_input(event):
 			# Confirm selected upgrade
 			var key = card_info[_upgrade_selected_idx]["key"]
 			if key != "":
+				_reroll_count = 0
 				upgrade_panel.visible = false
 				_upgrade_showing = false
 				upgrade_chosen.emit(key)
@@ -3376,7 +3393,7 @@ func is_upgrade_showing() -> bool:
 	return _upgrade_showing
 
 
-func show_upgrade_selection(current_upgrades: Dictionary):
+func show_upgrade_selection(current_upgrades: Dictionary, player_label: String = "", iron: int = 0, crystal: int = 0, is_reroll: bool = false):
 	var p = _get_player()
 	if p:
 		p.cancel_build_mode()
@@ -3405,10 +3422,35 @@ func show_upgrade_selection(current_upgrades: Dictionary):
 		else:
 			card_info[i]["panel"].visible = false
 
+	# Update title with player label if in co-op
+	if player_label != "":
+		upgrade_title_label.text = "%s: CHOOSE AN UPGRADE" % player_label
+	else:
+		upgrade_title_label.text = "CHOOSE AN UPGRADE"
+
+	# Reroll button
+	if not is_reroll:
+		_reroll_count = 0
+	_upgrade_player_iron = iron
+	_upgrade_player_crystal = crystal
+	reroll_btn.visible = true
+	_update_reroll_btn()
+
 	upgrade_panel.visible = true
 	_upgrade_showing = true
 	_upgrade_selected_idx = 0
 	_highlight_upgrade_card(0)
+
+
+func _update_reroll_btn():
+	var cost_iron = CFG.reroll_base_iron * (_reroll_count + 1)
+	var cost_crystal = CFG.reroll_base_crystal * (_reroll_count + 1)
+	reroll_btn.text = "Reroll (%d Iron, %d Crystal)" % [cost_iron, cost_crystal]
+	reroll_btn.disabled = _upgrade_player_iron < cost_iron or _upgrade_player_crystal < cost_crystal
+
+
+func _on_reroll_pressed():
+	reroll_requested.emit()
 
 
 func _desc(key: String, lv: int) -> String:
@@ -3428,7 +3470,7 @@ func _desc(key: String, lv: int) -> String:
 		"turret_fire_rate": return "Turrets fire %d%% faster" % (lv * 20)
 		"factory_speed": return "Factories produce %d%% faster" % (lv * 25)
 		"mining_range": return "+25px mining range (+%dpx total)" % (lv * 25)
-		"rock_regen": return "+40%% rock spawn rate (+%d%% total)" % (lv * 40)
+		"rock_regen": return "Resources regen +%d/tick, %d%% faster" % [lv * 2, lv * 40]
 		"health_regen": return "Heal %d HP per second" % (lv * 2)
 		"dodge": return "%d%% chance to dodge attacks" % (lv * 8)
 		"armor": return "Reduce damage by %d" % (lv * 2)
@@ -3443,6 +3485,7 @@ func _on_card_click(event: InputEvent, idx: int):
 		var key = card_info[idx]["key"]
 		if key == "":
 			return
+		_reroll_count = 0
 		upgrade_panel.visible = false
 		_upgrade_showing = false
 		upgrade_chosen.emit(key)
@@ -3657,11 +3700,13 @@ func update_lobby_player_list(names: Dictionary):
 
 # --- Upgrade Voting ---
 
-func show_vote_selection(keys: Array, current_upgrades: Dictionary, votes: Dictionary, _all_players: Dictionary, _names: Dictionary):
+func show_vote_selection(keys: Array, current_upgrades: Dictionary, votes: Dictionary, _all_players: Dictionary, _names: Dictionary, iron: int = 0, crystal: int = 0):
 	var p = _get_player()
 	if p:
 		p.cancel_build_mode()
 	_local_vote_key = ""
+	_upgrade_player_iron = iron
+	_upgrade_player_crystal = crystal
 
 	for i in range(3):
 		if i < keys.size():
@@ -3681,6 +3726,9 @@ func show_vote_selection(keys: Array, current_upgrades: Dictionary, votes: Dicti
 
 	update_vote_display(votes, _all_players, _names)
 
+	reroll_btn.visible = true
+	_reroll_count = 0
+	_update_reroll_btn()
 	upgrade_panel.visible = true
 	_upgrade_showing = true
 	vote_status_label.text = "Vote for an upgrade (must be unanimous)"
