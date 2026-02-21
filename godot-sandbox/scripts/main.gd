@@ -1090,12 +1090,13 @@ func _process(delta):
 
 func _regenerate_resources():
 	# Refill existing resource nodes instead of spawning new ones
-	var regen_amount = CFG.resource_regen_amount
+	var base_regen = CFG.resource_regen_amount
 	if is_instance_valid(player_node):
-		regen_amount += player_node.upgrades.get("rock_regen", 0) * CFG.rock_regen_amount_per_level
+		base_regen += player_node.upgrades.get("rock_regen", 0) * CFG.rock_regen_amount_per_level
 	for r in get_tree().get_nodes_in_group("resources"):
 		if is_instance_valid(r) and r.has_method("regen"):
-			r.regen(regen_amount)
+			var scale_mult = CFG.resource_iron_scale if r.resource_type == "iron" else CFG.resource_crystal_scale
+			r.regen(maxi(1, int(base_regen * scale_mult)))
 
 
 func _regrow_resources_end_of_round():
@@ -1103,6 +1104,33 @@ func _regrow_resources_end_of_round():
 	for r in get_tree().get_nodes_in_group("resources"):
 		if is_instance_valid(r) and r.has_method("regrow_toward_cap"):
 			r.regrow_toward_cap(CFG.resource_growth_cap_pct, CFG.resource_round_regrow_pct)
+	# Respawn fully depleted resource nodes so the map doesn't empty out
+	_respawn_depleted_resources()
+
+
+func _respawn_depleted_resources():
+	var current = get_tree().get_nodes_in_group("resources").size()
+	var target = CFG.base_max_resources + wave_number * CFG.resources_per_wave
+	var to_spawn = target - current
+	if to_spawn <= 0:
+		return
+	var resource_scene = load("res://scenes/resource_node.tscn")
+	var rng = RandomNumberGenerator.new()
+	rng.randomize()
+	for i in range(to_spawn):
+		var res = resource_scene.instantiate()
+		var a = rng.randf() * TAU
+		res.position = Vector3(cos(a), 0, sin(a)) * rng.randf_range(100, CFG.map_half_size * 0.85)
+		res.resource_type = "iron" if rng.randf() < 0.6 else "crystal"
+		var base_amt = rng.randi_range(5 + wave_number, 15 + wave_number * 2)
+		var scale_mult = CFG.resource_iron_scale if res.resource_type == "iron" else CFG.resource_crystal_scale
+		var target_amt = maxi(1, int(base_amt * scale_mult))
+		res.target_amount = target_amt
+		res.amount = maxi(1, int(target_amt * CFG.resource_initial_pct))
+		res.net_id = next_net_id
+		resource_net_ids[next_net_id] = res
+		next_net_id += 1
+		resources_node.add_child(res)
 
 
 func _spawn_powerup():

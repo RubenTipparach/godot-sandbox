@@ -8,17 +8,16 @@ players dont get health
 
 Singleplayer
 --------------
-mech needs to blink a bit when hit
 
+-- random improvements --
 research, draw agro
 
 boost attack power when near electricity
 
 enemy bullets get blocked by iron ore
 
-deposits shouldnt grow over your building
 
-dont need more resource spawning, maybe faster mining?
+--> dont need more resource spawning, maybe faster mining?
 
 make shovel pickup show that you have a 30 second boost of instant mine [show what they do!] <--- Buff Bar
 
